@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": [
+    "src/**/*",
+    "src/auto-imports.d.ts",
+    "src/components.d.ts"
+  ],
+  "vueCompilerOptions": {
+    "globalTypesPath": "./src/types/vue-global.d.ts"
+  }
+}
+
