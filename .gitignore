@@ -89,3 +89,5 @@ temp/
 *.tmp
 *.temp
 
+# 文档
+docs/
