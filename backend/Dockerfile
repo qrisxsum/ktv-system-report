@@ -31,7 +31,7 @@ FROM base as development
 COPY requirements.txt .
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 复制应用代码
 COPY . .
@@ -51,7 +51,7 @@ FROM base as production
 COPY requirements.txt .
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 创建非 root 用户
 RUN useradd --create-home --shell /bin/bash appuser
