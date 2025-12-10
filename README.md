@@ -15,17 +15,14 @@
 
 ```bash
 # 1. 克隆项目
-git clone <repository-url>
+git clone https://github.com/qrisxsum/ktv-system-report.git
 cd ktv-system-report
 
 # 2. 复制环境配置
 cp env.example .env
 
 # 3. 启动所有服务
-docker compose up -d
-
-# 4. 查看日志
-docker compose logs -f
+docker compose up --build
 ```
 
 ### 访问地址
