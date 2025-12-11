@@ -19,6 +19,12 @@ const routes = [
         meta: { title: '数据上传', icon: 'Upload' }
       },
       {
+        path: 'batch',
+        name: 'Batch',
+        component: () => import('@/views/Batch.vue'),
+        meta: { title: '批次管理', icon: 'List' }
+      },
+      {
         path: 'analysis',
         name: 'Analysis',
         redirect: '/analysis/staff',

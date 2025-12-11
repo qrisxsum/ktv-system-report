@@ -4,6 +4,8 @@ KTV 多店经营分析系统 - 后端入口
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import v1_router
+
 # 创建应用实例
 app = FastAPI(
     title="KTV 经营分析系统 API",
@@ -21,6 +23,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册 API 路由
+app.include_router(v1_router)
 
 
 @app.get("/")
@@ -51,12 +56,4 @@ async def test_api():
             "hot_reload": True
         }
     }
-
-
-# TODO: 后续添加路由
-# from app.api import upload, dashboard, chart, stores
-# app.include_router(upload.router, prefix="/api/upload", tags=["文件上传"])
-# app.include_router(dashboard.router, prefix="/api/dashboard", tags=["仪表盘"])
-# app.include_router(chart.router, prefix="/api/chart", tags=["图表数据"])
-# app.include_router(stores.router, prefix="/api/stores", tags=["门店管理"])
 

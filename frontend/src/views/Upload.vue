@@ -16,6 +16,7 @@
             :auto-upload="false"
             :on-change="handleFileChange"
             :show-file-list="false"
+            :disabled="parsing"
             accept=".csv,.xls,.xlsx"
           >
             <el-icon class="el-icon--upload" size="60"><UploadFilled /></el-icon>
@@ -29,8 +30,14 @@
             </template>
           </el-upload>
           
+          <!-- 解析中状态 -->
+          <div v-if="parsing" class="parsing-status">
+            <el-icon class="is-loading" size="24"><Loading /></el-icon>
+            <span>正在解析文件，请稍候...</span>
+          </div>
+          
           <!-- 解析结果预览 -->
-          <div v-if="parseResult" class="parse-result">
+          <div v-if="parseResult && !parsing" class="parse-result">
             <el-divider content-position="left">解析结果</el-divider>
             
             <el-descriptions :column="2" border>
@@ -41,7 +48,7 @@
                 {{ parseResult.store_name }}
               </el-descriptions-item>
               <el-descriptions-item label="数据月份">
-                {{ parseResult.data_month }}
+                {{ parseResult.data_month || '未识别' }}
               </el-descriptions-item>
               <el-descriptions-item label="数据行数">
                 {{ parseResult.row_count }} 条
@@ -55,19 +62,35 @@
               :closable="false"
               show-icon
               style="margin-top: 15px"
-            />
+            >
+              <template #default>
+                <span>共 {{ parseResult.validation.summary.total_rows }} 行数据</span>
+                <span v-if="parseResult.validation.summary.warning_rows > 0" style="margin-left: 10px; color: #e6a23c;">
+                  ({{ parseResult.validation.summary.warning_rows }} 行警告)
+                </span>
+              </template>
+            </el-alert>
             <el-alert
               v-else
-              :title="parseResult.validation.errors.join(', ')"
+              :title="`校验失败: ${parseResult.validation.summary.error_rows} 行错误`"
               type="error"
               :closable="false"
               show-icon
               style="margin-top: 15px"
-            />
+            >
+              <template #default>
+                <div v-for="(error, index) in parseResult.validation.errors.slice(0, 3)" :key="index">
+                  行 {{ error.row_index }}: {{ error.message }}
+                </div>
+                <div v-if="parseResult.validation.errors.length > 3">
+                  ... 还有 {{ parseResult.validation.errors.length - 3 }} 个错误
+                </div>
+              </template>
+            </el-alert>
             
             <!-- 数据预览表格 -->
             <div class="preview-table" v-if="parseResult.preview_rows?.length">
-              <h4>数据预览（前5行）</h4>
+              <h4>数据预览（前{{ parseResult.preview_rows.length }}行）</h4>
               <el-table :data="parseResult.preview_rows" border stripe max-height="200">
                 <el-table-column
                   v-for="(value, key) in parseResult.preview_rows[0]"
@@ -80,7 +103,7 @@
             </div>
             
             <div class="action-buttons">
-              <el-button @click="resetUpload">取消</el-button>
+              <el-button @click="resetUpload" :disabled="uploading">取消</el-button>
               <el-button 
                 type="primary" 
                 @click="confirmUpload"
@@ -100,23 +123,40 @@
           <template #header>
             <div class="card-header">
               <span>📋 最近上传记录</span>
+              <el-button link type="primary" @click="refreshHistory">
+                <el-icon><Refresh /></el-icon> 刷新
+              </el-button>
             </div>
           </template>
           
-          <el-table :data="uploadHistory" stripe>
+          <el-table :data="uploadHistory" stripe v-loading="loadingHistory">
             <el-table-column prop="created_at" label="时间" width="150">
               <template #default="{ row }">
                 {{ formatTime(row.created_at) }}
               </template>
             </el-table-column>
             <el-table-column prop="store_name" label="门店" width="100" />
-            <el-table-column prop="file_type_name" label="类型" />
+            <el-table-column prop="table_type_name" label="类型" />
             <el-table-column prop="row_count" label="行数" width="70" />
             <el-table-column prop="status" label="状态" width="80">
               <template #default="{ row }">
-                <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small">
-                  {{ row.status === 'success' ? '成功' : '失败' }}
+                <el-tag :type="getStatusType(row.status)" size="small">
+                  {{ getStatusText(row.status) }}
                 </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="70">
+              <template #default="{ row }">
+                <el-popconfirm
+                  title="确定要删除这个批次吗？数据将被回滚。"
+                  @confirm="handleDeleteBatch(row.id)"
+                >
+                  <template #reference>
+                    <el-button link type="danger" size="small">
+                      <el-icon><Delete /></el-icon>
+                    </el-button>
+                  </template>
+                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -129,73 +169,146 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { parseFile, confirmImport, cancelUpload } from '@/api/upload'
+import { listBatches, deleteBatch } from '@/api/batch'
 
+// 状态
 const parseResult = ref(null)
+const parsing = ref(false)
 const uploading = ref(false)
-const uploadHistory = ref([
-  { id: 1, created_at: '2025-12-08 14:30:00', store_name: '万象城店', file_type_name: '包厢开台分析', row_count: 78, status: 'success' },
-  { id: 2, created_at: '2025-12-08 14:28:00', store_name: '万象城店', file_type_name: '酒水销售分析', row_count: 34, status: 'success' },
-  { id: 3, created_at: '2025-12-08 14:25:00', store_name: '青年路店', file_type_name: '预订汇总', row_count: 16, status: 'success' },
-])
+const uploadHistory = ref([])
+const loadingHistory = ref(false)
+
+// 状态映射
+const STATUS_MAP = {
+  pending: { type: 'warning', text: '处理中' },
+  success: { type: 'success', text: '成功' },
+  failed: { type: 'danger', text: '失败' },
+  warning: { type: 'warning', text: '有警告' },
+}
+
+const getStatusType = (status) => STATUS_MAP[status]?.type || 'info'
+const getStatusText = (status) => STATUS_MAP[status]?.text || status
 
 // 文件变化处理
 const handleFileChange = async (file) => {
-  // 模拟解析结果（实际应调用后端 API）
-  parseResult.value = {
-    file_type: 'room_analysis',
-    file_type_name: '包厢开台分析表',
-    store_name: '万象城店',
-    store_id: 1,
-    data_month: '2025-12',
-    row_count: 78,
-    preview_rows: [
-      { room_name: 'K07', room_type: '电音中包', order_no: 'Z-KT25120200041', total_amount: 225 },
-      { room_name: 'K11', room_type: '电音小包', order_no: 'Z-KT25120200040', total_amount: 193 },
-      { room_name: 'K18', room_type: '电音小包', order_no: 'Z-KT25120200039', total_amount: 133 },
-    ],
-    validation: {
-      is_valid: true,
-      warnings: [],
-      errors: []
-    },
-    session_id: 'uuid-xxx'
-  }
+  parsing.value = true
+  parseResult.value = null
   
+  try {
+    const response = await parseFile(file.raw)
+    
+    if (response.success && response.data) {
+      parseResult.value = response.data
   ElMessage.success(`文件 ${file.name} 解析成功`)
+    } else {
+      ElMessage.error(response.message || '文件解析失败')
+    }
+  } catch (error) {
+    console.error('解析失败:', error)
+    ElMessage.error('文件解析失败，请检查文件格式')
+  } finally {
+    parsing.value = false
+  }
 }
 
 // 确认上传
 const confirmUpload = async () => {
+  if (!parseResult.value?.session_id) {
+    ElMessage.error('会话已过期，请重新上传文件')
+    return
+  }
+  
   uploading.value = true
   
-  // 模拟上传（实际应调用后端 API）
-  setTimeout(() => {
+  try {
+    const response = await confirmImport(parseResult.value.session_id)
+    
+    if (response.success) {
+      ElMessage.success(response.message || `成功导入 ${parseResult.value.row_count} 条数据`)
+      parseResult.value = null
+      
+      // 刷新上传历史
+      await refreshHistory()
+    } else {
+      ElMessage.error(response.message || '入库失败')
+    }
+  } catch (error) {
+    console.error('入库失败:', error)
+    ElMessage.error('入库失败，请稍后重试')
+  } finally {
     uploading.value = false
-    ElMessage.success(`成功导入 ${parseResult.value.row_count} 条数据`)
-    
-    // 添加到历史记录
-    uploadHistory.value.unshift({
-      id: Date.now(),
-      created_at: new Date().toLocaleString(),
-      store_name: parseResult.value.store_name,
-      file_type_name: parseResult.value.file_type_name,
-      row_count: parseResult.value.row_count,
-      status: 'success'
-    })
-    
-    parseResult.value = null
-  }, 1500)
+  }
 }
 
 // 重置上传
-const resetUpload = () => {
+const resetUpload = async () => {
+  if (parseResult.value?.session_id) {
+    try {
+      await cancelUpload(parseResult.value.session_id)
+    } catch (error) {
+      console.error('取消上传失败:', error)
+    }
+  }
   parseResult.value = null
+}
+
+// 刷新上传历史
+const refreshHistory = async () => {
+  loadingHistory.value = true
+  
+  try {
+    const response = await listBatches({ page: 1, page_size: 10 })
+    
+    if (response.success) {
+      uploadHistory.value = response.data || []
+    }
+  } catch (error) {
+    console.error('获取上传历史失败:', error)
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+// 删除批次
+const handleDeleteBatch = async (batchId) => {
+  try {
+    const response = await deleteBatch(batchId)
+    
+    if (response.success) {
+      ElMessage.success(response.message || '删除成功')
+      await refreshHistory()
+    } else {
+      ElMessage.error(response.message || '删除失败')
+    }
+  } catch (error) {
+    console.error('删除失败:', error)
+    ElMessage.error('删除失败，请稍后重试')
+  }
 }
 
 // 格式化时间
 const formatTime = (time) => {
+  if (!time) return '-'
+  
+  try {
+    const date = new Date(time)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
   return time
 }
+}
+
+// 组件挂载时加载数据
+onMounted(() => {
+  refreshHistory()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -211,6 +324,18 @@ const formatTime = (time) => {
         flex-direction: column;
         align-items: center;
         justify-content: center;
+      }
+    }
+    
+    .parsing-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      color: #409eff;
+      
+      span {
+        margin-left: 10px;
       }
     }
     
@@ -235,7 +360,12 @@ const formatTime = (time) => {
   
   .history-card {
     height: 100%;
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
   }
 }
 </style>
-

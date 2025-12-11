@@ -24,6 +24,11 @@
           <template #title>数据上传</template>
         </el-menu-item>
         
+        <el-menu-item index="/batch">
+          <el-icon><List /></el-icon>
+          <template #title>批次管理</template>
+        </el-menu-item>
+        
         <el-sub-menu index="/analysis">
           <template #title>
             <el-icon><TrendCharts /></el-icon>
