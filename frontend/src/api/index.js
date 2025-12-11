@@ -6,6 +6,7 @@
 
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import NProgress from '@/utils/nprogress'
 
 // 创建 axios 实例
 const request = axios.create({
@@ -19,6 +20,9 @@ const request = axios.create({
 // 请求拦截器
 request.interceptors.request.use(
   (config) => {
+    // 开启进度条
+    NProgress.start()
+    
     // 可以在这里添加 token 等认证信息
     // const token = localStorage.getItem('token')
     // if (token) {
@@ -27,6 +31,7 @@ request.interceptors.request.use(
     return config
   },
   (error) => {
+    NProgress.done()
     console.error('请求错误:', error)
     return Promise.reject(error)
   }
@@ -35,6 +40,9 @@ request.interceptors.request.use(
 // 响应拦截器
 request.interceptors.response.use(
   (response) => {
+    // 关闭进度条
+    NProgress.done()
+    
     const data = response.data
     
     // 如果返回的是文件流，直接返回
@@ -51,6 +59,9 @@ request.interceptors.response.use(
     return data
   },
   (error) => {
+    // 关闭进度条
+    NProgress.done()
+    
     // HTTP 错误处理
     let message = '网络错误，请稍后重试'
     
