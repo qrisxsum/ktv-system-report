@@ -16,6 +16,7 @@ alembic==1.13.1
 pandas==2.1.4
 openpyxl==3.1.2
 xlrd==2.0.1
+numpy==1.26.3
 chardet==5.2.0
 
 # 数据验证
