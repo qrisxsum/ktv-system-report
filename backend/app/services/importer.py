@@ -3,7 +3,8 @@
 
 基础骨架：批次创建、数据入库、维度处理
 """
-from typing import List, Dict, Any, Optional
+
+from typing import List, Dict, Any, Optional, Set
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -26,6 +27,8 @@ class ImporterService:
 
     def __init__(self, db: Session):
         self.db = db
+        # 缓存模型列集合，避免重复解析
+        self._model_columns_cache: Dict[type, Set[str]] = {}
 
     def generate_batch_no(self, store_id: int, table_type: str) -> str:
         """生成批次号: YYYYMMDDHHMMSS_StoreID_Type"""
@@ -33,10 +36,7 @@ class ImporterService:
         return f"{date_str}_{store_id}_{table_type}"
 
     def create_batch(
-        self,
-        file_name: str,
-        store_id: int,
-        table_type: str
+        self, file_name: str, store_id: int, table_type: str
     ) -> MetaFileBatch:
         """创建批次记录"""
         batch = MetaFileBatch(
@@ -44,7 +44,7 @@ class ImporterService:
             file_name=file_name,
             store_id=store_id,
             table_type=table_type,
-            status="pending"
+            status="pending",
         )
         self.db.add(batch)
         self.db.flush()  # 获取 ID，但不提交
@@ -55,7 +55,7 @@ class ImporterService:
         batch_id: int,
         table_type: str,
         cleaned_data: List[Dict[str, Any]],
-        overwrite: bool = True
+        overwrite: bool = True,
     ) -> int:
         """
         保存数据到事实表
@@ -81,23 +81,24 @@ class ImporterService:
         try:
             # 如果需要覆盖，先删除旧数据
             if overwrite:
-                self.db.execute(
-                    delete(model).where(model.batch_id == batch_id)
-                )
+                self.db.execute(delete(model).where(model.batch_id == batch_id))
 
             # 批量插入新数据
+            model_columns = self._get_model_columns(model)
             records = []
             for row in cleaned_data:
-                row["batch_id"] = batch_id
-                records.append(model(**row))
+                prepared_row = self._prepare_record(model_columns, batch_id, row)
+                records.append(model(**prepared_row))
 
             if records:
                 self.db.bulk_save_objects(records)
 
             # 更新批次状态
-            batch = self.db.query(MetaFileBatch).filter(
-                MetaFileBatch.id == batch_id
-            ).first()
+            batch = (
+                self.db.query(MetaFileBatch)
+                .filter(MetaFileBatch.id == batch_id)
+                .first()
+            )
             if batch:
                 batch.status = "success"
                 batch.row_count = len(records)
@@ -113,9 +114,11 @@ class ImporterService:
 
             # 更新批次状态为失败
             try:
-                batch = self.db.query(MetaFileBatch).filter(
-                    MetaFileBatch.id == batch_id
-                ).first()
+                batch = (
+                    self.db.query(MetaFileBatch)
+                    .filter(MetaFileBatch.id == batch_id)
+                    .first()
+                )
                 if batch:
                     batch.status = "failed"
                     batch.error_log = str(e)
@@ -125,21 +128,105 @@ class ImporterService:
 
             raise
 
+    def _get_model_columns(self, model) -> Set[str]:
+        """获取并缓存模型列名集合"""
+        if model not in self._model_columns_cache:
+            self._model_columns_cache[model] = {
+                column.name for column in model.__table__.columns
+            }
+        return self._model_columns_cache[model]
+
+    def _prepare_record(
+        self,
+        model_columns: Set[str],
+        batch_id: int,
+        row: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        过滤无效字段，并将多余字段合并到 extra_info
+        """
+        row_with_batch = dict(row)
+        row_with_batch["batch_id"] = batch_id
+
+        filtered_row = {
+            key: value for key, value in row_with_batch.items() if key in model_columns
+        }
+
+        if "extra_info" in model_columns:
+            # 提取多余字段，并进行类型清洗（处理 numpy 类型）
+            extra_fields = {
+                key: self._sanitize_for_json(value)
+                for key, value in row_with_batch.items()
+                if key not in model_columns
+            }
+            if extra_fields:
+                # 同样需要清洗可能已存在的 extra_info
+                existing_extra = self._sanitize_for_json(filtered_row.get("extra_info"))
+                filtered_row["extra_info"] = self._merge_extra_info(
+                    existing_extra,
+                    extra_fields,
+                )
+
+        return filtered_row
+
+    @staticmethod
+    def _sanitize_for_json(obj: Any) -> Any:
+        """
+        递归处理 JSON 序列化不支持的类型 (如 numpy 数据类型)
+        """
+        if obj is None:
+            return None
+
+        # 递归处理字典
+        if isinstance(obj, dict):
+            return {k: ImporterService._sanitize_for_json(v) for k, v in obj.items()}
+
+        # 递归处理列表
+        if isinstance(obj, list):
+            return [ImporterService._sanitize_for_json(v) for v in obj]
+
+        # 鸭子类型：处理 numpy 标量 (int64, float64 等具有 .item() 方法)
+        if hasattr(obj, "item"):
+            return obj.item()
+
+        return obj
+
+    @staticmethod
+    def _merge_extra_info(
+        existing_extra: Any,
+        extra_fields: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        将已有 extra_info 与新增字段合并，兼容非 Dict 类型
+        """
+        if existing_extra is None:
+            return extra_fields
+
+        if isinstance(existing_extra, dict):
+            merged = dict(existing_extra)
+            merged.update(extra_fields)
+            return merged
+
+        # 兜底：当历史 extra_info 不是 dict 时，统一包装为 dict
+        merged = {"__value": existing_extra}
+        merged.update(extra_fields)
+        return merged
+
     def delete_batch(self, batch_id: int) -> bool:
         """删除批次及其关联数据"""
         try:
-            batch = self.db.query(MetaFileBatch).filter(
-                MetaFileBatch.id == batch_id
-            ).first()
+            batch = (
+                self.db.query(MetaFileBatch)
+                .filter(MetaFileBatch.id == batch_id)
+                .first()
+            )
 
             if not batch:
                 return False
 
             model = self.TABLE_MODEL_MAP.get(batch.table_type)
             if model:
-                self.db.execute(
-                    delete(model).where(model.batch_id == batch_id)
-                )
+                self.db.execute(delete(model).where(model.batch_id == batch_id))
 
             self.db.delete(batch)
             self.db.commit()
@@ -150,16 +237,9 @@ class ImporterService:
             self.db.rollback()
             raise
 
-    def get_or_create_dimension(
-        self,
-        model_class,
-        store_id: int,
-        **kwargs
-    ) -> int:
+    def get_or_create_dimension(self, model_class, store_id: int, **kwargs) -> int:
         """获取或创建维度记录，返回ID"""
-        query = self.db.query(model_class).filter(
-            model_class.store_id == store_id
-        )
+        query = self.db.query(model_class).filter(model_class.store_id == store_id)
 
         for key, value in kwargs.items():
             if hasattr(model_class, key):
@@ -181,7 +261,7 @@ class ImporterService:
         store_id: int,
         table_type: str,
         cleaned_data: List[Dict[str, Any]],
-        biz_date: Optional[str] = None
+        biz_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         处理文件上传的完整流程
@@ -192,13 +272,17 @@ class ImporterService:
             batch.status = "processing"
             self.db.commit()
 
+            # 1.1 如指定 biz_date，先写入每一行
+            if biz_date:
+                for row in cleaned_data:
+                    row["biz_date"] = biz_date
+
             # 2. 若指定日期，删除该日期旧数据（按门店+biz_date 覆盖）
             if biz_date:
                 model = self.TABLE_MODEL_MAP[table_type]
                 self.db.execute(
                     delete(model).where(
-                        model.store_id == store_id,
-                        model.biz_date == biz_date
+                        model.store_id == store_id, model.biz_date == biz_date
                     )
                 )
 
@@ -216,7 +300,7 @@ class ImporterService:
                 "batch_id": batch.id,
                 "batch_no": batch.batch_no,
                 "row_count": row_count,
-                "status": "success"
+                "status": "success",
             }
 
         except Exception as e:
@@ -224,14 +308,11 @@ class ImporterService:
                 "batch_id": batch.id if "batch" in locals() else None,
                 "row_count": 0,
                 "status": "failed",
-                "error": str(e)
+                "error": str(e),
             }
 
     def _process_dimensions(
-        self,
-        table_type: str,
-        store_id: int,
-        data: List[Dict[str, Any]]
+        self, table_type: str, store_id: int, data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
         处理维度数据，获取或创建维度ID
@@ -248,38 +329,47 @@ class ImporterService:
                     DimEmployee,
                     store_id,
                     name=row.get("employee_name"),
-                    department=row.get("department")
+                    department=row.get("department"),
                 )
                 row_copy["employee_id"] = employee_id
                 row_copy.pop("employee_name", None)
 
             # room: 包厢维度
             if table_type == "room" and "room_no" in row:
+                room_kwargs = {
+                    "room_no": row.get("room_no"),
+                    "room_type": row.get("room_type"),
+                    "area_name": row.get("area_name"),
+                }
                 room_id = self.get_or_create_dimension(
                     DimRoom,
                     store_id,
-                    room_no=row.get("room_no"),
-                    room_type=row.get("room_type")
+                    **{k: v for k, v in room_kwargs.items() if v is not None},
                 )
                 row_copy["room_id"] = room_id
                 row_copy.pop("room_no", None)
                 row_copy.pop("room_type", None)
+                row_copy.pop("area_name", None)
 
             # sales: 商品维度
             if table_type == "sales" and "product_name" in row:
+                product_kwargs = {
+                    "name": row.get("product_name"),
+                    "category": row.get("category"),
+                }
                 product_id = self.get_or_create_dimension(
                     DimProduct,
                     store_id,
-                    name=row.get("product_name"),
-                    category=row.get("category")
+                    **{k: v for k, v in product_kwargs.items() if v is not None},
                 )
                 row_copy["product_id"] = product_id
                 row_copy.pop("product_name", None)
                 # 兼容字段命名差异：category -> category_name
                 if "category_name" not in row_copy and "category" in row_copy:
                     row_copy["category_name"] = row_copy.pop("category")
+                else:
+                    row_copy.pop("category", None)
 
             processed.append(row_copy)
 
         return processed
-
