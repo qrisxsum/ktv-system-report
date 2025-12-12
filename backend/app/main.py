@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 # 导入核心模块
 from app.core import get_settings, get_db_info, check_db_connection
+from app.api import v1_router
 
 settings = get_settings()
 
@@ -49,6 +50,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册 API 路由
+app.include_router(v1_router)
 
 
 # ==================== 基础接口 ====================
@@ -134,16 +138,3 @@ async def get_models_info():
         "message": "模型导入成功",
         "data": models_info
     }
-
-
-# ==================== 路由注册 ====================
-from app.api import auth
-from app.api import stats
-
-app.include_router(auth.router)
-# 统计查询
-app.include_router(stats.router)
-# 后续：上传、统计
-# from app.api import upload, stats
-# app.include_router(upload.router, prefix="/api/v1", tags=["文件上传"])
-# app.include_router(stats.router, prefix="/api/v1", tags=["数据统计"])

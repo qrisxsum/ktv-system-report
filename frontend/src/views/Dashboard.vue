@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard">
+  <div class="dashboard" v-loading="loading">
     <!-- KPI 卡片 -->
     <el-row :gutter="20" class="kpi-cards">
       <el-col :span="6" v-for="kpi in kpiList" :key="kpi.title">
@@ -26,7 +26,7 @@
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
-              <span>📈 业绩趋势（最近6个月）</span>
+              <span>📈 营收趋势（近30天）</span>
             </div>
           </template>
           <div class="chart-container" ref="trendChartRef"></div>
@@ -37,10 +37,10 @@
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
-              <span>🥧 收入构成</span>
+              <span>🏪 门店排行 TOP5</span>
             </div>
           </template>
-          <div class="chart-container" ref="pieChartRef"></div>
+          <div class="chart-container" ref="storeChartRef"></div>
         </el-card>
       </el-col>
     </el-row>
@@ -73,42 +73,112 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import * as echarts from 'echarts'
+import { getDashboardSummary } from '@/api/dashboard'
 
-// KPI 数据
-const kpiList = ref([
-  { title: '本月营收', value: '¥221,989', change: '+12.5%', trend: 'up', icon: 'Money', color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
-  { title: '环比增长', value: '+12.5%', change: '较上月', trend: 'up', icon: 'TrendCharts', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
-  { title: '毛利率', value: '42.5%', change: '+2.1%', trend: 'up', icon: 'PieChart', color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
-  { title: '开台数', value: '255', change: '-3.2%', trend: 'down', icon: 'Microphone', color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' }
-])
+// 状态
+const loading = ref(false)
+const dashboardData = ref(null)
+
+// KPI 数据 (从 API 响应计算)
+const kpiList = computed(() => {
+  const data = dashboardData.value
+  if (!data) {
+    return [
+      { title: '昨日实收', value: '-', change: '-', trend: 'up', icon: 'Money', color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+      { title: '本月实收', value: '-', change: '-', trend: 'up', icon: 'TrendCharts', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
+      { title: '毛利率', value: '-', change: '-', trend: 'up', icon: 'PieChart', color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
+      { title: '赠送率', value: '-', change: '-', trend: 'down', icon: 'Present', color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' }
+    ]
+  }
+  
+  return [
+    { 
+      title: '昨日实收', 
+      value: formatCurrency(data.yesterday_actual), 
+      change: formatPercent(data.yesterday_change), 
+      trend: data.yesterday_change >= 0 ? 'up' : 'down',
+      icon: 'Money', 
+      color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+    },
+    { 
+      title: '本月实收', 
+      value: formatCurrency(data.month_actual), 
+      change: formatPercent(data.month_change), 
+      trend: data.month_change >= 0 ? 'up' : 'down',
+      icon: 'TrendCharts', 
+      color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' 
+    },
+    { 
+      title: '毛利率', 
+      value: formatPercent(data.profit_rate), 
+      change: `毛利 ${formatCurrency(data.month_profit)}`, 
+      trend: 'up',
+      icon: 'PieChart', 
+      color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' 
+    },
+    { 
+      title: '赠送率', 
+      value: formatPercent(data.gift_rate), 
+      change: '本月赠送', 
+      trend: 'down',
+      icon: 'Present', 
+      color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' 
+    }
+  ]
+})
+
+// 格式化函数
+const formatCurrency = (value) => {
+  if (value === null || value === undefined) return '-'
+  return `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+}
+
+const formatPercent = (value) => {
+  if (value === null || value === undefined) return '-'
+  const sign = value >= 0 ? '+' : ''
+  return `${sign}${(value * 100).toFixed(1)}%`
+}
 
 // 图表 ref
 const trendChartRef = ref(null)
-const pieChartRef = ref(null)
+const storeChartRef = ref(null)
 const staffChartRef = ref(null)
 const productChartRef = ref(null)
 
 let charts = []
 
 // 初始化趋势图
-const initTrendChart = () => {
+const initTrendChart = (trendData) => {
+  if (!trendChartRef.value) return
+  
   const chart = echarts.init(trendChartRef.value)
   charts.push(chart)
   
+  const dates = trendData.map(item => item.date.slice(5)) // MM-DD
+  const values = trendData.map(item => (item.value / 10000).toFixed(2))
+  
   chart.setOption({
-    tooltip: { trigger: 'axis' },
+    tooltip: { 
+      trigger: 'axis',
+      formatter: (params) => {
+        const data = params[0]
+        return `${data.name}<br/>营收: ¥${(data.value * 10000).toLocaleString()}`
+      }
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: ['7月', '8月', '9月', '10月', '11月', '12月']
+      data: dates,
+      axisLabel: { interval: 4 }
     },
     yAxis: { type: 'value', name: '金额（万元）' },
     series: [{
       name: '营收',
       type: 'line',
       smooth: true,
-      data: [15.2, 18.5, 16.8, 19.2, 20.1, 22.2],
+      data: values,
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: 'rgba(102, 126, 234, 0.5)' },
@@ -120,76 +190,140 @@ const initTrendChart = () => {
   })
 }
 
-// 初始化饼图
-const initPieChart = () => {
-  const chart = echarts.init(pieChartRef.value)
+// 初始化门店排行
+const initStoreChart = (topStores) => {
+  if (!storeChartRef.value) return
+  
+  const chart = echarts.init(storeChartRef.value)
   charts.push(chart)
   
+  const names = topStores.map(item => item.name).reverse()
+  const values = topStores.map(item => item.value).reverse()
+  
   chart.setOption({
-    tooltip: { trigger: 'item' },
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'value' },
+    yAxis: {
+      type: 'category',
+      data: names
+    },
     series: [{
-      type: 'pie',
-      radius: ['40%', '70%'],
-      data: [
-        { value: 45, name: '酒水', itemStyle: { color: '#667eea' } },
-        { value: 30, name: '房费', itemStyle: { color: '#f5576c' } },
-        { value: 25, name: '超市', itemStyle: { color: '#43e97b' } }
-      ],
-      label: { formatter: '{b}: {d}%' }
+      type: 'bar',
+      data: values,
+      itemStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: '#f093fb' },
+          { offset: 1, color: '#f5576c' }
+        ])
+      },
+      label: { 
+        show: true, 
+        position: 'right', 
+        formatter: (params) => `¥${(params.value / 10000).toFixed(1)}万`
+      }
     }]
   })
 }
 
 // 初始化员工排行
-const initStaffChart = () => {
+const initStaffChart = (topEmployees) => {
+  if (!staffChartRef.value) return
+  
   const chart = echarts.init(staffChartRef.value)
   charts.push(chart)
   
+  const names = topEmployees.map(item => item.name).reverse()
+  const values = topEmployees.map(item => item.value).reverse()
+  
   chart.setOption({
     tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
     xAxis: { type: 'value' },
     yAxis: {
       type: 'category',
-      data: ['饶慧', '小宗', '姚杰', '张伟', '常含'].reverse()
+      data: names
     },
     series: [{
       type: 'bar',
-      data: [15161, 18043, 17850, 35510, 90889].reverse(),
+      data: values,
       itemStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
           { offset: 0, color: '#667eea' },
           { offset: 1, color: '#764ba2' }
         ])
       },
-      label: { show: true, position: 'right', formatter: '¥{c}' }
+      label: { 
+        show: true, 
+        position: 'right', 
+        formatter: (params) => `¥${params.value.toLocaleString()}`
+      }
     }]
   })
 }
 
 // 初始化商品排行
-const initProductChart = () => {
+const initProductChart = (topProducts) => {
+  if (!productChartRef.value) return
+  
   const chart = echarts.init(productChartRef.value)
   charts.push(chart)
   
+  const names = topProducts.map(item => item.name).reverse()
+  const values = topProducts.map(item => item.value).reverse()
+  
   chart.setOption({
     tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
     xAxis: { type: 'value' },
     yAxis: {
       type: 'category',
-      data: ['卤水花生', '什锦果盘', '喜力铝罐', '百岁山', '青岛崂山'].reverse()
+      data: names
     },
     series: [{
       type: 'bar',
-      data: [10, 9, 3, 27, 320].reverse(),
+      data: values,
       itemStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
           { offset: 0, color: '#43e97b' },
           { offset: 1, color: '#38f9d7' }
         ])
       },
-      label: { show: true, position: 'right' }
+      label: { 
+        show: true, 
+        position: 'right', 
+        formatter: (params) => `¥${params.value.toLocaleString()}`
+      }
     }]
   })
+}
+
+// 加载数据
+const loadDashboardData = async () => {
+  loading.value = true
+  
+  try {
+    const data = await getDashboardSummary()
+    dashboardData.value = data
+    
+    // 初始化图表
+    if (data.revenue_trend?.length) {
+      initTrendChart(data.revenue_trend)
+    }
+    if (data.top_stores?.length) {
+      initStoreChart(data.top_stores)
+    }
+    if (data.top_employees?.length) {
+      initStaffChart(data.top_employees)
+    }
+    if (data.top_products?.length) {
+      initProductChart(data.top_products)
+    }
+  } catch (error) {
+    console.error('加载看板数据失败:', error)
+  } finally {
+    loading.value = false
+  }
 }
 
 // 窗口大小变化时重新调整图表
@@ -198,10 +332,7 @@ const handleResize = () => {
 }
 
 onMounted(() => {
-  initTrendChart()
-  initPieChart()
-  initStaffChart()
-  initProductChart()
+  loadDashboardData()
   window.addEventListener('resize', handleResize)
 })
 
@@ -282,4 +413,3 @@ onUnmounted(() => {
   }
 }
 </style>
-
