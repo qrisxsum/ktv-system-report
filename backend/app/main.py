@@ -138,8 +138,11 @@ async def get_models_info():
 
 # ==================== 路由注册 ====================
 from app.api import auth
+from app.api import stats
 
 app.include_router(auth.router)
+# 统计查询
+app.include_router(stats.router)
 # 后续：上传、统计
 # from app.api import upload, stats
 # app.include_router(upload.router, prefix="/api/v1", tags=["文件上传"])
