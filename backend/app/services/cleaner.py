@@ -45,8 +45,8 @@ class ETLErrorType(str, Enum):
 BOOKING_MAPPING: Dict[str, str] = {
     # 基础维度字段
     "部门": "department",
-    "订位人": "booking_person",
-    "订台数": "booking_count",
+    "订位人": "employee_name",
+    "订台数": "booking_qty",
     # 金额字段
     "销售金额": "sales_amount",
     "服务费": "service_fee",
@@ -58,31 +58,30 @@ BOOKING_MAPPING: Dict[str, str] = {
     "折扣金额": "discount_amount",
     "抹零金额": "round_off_amount",
     "赠送金额": "gift_amount",
-    "应收金额": "receivable_amount",
-    "实收金额": "actual_received",
+    "实收金额": "actual_amount",
     # 支付方式字段
-    "支付方式_微信支付": "payment_wechat",
-    "支付方式_支付宝": "payment_alipay",
-    "支付方式_会员支付": "payment_member",
-    "支付方式_会员本金": "payment_member_principal",
-    "支付方式_会员赠送": "payment_member_gift",
-    "支付方式_现金": "payment_cash",
-    "支付方式_pos银行卡": "payment_pos_card",
-    "支付方式_服务员收款": "payment_waiter",
-    "支付方式_员工信用扣款": "payment_employee_credit",
-    "支付方式_付呗": "payment_fubei",
-    "支付方式_团购": "payment_groupon",
-    "支付方式_店长签单": "payment_manager_sign",
-    "支付方式_演绎提成": "payment_performance_commission",
-    "支付方式_抖音": "payment_douyin",
-    "支付方式_POS机": "payment_pos",
-    "支付方式_营销提成": "payment_marketing_commission",
-    "支付方式_过期取酒": "payment_expired_wine",
-    "支付方式_招待": "payment_entertainment",
-    "支付方式_会员停用": "payment_member_disabled",
-    "支付方式_三倍充值活动": "payment_triple_recharge",
-    "支付方式_往来款": "payment_inter_account",
-    "支付方式_高德": "payment_gaode",
+    "支付方式_微信支付": "pay_wechat",
+    "支付方式_支付宝": "pay_alipay",
+    "支付方式_会员支付": "pay_member",
+    "支付方式_会员本金": "pay_member_principal",
+    "支付方式_会员赠送": "pay_member_gift",
+    "支付方式_现金": "pay_cash",
+    "支付方式_pos银行卡": "pay_pos_card",
+    "支付方式_服务员收款": "pay_waiter",
+    "支付方式_员工信用扣款": "pay_employee_credit",
+    "支付方式_付呗": "pay_fubei",
+    "支付方式_团购": "pay_groupon",
+    "支付方式_店长签单": "pay_manager_sign",
+    "支付方式_演绎提成": "pay_performance_commission",
+    "支付方式_抖音": "pay_douyin",
+    "支付方式_POS机": "pay_pos",
+    "支付方式_营销提成": "pay_marketing_commission",
+    "支付方式_过期取酒": "pay_expired_wine",
+    "支付方式_招待": "pay_entertainment",
+    "支付方式_会员停用": "pay_member_disabled",
+    "支付方式_三倍充值活动": "pay_triple_recharge",
+    "支付方式_往来款": "pay_inter_account",
+    "支付方式_高德": "pay_gaode",
     # 酒水类别字段
     "酒水类别金额_过期取酒": "beverage_expired_wine",
     "酒水类别金额_小计": "beverage_subtotal",
@@ -91,7 +90,7 @@ BOOKING_MAPPING: Dict[str, str] = {
 # 酒水销售分析表字段映射
 SALES_MAPPING: Dict[str, str] = {
     # 维度字段
-    "酒水名称": "beverage_name",
+    "酒水名称": "product_name",
     "类别名称": "category_name",
     "单位": "unit",
     "区域": "area",
@@ -106,15 +105,14 @@ SALES_MAPPING: Dict[str, str] = {
     "合计_数量": "total_quantity",
     "合计_金额": "total_amount",
     # 销售数量字段
-    "销售数量_小计": "sales_qty_total",
+    "销售数量_小计": "sales_qty",
     "销售数量_销售": "sales_qty_sales",
-    "销售数量_套餐子物品": "sales_qty_combo",
-    "销售数量_例送子物品": "sales_qty_free_combo",
+    "销售数量_套餐子物品": "sales_qty_package",
+    "销售数量_例送子物品": "sales_qty_example",
     # 销售金额字段
-    "销售金额_小计": "sales_amount_total",
+    "销售金额_小计": "sales_amount",
     "销售金额_销售": "sales_amount_sales",
-    "销售金额_套餐子物品": "sales_amount_combo",
-    "销售金额_例送子物品": "sales_amount_free_combo",
+    "销售金额_套餐子物品": "sales_amount_package",
     # 赠送数量字段
     "赠送数量_小计": "gift_qty_total",
     "赠送数量_赠送": "gift_qty_gift",
@@ -128,7 +126,7 @@ SALES_MAPPING: Dict[str, str] = {
 # 包厢开台分析表字段映射
 ROOM_MAPPING: Dict[str, str] = {
     # 基础信息字段
-    "包厢名称": "room_name",
+    "包厢名称": "room_no",
     "包厢类型": "room_type",
     "区域名称": "area_name",
     "开台单号": "order_no",
@@ -136,14 +134,14 @@ ROOM_MAPPING: Dict[str, str] = {
     "开房时间": "open_time",
     "关房时间": "close_time",
     "清洁时间": "clean_time",
-    "营业日": "business_date",
-    "消费时长": "duration_minutes",
-    "时段": "time_period",
+    "营业日": "biz_date",
+    "消费时长": "duration_min",
+    "时段": "time_slot",
     "账单备注": "bill_remark",
     # 金额字段
     "账单合计": "bill_total",
     "应收金额": "receivable_amount",
-    "实收金额": "actual_received",
+    "实收金额": "actual_amount",
     "赠送": "gift_amount",
     "抹零金额": "round_off_amount",
     "调整金额": "adjustment_amount",
@@ -158,53 +156,53 @@ ROOM_MAPPING: Dict[str, str] = {
     "不计入低消金额": "excluded_min_consumption",
     "特饮金额": "special_drink_amount",
     # 支付方式字段
-    "支付方式_微信支付": "payment_wechat",
-    "支付方式_支付宝": "payment_alipay",
-    "支付方式_会员支付": "payment_member",
-    "支付方式_会员本金": "payment_member_principal",
-    "支付方式_会员赠送": "payment_member_gift",
-    "支付方式_现金": "payment_cash",
-    "支付方式_服务员收款": "payment_waiter",
-    "支付方式_付呗": "payment_fubei",
-    "支付方式_店长签单": "payment_manager_sign",
-    "支付方式_美团": "payment_meituan",
-    "支付方式_抖音": "payment_douyin",
+    "支付方式_微信支付": "pay_wechat",
+    "支付方式_支付宝": "pay_alipay",
+    "支付方式_会员支付": "pay_member",
+    "支付方式_会员本金": "pay_member_principal",
+    "支付方式_会员赠送": "pay_member_gift",
+    "支付方式_现金": "pay_cash",
+    "支付方式_服务员收款": "pay_waiter",
+    "支付方式_付呗": "pay_fubei",
+    "支付方式_店长签单": "pay_manager_sign",
+    "支付方式_美团": "pay_meituan",
+    "支付方式_抖音": "pay_douyin",
 }
 
 # 收入类支付方式（计入实收）
 INCOME_PAYMENT_FIELDS: Set[str] = {
-    "payment_wechat",  # 微信支付
-    "payment_alipay",  # 支付宝
-    "payment_cash",  # 现金
-    "payment_pos_card",  # POS银行卡
-    "payment_waiter",  # 服务员收款
-    "payment_fubei",  # 付呗
-    "payment_groupon",  # 团购
-    "payment_douyin",  # 抖音
-    "payment_pos",  # POS机
-    "payment_gaode",  # 高德
-    "payment_meituan",  # 美团
+    "pay_wechat",  # 微信支付
+    "pay_alipay",  # 支付宝
+    "pay_cash",  # 现金
+    "pay_pos_card",  # POS银行卡
+    "pay_waiter",  # 服务员收款
+    "pay_fubei",  # 付呗
+    "pay_groupon",  # 团购
+    "pay_douyin",  # 抖音
+    "pay_pos",  # POS机
+    "pay_gaode",  # 高德
+    "pay_meituan",  # 美团
 }
 
 # 成本/权益类支付方式（不计入实收）
 COST_PAYMENT_FIELDS: Set[str] = {
-    "payment_member",  # 会员支付
-    "payment_member_principal",  # 会员本金
-    "payment_member_gift",  # 会员赠送
-    "payment_employee_credit",  # 员工信用扣款
-    "payment_manager_sign",  # 店长签单
-    "payment_performance_commission",  # 演绎提成
-    "payment_marketing_commission",  # 营销提成
-    "payment_expired_wine",  # 过期取酒
-    "payment_entertainment",  # 招待
-    "payment_member_disabled",  # 会员停用
+    "pay_member",  # 会员支付
+    "pay_member_principal",  # 会员本金
+    "pay_member_gift",  # 会员赠送
+    "pay_employee_credit",  # 员工信用扣款
+    "pay_manager_sign",  # 店长签单
+    "pay_performance_commission",  # 演绎提成
+    "pay_marketing_commission",  # 营销提成
+    "pay_expired_wine",  # 过期取酒
+    "pay_entertainment",  # 招待
+    "pay_member_disabled",  # 会员停用
 }
 
 # 会员相关支付方式（需与本金/赠送互斥计算）
 MEMBER_PAYMENT_FIELDS: Set[str] = {
-    "payment_member",
-    "payment_member_principal",
-    "payment_member_gift",
+    "pay_member",
+    "pay_member_principal",
+    "pay_member_gift",
 }
 
 
@@ -348,7 +346,7 @@ def _convert_to_snake_case(chinese_name: str) -> str:
         chinese_name: 中文名称（如 "小红书"）
 
     Returns:
-        str: snake_case 名称（如 "payment_xiaohongshu"）
+        str: snake_case 名称（如 "pay_xiaohongshu"）
     """
     # 常见支付方式的中英文映射
     payment_map = {
@@ -372,15 +370,15 @@ def _convert_to_snake_case(chinese_name: str) -> str:
     name_lower = chinese_name.lower()
     for cn, en in payment_map.items():
         if cn in chinese_name or cn.lower() in name_lower:
-            return f"payment_{en}"
+            return f"pay_{en}"
 
     # 如果是纯英文，直接转换
     if re.match(r"^[a-zA-Z0-9_]+$", chinese_name):
-        return f"payment_{chinese_name.lower()}"
+        return f"pay_{chinese_name.lower()}"
 
     # 使用拼音首字母（简化处理）
     # 实际项目可以引入 pypinyin 库
-    return f"payment_{chinese_name.replace(' ', '_')}"
+    return f"pay_{chinese_name.replace(' ', '_')}"
 
 
 # ============================================================================
@@ -723,16 +721,16 @@ class CleanerService:
         df = df.copy()
 
         # 日期时间字段
-        datetime_fields = {"open_time", "close_time", "clean_time", "business_date"}
+        datetime_fields = {"open_time", "close_time", "clean_time", "biz_date"}
 
         # 整数字段（数量类）
         integer_fields = {
-            "booking_count",
+            "booking_qty",
             "total_quantity",
-            "duration_minutes",
-            "sales_qty_total",
+            "duration_min",
+            "sales_qty",
             "sales_qty_sales",
-            "sales_qty_combo",
+            "sales_qty_package",
             "sales_qty_free_combo",
             "gift_qty_total",
             "gift_qty_gift",
@@ -830,12 +828,12 @@ class CleanerService:
         """
         errors: List[RowError] = []
 
-        if "actual_received" not in df.columns:
+        if "actual_amount" not in df.columns:
             return errors
 
         for idx in range(len(df)):
             row = df.iloc[idx]
-            actual_received = _clean_numeric_value(row.get("actual_received", 0))
+            actual_amount = _clean_numeric_value(row.get("actual_amount", 0))
 
             # 计算收入类支付方式合计
             income_sum = 0.0
@@ -851,18 +849,18 @@ class CleanerService:
                     income_sum += _clean_numeric_value(value)
 
             # 计算差异
-            diff = abs(actual_received - income_sum)
+            diff = abs(actual_amount - income_sum)
             if diff > self.tolerance:
                 errors.append(
                     RowError(
                         row_index=idx,
-                        column="actual_received",
-                        message=f"实收金额({actual_received:.2f})与支付方式合计({income_sum:.2f})不平衡，差异: {diff:.2f}元",
+                        column="actual_amount",
+                        message=f"实收金额({actual_amount:.2f})与支付方式合计({income_sum:.2f})不平衡，差异: {diff:.2f}元",
                         error_type=ETLErrorType.LOGIC_ERROR,
                         severity="error",
                         raw_data={
-                            "actual_received": actual_received,
-                            "payment_sum": income_sum,
+                            "actual_amount": actual_amount,
+                            "pay_sum": income_sum,
                             "difference": diff,
                         },
                     )
@@ -912,11 +910,9 @@ class CleanerService:
                     )
 
             # 利润校验：利润 = 销售金额_小计 - 成本_小计
-            if all(
-                f in df.columns for f in ["profit", "sales_amount_total", "cost_total"]
-            ):
+            if all(f in df.columns for f in ["profit", "sales_amount", "cost_total"]):
                 profit = _clean_numeric_value(row.get("profit", 0))
-                sales_amount = _clean_numeric_value(row.get("sales_amount_total", 0))
+                sales_amount = _clean_numeric_value(row.get("sales_amount", 0))
                 cost_total = _clean_numeric_value(row.get("cost_total", 0))
 
                 expected_profit = sales_amount - cost_total
@@ -932,7 +928,7 @@ class CleanerService:
                             severity="error",
                             raw_data={
                                 "profit": profit,
-                                "sales_amount_total": sales_amount,
+                                "sales_amount": sales_amount,
                                 "cost_total": cost_total,
                                 "expected_profit": expected_profit,
                             },
@@ -956,8 +952,8 @@ class CleanerService:
         """
         errors: List[RowError] = []
 
-        # 必须存在 actual_received 字段才能进行校验
-        if "actual_received" not in df.columns:
+        # 必须存在 actual_amount 字段才能进行校验
+        if "actual_amount" not in df.columns:
             return errors
 
         # 定义扣减字段及其默认值
@@ -973,7 +969,7 @@ class CleanerService:
             row = df.iloc[idx]
 
             # 获取实收金额
-            actual_received = _clean_numeric_value(row.get("actual_received", 0))
+            actual_amount = _clean_numeric_value(row.get("actual_amount", 0))
 
             # 获取销售金额（如果不存在则跳过该行校验）
             if "sales_amount" not in df.columns:
@@ -995,22 +991,22 @@ class CleanerService:
             expected_actual = sales_amount - total_deduction
 
             # 计算差异
-            diff = abs(actual_received - expected_actual)
+            diff = abs(actual_amount - expected_actual)
 
             if diff > self.tolerance:
                 errors.append(
                     RowError(
                         row_index=idx,
-                        column="actual_received",
+                        column="actual_amount",
                         message=(
-                            f"账单构成校验失败: 实收金额({actual_received:.2f}) != "
+                            f"账单构成校验失败: 实收金额({actual_amount:.2f}) != "
                             f"销售金额({sales_amount:.2f}) - 扣减合计({total_deduction:.2f}) = "
                             f"预期({expected_actual:.2f})，差异: {diff:.2f}元"
                         ),
                         error_type=ETLErrorType.LOGIC_ERROR,
                         severity="error",
                         raw_data={
-                            "actual_received": actual_received,
+                            "actual_amount": actual_amount,
                             "sales_amount": sales_amount,
                             "total_deduction": total_deduction,
                             "expected_actual": expected_actual,
@@ -1065,7 +1061,7 @@ class CleanerService:
         errors: List[RowError] = []
 
         # 必须存在关键字段才能进行校验
-        if "actual_received" not in df.columns or "bill_total" not in df.columns:
+        if "actual_amount" not in df.columns or "bill_total" not in df.columns:
             return errors
 
         # 定义扣减字段
@@ -1082,7 +1078,7 @@ class CleanerService:
             row = df.iloc[idx]
 
             # 获取实收金额和账单合计
-            actual_received = _clean_numeric_value(row.get("actual_received", 0))
+            actual_amount = _clean_numeric_value(row.get("actual_amount", 0))
             bill_total = _clean_numeric_value(row.get("bill_total", 0))
 
             # 累加扣减金额
@@ -1102,14 +1098,14 @@ class CleanerService:
 
             # —— 会员支付互斥处理 ——
             member_total = (
-                _clean_numeric_value(row.get("payment_member", 0))
-                if "payment_member" in df.columns
+                _clean_numeric_value(row.get("pay_member", 0))
+                if "pay_member" in df.columns
                 else 0.0
             )
             member_detail_sum = 0.0
             member_detail_values: Dict[str, float] = {}
             member_detail_has_value = False
-            for member_field in ("payment_member_principal", "payment_member_gift"):
+            for member_field in ("pay_member_principal", "pay_member_gift"):
                 if member_field in df.columns:
                     value = _clean_numeric_value(row.get(member_field, 0))
                     member_detail_values[member_field] = value
@@ -1124,7 +1120,7 @@ class CleanerService:
                         cost_payment_details[field] = value
             elif member_total != 0:
                 cost_payment_sum += member_total
-                cost_payment_details["payment_member"] = member_total
+                cost_payment_details["pay_member"] = member_total
 
             # —— 其他权益类支付方式 ——
             for field in COST_PAYMENT_FIELDS:
@@ -1152,15 +1148,15 @@ class CleanerService:
             expected_actual = bill_total - total_deduction - cost_payment_sum
 
             # 计算差异
-            diff = abs(actual_received - expected_actual)
+            diff = abs(actual_amount - expected_actual)
 
             if diff > self.tolerance:
                 errors.append(
                     RowError(
                         row_index=idx,
-                        column="actual_received",
+                        column="actual_amount",
                         message=(
-                            f"包厢账单构成校验失败: 实收金额({actual_received:.2f}) != "
+                            f"包厢账单构成校验失败: 实收金额({actual_amount:.2f}) != "
                             f"账单合计({bill_total:.2f}) - 扣减({total_deduction:.2f}) - "
                             f"权益类支付({cost_payment_sum:.2f}) = 预期({expected_actual:.2f})，"
                             f"差异: {diff:.2f}元"
@@ -1168,7 +1164,7 @@ class CleanerService:
                         error_type=ETLErrorType.LOGIC_ERROR,
                         severity="error",
                         raw_data={
-                            "actual_received": actual_received,
+                            "actual_amount": actual_amount,
                             "bill_total": bill_total,
                             "total_deduction": total_deduction,
                             "cost_payment_sum": cost_payment_sum,
