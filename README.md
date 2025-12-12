@@ -17,28 +17,55 @@
 
 ---
 
-## 🛠️ 快速开始 (部署流程)
+## 🛠️ 交付部署（给运维/同事照做版）
 
 ### 前置要求
 
 - [Docker](https://www.docker.com/) (v20.10+)
 - [Docker Compose](https://docs.docker.com/compose/) (v2.0+)
 
-### 1. 启动服务
+### 0. 获取代码
+
+```bash
+git clone <YOUR_REPO_URL>
+cd ktv-system-report
+```
+
+### 1. 配置环境变量（必须）
+
+项目通过 `.env` 控制端口、数据库账号等配置：
+
+```bash
+cp env.example .env
+```
+
+按需修改 `.env`（推荐至少修改 `JWT_SECRET_KEY`、以及端口避免冲突）。
+
+### 2. 启动服务（Docker Compose）
 
 在项目根目录下执行：
 
 ```bash
-# 启动所有服务 (后台运行)
-docker-compose up -d
+# 首次启动 / 更新后启动（建议带 --build）
+docker compose up -d --build
 
 # 查看日志
-docker-compose logs -f
+docker compose logs -f
 ```
 
-首次启动时，MySQL 容器会自动执行 `docker/mysql/init/01-init.sql` 初始化数据库结构。
+首次启动时：
+- MySQL 会自动执行 `docker/mysql/init/01-init.sql`（创建数据库/基础结构）。
+- **应用表结构以 Alembic 迁移为准**（见下一步）。
 
-### 2. 访问系统
+### 3. 初始化/升级数据库结构（Alembic）
+
+```bash
+docker compose exec backend alembic upgrade head
+```
+
+> 说明：`docker-compose.yml` 已挂载 `backend/alembic/` 与 `backend/alembic.ini` 到后端容器，方便在容器内直接执行迁移命令。
+
+### 4. 访问系统
 
 服务启动后，通过浏览器访问：
 
@@ -46,11 +73,44 @@ docker-compose logs -f
 - **API 文档 (Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **API 文档 (ReDoc)**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-### 3. 数据持久化
+健康检查：
+- `GET http://localhost:8000/health`
+- `GET http://localhost:8000/health/detail`
 
-所有数据均持久化存储在 `data/` 目录下：
-- `data/mysql/`: 数据库文件
-- `data/uploads/`: 上传的原始 Excel 文件
+### 5. 数据持久化与备份
+
+数据持久化位置：
+- **MySQL 数据**：Docker Volume `ktv-mysql-data`（见 `docker-compose.yml` 的 `volumes:mysql_data`）
+- **上传文件**：`./data/uploads/`（挂载到后端容器 `/app/data/uploads`）
+
+如需备份数据库（示例）：
+
+```bash
+# 导出 SQL（根据实际 root 密码修改）
+docker compose exec mysql mysqldump -uroot -p"${MYSQL_ROOT_PASSWORD}" "${MYSQL_DATABASE}" > backup.sql
+```
+
+### 6. 日常运维命令
+
+```bash
+# 停止并移除容器（不删除 MySQL Volume）
+docker compose down
+
+# 重启
+docker compose restart
+
+# 更新版本（拉代码 + 重建 + 迁移）
+git pull
+docker compose up -d --build
+docker compose exec backend alembic upgrade head
+```
+
+### 7. 常见问题（Troubleshooting）
+
+- **前端报错 “Failed to resolve import nprogress/nprogress.css”**：
+  - 通常是容器未重建导致依赖未安装，执行：`docker compose up -d --build frontend`
+- **端口冲突**：
+  - 修改 `.env` 中的 `MYSQL_PORT` / `BACKEND_PORT` / `FRONTEND_PORT` 后重新 `docker compose up -d`
 
 ---
 
