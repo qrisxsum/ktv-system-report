@@ -91,3 +91,9 @@ temp/
 
 # 文档
 docs/
+
+# 测试文件
+test/
+tests/
+test_*.py
+scripts/

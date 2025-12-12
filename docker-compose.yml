@@ -47,6 +47,8 @@ services:
     volumes:
       # 挂载代码目录实现热重载
       - ./backend/app:/app/app:cached
+      - ./backend/alembic:/app/alembic:cached
+      - ./backend/alembic.ini:/app/alembic.ini:cached
       - ./data:/app/data
     depends_on:
       mysql:
