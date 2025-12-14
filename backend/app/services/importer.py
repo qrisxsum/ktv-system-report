@@ -4,15 +4,18 @@
 基础骨架：批次创建、数据入库、维度处理
 """
 
-from typing import List, Dict, Any, Optional, Set
+import uuid
 from datetime import datetime
+from decimal import Decimal
+from typing import List, Dict, Any, Optional, Set, Tuple
 
-from sqlalchemy.orm import Session
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.models.meta import MetaFileBatch
 from app.models.facts import FactBooking, FactRoom, FactSales
-from app.models.dims import DimEmployee, DimProduct, DimRoom
+from app.models.dims import DimEmployee, DimProduct, DimRoom, DimStore, DimPaymentMethod
 
 
 class ImporterService:
@@ -136,6 +139,32 @@ class ImporterService:
             }
         return self._model_columns_cache[model]
 
+    def _ensure_payment_methods(self) -> None:
+        """
+        初始化标准支付方式 (如果 DimPaymentMethod 为空)
+        """
+        if self.db.query(DimPaymentMethod).first():
+            return
+
+        default_methods = [
+            {"code": "wechat", "name": "微信支付", "category": "income", "is_core": True, "sort_order": 1},
+            {"code": "alipay", "name": "支付宝", "category": "income", "is_core": True, "sort_order": 2},
+            {"code": "cash", "name": "现金", "category": "income", "is_core": True, "sort_order": 3},
+            {"code": "pos", "name": "POS/银行卡", "category": "income", "is_core": True, "sort_order": 4},
+            {"code": "douyin", "name": "抖音", "category": "income", "is_core": True, "sort_order": 5},
+            {"code": "meituan", "name": "美团/团购", "category": "income", "is_core": True, "sort_order": 6},
+            {"code": "member", "name": "会员支付", "category": "equity", "is_core": True, "sort_order": 10},
+        ]
+
+        for method in default_methods:
+            self.db.add(DimPaymentMethod(is_active=True, **method))
+        
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            pass
+
     def _prepare_record(
         self,
         model_columns: Set[str],
@@ -254,21 +283,153 @@ class ImporterService:
         self.db.flush()
         return new_record.id
 
+    def _get_or_create_store(self, session: Session, store_name: str) -> int:
+        """
+        根据门店名称获取或创建 DimStore 记录，返回 store_id。
+        """
+        if not store_name:
+            raise ValueError("store_name 不能为空")
+
+        normalized_name = store_name.strip()
+        if not normalized_name:
+            raise ValueError("store_name 不能为空白字符串")
+
+        existing = (
+            session.query(DimStore)
+            .filter(DimStore.store_name == normalized_name)
+            .first()
+        )
+        if existing:
+            return existing.id
+
+        store_code = f"STORE-{uuid.uuid4().hex[:8].upper()}"
+        new_store = DimStore(
+            store_name=normalized_name,
+            original_name=store_name.strip(),
+            store_code=store_code,
+            is_active=True,
+        )
+        session.add(new_store)
+
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            existing = (
+                session.query(DimStore)
+                .filter(DimStore.store_name == normalized_name)
+                .first()
+            )
+            if existing:
+                return existing.id
+            raise
+
+        session.refresh(new_store)
+        return new_store.id
+
+    def _sync_payment_methods(
+        self,
+        session: Session,
+        payment_methods: Optional[List[Dict[str, Any]]],
+    ) -> None:
+        """
+        根据 Cleaner 提供的 payment meta，同步 DimPaymentMethod。
+        """
+        if not payment_methods:
+            return
+
+        for meta in payment_methods:
+            code_raw = meta.get("code")
+            if not code_raw:
+                continue
+            code = str(code_raw).strip().lower()
+            if not code:
+                continue
+
+            exists = (
+                session.query(DimPaymentMethod.id)
+                .filter(DimPaymentMethod.code == code)
+                .first()
+            )
+            if exists:
+                continue
+
+            name = str(meta.get("name") or code)
+            category = str(meta.get("category") or "other")
+            is_core = bool(meta.get("is_core", False))
+
+            sort_order_raw = meta.get("sort_order")
+            try:
+                sort_order = int(sort_order_raw)
+            except (TypeError, ValueError):
+                sort_order = 10 if is_core else 100
+
+            record = DimPaymentMethod(
+                code=code,
+                name=name,
+                category=category,
+                is_core=is_core,
+                sort_order=sort_order,
+                is_active=True,
+            )
+            session.add(record)
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                exists = (
+                    session.query(DimPaymentMethod.id)
+                    .filter(DimPaymentMethod.code == code)
+                    .first()
+                )
+                if not exists:
+                    raise
+
     # ============== 以下为 A5 需补充的方法骨架 ==============
     def process_upload(
         self,
         file_name: str,
-        store_id: int,
+        store_id: Optional[int],
         table_type: str,
         cleaned_data: List[Dict[str, Any]],
         biz_date: Optional[str] = None,
+        store_name: Optional[str] = None,
+        payment_methods: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         处理文件上传的完整流程
         """
+        batch: Optional[MetaFileBatch] = None
+        sales_total = 0.0
+        actual_total = 0.0
         try:
+            resolved_store_id = store_id
+            
+            # 如果指定了 store_id，先校验是否存在
+            if resolved_store_id is not None:
+                existing_store = self.db.query(DimStore).filter(DimStore.id == resolved_store_id).first()
+                if not existing_store:
+                    # 如果不存在，但提供了 store_name，尝试通过名字查找或创建
+                    if store_name:
+                        # 此时忽略传入的无效 store_id，改为根据名字处理
+                        resolved_store_id = self._get_or_create_store(self.db, store_name)
+                    else:
+                        raise ValueError(f"指定的 store_id {resolved_store_id} 不存在，且未提供 store_name")
+            
+            # 如果没指定 store_id，通过 store_name 获取或创建
+            elif store_name:
+                resolved_store_id = self._get_or_create_store(self.db, store_name)
+            
+            if resolved_store_id is None:
+                raise ValueError("store_id 或 store_name 必须提供其一")
+            
+            # 0. 确保支付方式维度已初始化
+            self._ensure_payment_methods()
+            if payment_methods:
+                self._sync_payment_methods(self.db, payment_methods)
+
             # 1. 创建批次并标记处理中
-            batch = self.create_batch(file_name, store_id, table_type)
+            batch = self.create_batch(file_name, resolved_store_id, table_type)
             batch.status = "processing"
             self.db.commit()
 
@@ -282,14 +443,16 @@ class ImporterService:
                 model = self.TABLE_MODEL_MAP[table_type]
                 self.db.execute(
                     delete(model).where(
-                        model.store_id == store_id, model.biz_date == biz_date
+                        model.store_id == resolved_store_id, model.biz_date == biz_date
                     )
                 )
 
             # 3. 处理维度，填充外键 ID
             processed_data = self._process_dimensions(
-                table_type, store_id, cleaned_data
+                table_type, resolved_store_id, cleaned_data
             )
+
+            sales_total, actual_total = self._calculate_totals(processed_data)
 
             # 4. 入库（不再覆盖同批次，因为 batch_id 唯一）
             row_count = self.save_batch(
@@ -300,13 +463,18 @@ class ImporterService:
                 "batch_id": batch.id,
                 "batch_no": batch.batch_no,
                 "row_count": row_count,
+                "sales_total": sales_total,
+                "actual_total": actual_total,
                 "status": "success",
             }
 
         except Exception as e:
             return {
-                "batch_id": batch.id if "batch" in locals() else None,
+                "batch_id": batch.id if batch else None,
+                "batch_no": batch.batch_no if batch else None,
                 "row_count": 0,
+                "sales_total": sales_total,
+                "actual_total": actual_total,
                 "status": "failed",
                 "error": str(e),
             }
@@ -373,3 +541,40 @@ class ImporterService:
             processed.append(row_copy)
 
         return processed
+
+    @staticmethod
+    def _calculate_totals(data: List[Dict[str, Any]]) -> Tuple[float, float]:
+        """
+        累加销售金额与实收金额，缺失字段按 0 处理
+        """
+        sales_total = 0.0
+        actual_total = 0.0
+
+        for row in data:
+            sales_total += ImporterService._to_float(row.get("sales_amount", 0))
+            actual_total += ImporterService._to_float(row.get("actual_amount", 0))
+
+        return sales_total, actual_total
+
+    @staticmethod
+    def _to_float(value: Any) -> float:
+        """安全地将输入转换为 float，无法转换则返回 0"""
+        if value is None:
+            return 0.0
+
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        if isinstance(value, Decimal):
+            return float(value)
+
+        if hasattr(value, "item"):
+            try:
+                return float(value.item())
+            except (TypeError, ValueError):
+                return 0.0
+
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
