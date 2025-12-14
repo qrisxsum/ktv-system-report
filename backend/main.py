@@ -200,7 +200,9 @@ def process_file_full(file_path: str) -> bool:
         print("【Step 2】清洗数据 (Cleaner)")
         print("-" * 40)
 
-        cleaned_data, validation_result = cleaner.clean_and_validate(df, report_type)
+        cleaned_data, validation_result = cleaner.clean_and_validate(
+            df, report_type, filename=filename
+        )
 
         # 计算耗时
         elapsed_time = time.time() - start_time
@@ -377,7 +379,7 @@ def process_file_stream(file_path: str, chunk_size: int = DEFAULT_CHUNK_SIZE) ->
 
             # 调用 Cleaner 清洗当前 Chunk
             cleaned_data, validation_result = cleaner_service.clean_data(
-                df_chunk, meta["report_type"]
+                df_chunk, meta["report_type"], filename=filename
             )
 
             chunk_elapsed = time.time() - chunk_start_time

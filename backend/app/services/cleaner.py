@@ -12,6 +12,7 @@ Author: Dev B (Data Specialist)
 Version: 2.0 - 增强容错性与流式处理支持
 """
 
+import os
 import re
 import difflib
 from datetime import datetime
@@ -203,6 +204,60 @@ MEMBER_PAYMENT_FIELDS: Set[str] = {
     "pay_member",
     "pay_member_principal",
     "pay_member_gift",
+}
+
+# 支付方式展示名称映射（code -> 中文名称）
+PAYMENT_DISPLAY_NAME_MAP: Dict[str, str] = {
+    "wechat": "微信支付",
+    "alipay": "支付宝",
+    "cash": "现金",
+    "pos": "POS机",
+    "pos_card": "POS银行卡",
+    "douyin": "抖音",
+    "meituan": "美团",
+    "gaode": "高德",
+    "member": "会员支付",
+    "member_principal": "会员本金",
+    "member_gift": "会员赠送",
+    "member_disabled": "会员停用",
+    "waiter": "服务员收款",
+    "fubei": "付呗",
+    "groupon": "团购/核销",
+    "manager_sign": "店长签单",
+    "employee_credit": "员工信用扣款",
+    "performance_commission": "演绎提成",
+    "marketing_commission": "营销提成",
+    "expired_wine": "过期取酒",
+    "entertainment": "招待",
+    "triple_recharge": "三倍充值活动",
+    "inter_account": "往来款",
+}
+
+# 支付方式排序（code -> sort 值）
+PAYMENT_SORT_ORDER_MAP: Dict[str, int] = {
+    "wechat": 10,
+    "alipay": 20,
+    "cash": 30,
+    "pos": 40,
+    "pos_card": 50,
+    "douyin": 60,
+    "meituan": 70,
+    "gaode": 80,
+    "member": 100,
+    "member_principal": 110,
+    "member_gift": 120,
+    "member_disabled": 130,
+    "waiter": 140,
+    "fubei": 150,
+    "groupon": 160,
+    "manager_sign": 170,
+    "employee_credit": 180,
+    "performance_commission": 190,
+    "marketing_commission": 200,
+    "expired_wine": 210,
+    "entertainment": 220,
+    "triple_recharge": 230,
+    "inter_account": 240,
 }
 
 
@@ -413,8 +468,187 @@ class CleanerService:
         # 用于收集模糊匹配等非阻断性警告
         self._warnings: List[RowError] = []
 
+    def _extract_date_from_filename(self, filename: str) -> Optional[str]:
+        """
+        从文件名中提取第一个日期并标准化为 YYYY-MM-DD。
+
+        Args:
+            filename: 原始文件名
+
+        Returns:
+            Optional[str]: 标准化后的日期字符串，未匹配返回 None
+        """
+        if not filename:
+            return None
+
+        filename_str = str(filename)
+
+        pattern_with_sep = r"(20\d{2}[-._]\d{1,2}[-._]\d{1,2})"
+        match = re.search(pattern_with_sep, filename_str)
+        if match:
+            date_str = match.group(1).replace(".", "-").replace("_", "-")
+            parts = date_str.split("-")
+            if len(parts) == 3:
+                year, month, day = parts
+                return f"{year}-{int(month):02d}-{int(day):02d}"
+
+        pattern_pure = r"(20\d{6})"
+        match = re.search(pattern_pure, filename_str)
+        if match:
+            date_digits = match.group(1)
+            return f"{date_digits[:4]}-{date_digits[4:6]}-{date_digits[6:]}"
+
+        return None
+
+    def _extract_store_from_filename(self, filename: str) -> Optional[str]:
+        """
+        从文件名中提取门店名称（如果存在）。
+
+        匹配优先级：
+        1. 括号内的“xx店/xxKTV”
+        2. 直接以“店”或“KTV”结尾的中文短语
+        3. 关键字兜底匹配（万象城/青年路等）
+
+        Args:
+            filename: 原始文件名
+
+        Returns:
+            Optional[str]: 解析出的门店名称，未匹配返回 None
+        """
+        if not filename:
+            return None
+
+        filename_str = os.path.splitext(os.path.basename(str(filename)))[0]
+        if not filename_str:
+            return None
+
+        bracket_patterns = [
+            r"（([^（）]{2,20}?(?:店|KTV))）",
+            r"\(([^()]{2,20}?(?:店|KTV))\)",
+        ]
+        for pattern in bracket_patterns:
+            match = re.search(pattern, filename_str)
+            if match:
+                candidate = match.group(1).strip()
+                if candidate:
+                    return candidate
+
+        suffix_pattern = r"([\u4e00-\u9fa5·]{2,12}(?:店|KTV))"
+        suffix_matches = re.findall(suffix_pattern, filename_str)
+        if suffix_matches:
+            return max(suffix_matches, key=len)
+
+        fallback_keywords = {
+            "万象城": "万象城店",
+            "青年路": "青年路店",
+            "高新": "高新店",
+            "曲江": "曲江店",
+        }
+        for keyword, normalized in fallback_keywords.items():
+            if keyword in filename_str:
+                return normalized
+
+        return None
+
+    @staticmethod
+    def _normalize_payment_code(field_name: str) -> str:
+        """
+        将 pay_xxx 字段名转换为统一 code（去掉 pay_ 前缀，小写）。
+        """
+        if not isinstance(field_name, str):
+            return ""
+        normalized = field_name.strip()
+        if normalized.lower().startswith("pay_"):
+            normalized = normalized[4:]
+        return normalized.lower()
+
+    @staticmethod
+    def _resolve_payment_display_name(field_name: str, code: str) -> str:
+        """
+        根据字段名/编码获取可读名称。
+        """
+        if code in PAYMENT_DISPLAY_NAME_MAP:
+            return PAYMENT_DISPLAY_NAME_MAP[code]
+        if field_name.lower().startswith("pay_"):
+            return field_name[4:]
+        return code or field_name
+
+    @staticmethod
+    def _classify_payment_category(field_name: str) -> str:
+        """
+        根据字段名判断支付方式分类。
+        """
+        if field_name in INCOME_PAYMENT_FIELDS:
+            return "income"
+        if field_name in COST_PAYMENT_FIELDS:
+            return "equity"
+        return "other"
+
+    def _collect_payment_methods_meta(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """
+        汇总当前批次涉及的支付方式元数据。
+        """
+        payment_meta: Dict[str, Dict[str, Any]] = {}
+
+        def _build_meta(field_name: str, source: str) -> Optional[Dict[str, Any]]:
+            if not isinstance(field_name, str) or not field_name.startswith("pay_"):
+                return None
+            code = self._normalize_payment_code(field_name)
+            if not code:
+                return None
+            name = self._resolve_payment_display_name(field_name, code)
+            category = self._classify_payment_category(field_name)
+            sort_order = PAYMENT_SORT_ORDER_MAP.get(
+                code, 500 if source == "fixed" else 900
+            )
+            meta = {
+                "code": code,
+                "name": name,
+                "is_core": source == "fixed",
+                "category": category,
+                "source": source,
+                "field_name": field_name,
+                "sort_order": sort_order,
+            }
+            return meta
+
+        # 固定列扫描
+        for column in df.columns:
+            if not isinstance(column, str) or not column.startswith("pay_"):
+                continue
+            meta = _build_meta(column, source="fixed")
+            if meta:
+                payment_meta[meta["code"]] = meta
+
+        # 动态列来自 extra_info
+        if "extra_info" in df.columns:
+            dynamic_fields: Set[str] = set()
+            for info in df["extra_info"]:
+                if not isinstance(info, dict):
+                    continue
+                for key in info.keys():
+                    if isinstance(key, str) and key.startswith("pay_"):
+                        dynamic_fields.add(key)
+            for field_name in dynamic_fields:
+                code = self._normalize_payment_code(field_name)
+                if code in payment_meta:
+                    continue
+                meta = _build_meta(field_name, source="dynamic")
+                if meta:
+                    payment_meta[meta["code"]] = meta
+
+        # 按核心优先 & sort order 排序，保证输出稳定
+        return sorted(
+            payment_meta.values(),
+            key=lambda item: (
+                not item["is_core"],
+                item.get("sort_order", 999),
+                item["code"],
+            ),
+        )
+
     def clean_data(
-        self, df: pd.DataFrame, report_type: str
+        self, df: pd.DataFrame, report_type: str, filename: str = ""
     ) -> Tuple[List[Dict], ValidationResult]:
         """
         主入口函数：清洗数据并校验
@@ -427,6 +661,7 @@ class CleanerService:
         Args:
             df: 原始 DataFrame (Parser 输出)
             report_type: 报表类型 ('booking' | 'sales' | 'room')
+            filename: 原始文件名，用于缺失时推断 biz_date
 
         Returns:
             Tuple[List[Dict], ValidationResult]: (清洗后的数据列表, 校验报告)
@@ -464,6 +699,28 @@ class CleanerService:
         # 4. 重命名列（应用映射，包含模糊匹配）
         df_clean = self._apply_mapping(df_clean, mapping)
 
+        extracted_store_name = self._extract_store_from_filename(filename)
+
+        # 4.1 营业日自动补全（字段映射后、类型转换前）
+        if "biz_date" not in df_clean.columns:
+            extracted_date = self._extract_date_from_filename(filename)
+            if extracted_date:
+                df_clean["biz_date"] = extracted_date
+            else:
+                self._errors.append(
+                    RowError(
+                        row_index=-1,
+                        column="biz_date",
+                        message=(
+                            "无法获取营业日期：文件内容缺少 'biz_date' 列，"
+                            f"且文件名 '{filename}' 中未发现有效日期"
+                        ),
+                        error_type=ETLErrorType.HEADER_ERROR,
+                        severity="error",
+                        raw_data={"filename": filename},
+                    )
+                )
+
         # 5. 数据类型转换
         df_clean = self._convert_types(df_clean, report_type)
 
@@ -476,11 +733,27 @@ class CleanerService:
         # 7. 业务规则校验
         validation_result = self._validate_business_rules(df_clean, report_type)
 
+        # 7.1 合并文件级错误（例如营业日缺失）
+        if self._errors:
+            validation_result.errors.extend(self._errors)
+            validation_result.error_count += len(self._errors)
+            validation_result.is_valid = False
+
         # 8. 合并模糊匹配警告到校验结果
         if self._warnings:
             validation_result.errors.extend(self._warnings)
             # 警告不影响 is_valid 状态，但更新 summary
             validation_result.summary["fuzzy_match_warnings"] = len(self._warnings)
+
+        # 8.1 写入文件级元数据（门店名称等）
+        if validation_result.summary is None:
+            validation_result.summary = {}
+        meta_summary = dict(validation_result.summary.get("meta", {}))
+        meta_summary["store_name"] = extracted_store_name
+        payment_methods_meta = self._collect_payment_methods_meta(df_clean)
+        if payment_methods_meta:
+            meta_summary["payment_methods"] = payment_methods_meta
+        validation_result.summary["meta"] = meta_summary
 
         # 9. 转换为 List[Dict]
         cleaned_data = self._dataframe_to_records(df_clean)
@@ -1309,7 +1582,7 @@ class CleanerService:
 
 
 def clean_and_validate(
-    df: pd.DataFrame, report_type: str, tolerance: float = 1.0
+    df: pd.DataFrame, report_type: str, tolerance: float = 1.0, filename: str = ""
 ) -> Tuple[List[Dict], ValidationResult]:
     """
     便捷函数：清洗数据并校验
@@ -1318,9 +1591,32 @@ def clean_and_validate(
         df: 原始 DataFrame
         report_type: 报表类型 ('booking' | 'sales' | 'room')
         tolerance: 平衡性校验误差容忍度（元）
+        filename: 原始文件名，用于缺失时推断 biz_date
 
     Returns:
         Tuple[List[Dict], ValidationResult]: (清洗后的数据, 校验结果)
     """
     service = CleanerService(tolerance=tolerance)
-    return service.clean_data(df, report_type)
+    return service.clean_data(df, report_type, filename=filename)
+
+
+def _demo_payment_meta_extraction() -> None:
+    """
+    最小验证脚本：python backend/app/services/cleaner.py
+    """
+    sample = pd.DataFrame(
+        [
+            {
+                "pay_wechat": 100,
+                "pay_alipay": 50,
+                "extra_info": {"pay_xiaohongshu": 30, "note": "demo"},
+            }
+        ]
+    )
+    service = CleanerService()
+    meta = service._collect_payment_methods_meta(sample)
+    print("payment_methods meta:", meta)
+
+
+if __name__ == "__main__":
+    _demo_payment_meta_extraction()
