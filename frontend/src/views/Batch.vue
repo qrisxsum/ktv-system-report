@@ -3,17 +3,12 @@
     <!-- 筛选区域 -->
     <el-card class="filter-card">
       <el-form :model="filters" inline>
-        <el-form-item label="门店">
-          <el-select v-model="filters.store_id" placeholder="全部门店" clearable style="width: 150px">
-            <el-option
-              v-for="store in stores"
-              :key="store.id"
-              :label="store.name"
-              :value="store.id"
-            />
-          </el-select>
+        <el-form-item label="当前门店筛选">
+          <el-tag type="info" size="large">
+            {{ getCurrentStoreName() }}
+          </el-tag>
         </el-form-item>
-        
+
         <el-form-item label="表类型">
           <el-select v-model="filters.table_type" placeholder="全部类型" clearable style="width: 150px">
             <el-option label="预订汇总" value="booking" />
@@ -21,15 +16,16 @@
             <el-option label="酒水销售" value="sales" />
           </el-select>
         </el-form-item>
-        
+
         <el-form-item label="状态">
           <el-select v-model="filters.status" placeholder="全部状态" clearable style="width: 120px">
             <el-option label="成功" value="success" />
             <el-option label="失败" value="failed" />
             <el-option label="处理中" value="pending" />
+            <el-option label="有警告" value="warning" />
           </el-select>
         </el-form-item>
-        
+
         <el-form-item>
           <el-button type="primary" @click="loadBatches">
             <el-icon><Search /></el-icon> 查询
@@ -174,7 +170,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, inject, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listBatches, getBatchDetail, deleteBatch } from '@/api/batch'
 import { listStores } from '@/api/store'
@@ -186,6 +182,9 @@ const total = ref(0)
 const stores = ref([])
 const detailVisible = ref(false)
 const currentBatch = ref(null)
+
+// 注入门店选择状态
+const currentStore = inject('currentStore', ref('all'))
 
 // 筛选条件
 const filters = reactive({
@@ -219,6 +218,20 @@ const getStatusText = (status) => STATUS_MAP[status]?.text || status
 const getTableTypeName = (type) => TABLE_TYPE_MAP[type]?.name || type
 const getTableTypeTag = (type) => TABLE_TYPE_MAP[type]?.tag || ''
 
+// 获取当前门店名称
+const getCurrentStoreName = () => {
+  if (currentStore.value === 'all') return '全部门店'
+  if (!stores.value || stores.value.length === 0) return '加载中...'
+  const store = stores.value.find(s => s.id.toString() === currentStore.value)
+  return store ? store.name : `门店ID: ${currentStore.value}`
+}
+
+// 监听门店变化，自动重新加载数据
+watch(currentStore, (newStore) => {
+  pagination.page = 1 // 重置到第一页
+  loadBatches()
+})
+
 // 加载门店列表
 const loadStores = async () => {
   try {
@@ -232,21 +245,27 @@ const loadStores = async () => {
 // 加载批次列表
 const loadBatches = async () => {
   loading.value = true
-  
+
   try {
     const params = {
       page: pagination.page,
       page_size: pagination.pageSize,
-      ...filters,
+      table_type: filters.table_type,
+      status: filters.status,
     }
-    
+
+    // 根据当前门店选择设置store_id参数
+    if (currentStore.value !== 'all') {
+      params.store_id = parseInt(currentStore.value)
+    }
+
     // 移除空值
     Object.keys(params).forEach(key => {
       if (params[key] === null || params[key] === '') {
         delete params[key]
       }
     })
-    
+
     const res = await listBatches(params)
     batches.value = res.data || []
     total.value = res.total || 0
@@ -259,7 +278,6 @@ const loadBatches = async () => {
 
 // 重置筛选
 const resetFilters = () => {
-  filters.store_id = null
   filters.table_type = null
   filters.status = null
   pagination.page = 1
@@ -301,6 +319,7 @@ const formatTime = (time) => {
 // 初始化
 onMounted(() => {
   loadStores()
+  // 手动触发一次数据加载
   loadBatches()
 })
 </script>

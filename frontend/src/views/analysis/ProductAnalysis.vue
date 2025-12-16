@@ -64,12 +64,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, inject, watch } from 'vue'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
 
 const loading = ref(false)
 const dateRange = ref([])
+
+// 注入门店选择状态
+const currentStore = inject('currentStore', ref('all'))
+
 const rawData = ref([])
 
 // 处理后的商品数据
@@ -129,14 +133,21 @@ const fetchData = async () => {
   
   try {
     const [startDate, endDate] = dateRange.value
-    
-    const response = await queryStats({
+
+    const params = {
       table: 'sales',
       start_date: startDate,
       end_date: endDate,
       dimension: 'product',
       granularity: 'day'
-    })
+    }
+
+    // 根据当前门店选择设置store_id参数
+    if (currentStore.value !== 'all') {
+      params.store_id = parseInt(currentStore.value)
+    }
+
+    const response = await queryStats(params)
     
     if (response.success && response.data) {
       rawData.value = response.data
@@ -151,6 +162,11 @@ const fetchData = async () => {
     loading.value = false
   }
 }
+
+// 监听门店变化，重新获取数据
+watch(currentStore, () => {
+  fetchData()
+})
 
 onMounted(async () => {
   await initDateRange()
