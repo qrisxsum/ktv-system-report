@@ -47,6 +47,7 @@ frontend/dist/
 *.local
 
 # IDE
+.cursor/
 .idea/
 .vscode/
 *.swp
