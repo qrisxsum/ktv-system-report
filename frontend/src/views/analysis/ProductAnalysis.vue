@@ -78,7 +78,7 @@ const productData = computed(() => {
     const salesAmount = item.sales_amount || 0
     const cost = item.cost || 0
     const profit = item.profit || 0
-    const profitRate = salesAmount > 0 ? (profit / salesAmount * 100) : 0
+    const profitRate = item.profit_rate || 0  // 直接使用后端返回的利润率（成本利润率）
     
     return {
       product_name: item.dimension_label || '未知商品',

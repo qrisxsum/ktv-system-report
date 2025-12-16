@@ -82,6 +82,7 @@ class StatsService:
                 ("gift_amount", func.sum(model.gift_amount)),
                 ("cost_total", func.sum(model.cost_total)),
                 ("profit", func.sum(model.profit)),
+                ("profit_rate", func.avg(model.profit_rate)),  # 利润率取平均值
             ]
         raise ValueError("未知表类型")
 
