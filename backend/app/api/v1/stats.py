@@ -151,6 +151,7 @@ async def query_stats(
             sales_amount=_safe_float(row.get("sales_amount")),
             cost=_safe_float(row.get("cost_total")),
             profit=_safe_float(row.get("profit")),
+            profit_rate=_safe_float(row.get("profit_rate")),
             # 赠送相关 (通用)
             gift_qty=_safe_int(row.get("gift_qty")),
             gift_amount=_safe_float(row.get("gift_amount")),
