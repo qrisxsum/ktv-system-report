@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Query, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.schemas.stats import (
@@ -101,22 +102,37 @@ async def get_dashboard_summary(
     参考: docs/web界面5.md (2.2.1 节)
     """
     stats_service = StatsService(db)
-    today = date.today()
-    yesterday = today - timedelta(days=1)
-    day_before_yesterday = today - timedelta(days=2)
-    month_start = today.replace(day=1)
+
+    # 以 booking 最新数据日期作为看板“参考日”（避免导入的是历史月份导致本月统计/排行全为空）
+    reference_end = None
+    try:
+        reference_end = db.query(func.max(stats_service.TABLE_MAP["booking"].biz_date)).filter(
+            stats_service.TABLE_MAP["booking"].store_id == store_id
+        ).scalar() if store_id is not None else db.query(
+            func.max(stats_service.TABLE_MAP["booking"].biz_date)
+        ).scalar()
+    except Exception:
+        reference_end = None
+
+    if reference_end is None:
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+    else:
+        yesterday = reference_end
+        today = reference_end + timedelta(days=1)
+
+    day_before_yesterday = yesterday - timedelta(days=1)
+    month_start = yesterday.replace(day=1)
     
-    # 上月同期
+    # 上月同期（基于 reference 的“今天/昨天”）
     if today.month == 1:
         last_month_start = today.replace(year=today.year - 1, month=12, day=1)
         last_month_end = today.replace(year=today.year - 1, month=12, day=min(yesterday.day, 31))
     else:
         last_month_start = today.replace(month=today.month - 1, day=1)
-        # 上月同一天
         try:
             last_month_end = yesterday.replace(month=today.month - 1)
         except ValueError:
-            # 如果上月没有这一天，取上月最后一天
             last_month_end = last_month_start.replace(day=28)
     
     # 初始化数据
@@ -212,10 +228,78 @@ async def get_dashboard_summary(
                 value=0.0,
             ))
     
-    # TODO: 获取 Top 5 排行榜 (需扩展 StatsService)
+    # 获取 Top 5 排行榜
     top_stores = []
     top_employees = []
     top_products = []
+
+    # 商品排行使用 sales 的最新数据月份（避免 booking 与 sales 数据月份不一致导致商品排行为空）
+    sales_month_start = month_start
+    sales_end = yesterday
+    try:
+        sales_end_db = db.query(func.max(stats_service.TABLE_MAP["sales"].biz_date)).scalar()
+        if sales_end_db is not None:
+            sales_end = sales_end_db
+            sales_month_start = sales_end.replace(day=1)
+    except Exception:
+        pass
+
+    try:
+        # 门店排行
+        stores_data = stats_service.get_top_items(
+            table="booking",
+            metric="actual",
+            dimension="store",
+            limit=5,
+            start_date=month_start,
+            end_date=yesterday,
+            store_id=None,  # store 维度下不使用 store_id 过滤
+        )
+        top_stores = [
+            TopItem(rank=i + 1, name=row["dimension_label"], value=round(row["metric_value"], 2))
+            for i, row in enumerate(stores_data)
+        ]
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to get top stores: {e}")
+
+    try:
+        # 员工排行
+        employees_data = stats_service.get_top_items(
+            table="booking",
+            metric="actual",
+            dimension="employee",
+            limit=5,
+            start_date=month_start,
+            end_date=yesterday,
+            store_id=store_id,
+        )
+        top_employees = [
+            TopItem(rank=i + 1, name=row["dimension_label"], value=round(row["metric_value"], 2))
+            for i, row in enumerate(employees_data)
+        ]
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to get top employees: {e}")
+
+    try:
+        # 商品排行
+        products_data = stats_service.get_top_items(
+            table="sales",
+            metric="sales",
+            dimension="product",
+            limit=5,
+            start_date=sales_month_start,
+            end_date=sales_end,
+            store_id=None,  # 商品排行不分门店
+        )
+        top_products = [
+            TopItem(rank=i + 1, name=row["dimension_label"], value=round(row["metric_value"], 2))
+            for i, row in enumerate(products_data)
+        ]
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to get top products: {e}")
     
     return DashboardSummary(
         yesterday_actual=round(yesterday_actual, 2),
@@ -369,12 +453,6 @@ async def get_ranking_data(
     """
     获取排行榜数据（用于柱状图）
     """
-    # 默认时间范围: 本月
-    if not start_date:
-        start_date = date.today().replace(day=1)
-    if not end_date:
-        end_date = date.today()
-    
     stats_service = StatsService(db)
     
     # 选择合适的表和维度
@@ -385,45 +463,52 @@ async def get_ranking_data(
         "room": "room",
     }
     table = table_map.get(dimension, "booking")
+
+    # 默认时间范围：如果未传 start/end，则取“该表最新 biz_date 所在月份”
+    if not start_date or not end_date:
+        max_date = None
+        try:
+            model = stats_service.TABLE_MAP.get(table)
+            if model is not None:
+                q = db.query(func.max(model.biz_date))
+                if store_id is not None and dimension != "store" and hasattr(model, "store_id"):
+                    q = q.filter(model.store_id == store_id)
+                max_date = q.scalar()
+        except Exception:
+            max_date = None
+
+        if max_date is None:
+            if not start_date:
+                start_date = date.today().replace(day=1)
+            if not end_date:
+                end_date = date.today()
+        else:
+            if not end_date:
+                end_date = max_date
+            if not start_date:
+                start_date = end_date.replace(day=1)
     
     data = []
     try:
-        result = stats_service.query_stats(
+        # 调用新增的 get_top_items 方法
+        top_items = stats_service.get_top_items(
             table=table,
+            metric=metric,
+            dimension=dimension,
+            limit=limit,
             start_date=start_date,
             end_date=end_date,
             store_id=store_id if dimension != "store" else None,
-            dimension=dimension,
-            granularity="day",
         )
-        
-        # 获取数据并排序
-        raw_data = result.get("data", [])
-        
-        # 按指标排序
-        metric_field_map = {
-            "actual": "actual",
-            "sales": "sales",
-            "profit": "profit",
-            "qty": "orders",
-        }
-        field = metric_field_map.get(metric, "actual")
-        
-        sorted_data = sorted(
-            raw_data,
-            key=lambda x: _safe_float(x.get(field)),
-            reverse=True
-        )[:limit]
-        
-        for i, row in enumerate(sorted_data):
-            data.append(TopItem(
-                rank=i + 1,
-                name=str(row.get("dimension_key", "")),
-                value=round(_safe_float(row.get(field)), 2),
-            ))
-    except Exception:
-        pass
-    
+
+        data = [
+            TopItem(rank=i + 1, name=item["dimension_label"], value=round(item["metric_value"], 2))
+            for i, item in enumerate(top_items)
+        ]
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to get ranking data: {e}")
+
     return {
         "success": True,
         "dimension": dimension,

@@ -38,3 +38,16 @@ export function getDashboardSummary(storeId = null) {
   })
 }
 
+/**
+ * 获取数据日期范围
+ * @param {string} table - 表类型: booking | room | sales
+ * @returns {Promise} 日期范围
+ */
+export function getDateRange(table = 'booking') {
+  return request({
+    url: '/stats/date-range',
+    method: 'GET',
+    params: { table },
+  })
+}
+

@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Query, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.schemas import (
@@ -28,9 +29,6 @@ from app.schemas import (
     StatsResponse,
     StatsItem,
     StatsMeta,
-    DashboardSummary,
-    TrendItem,
-    TopItem,
 )
 from app.core.database import get_db
 from app.services.stats import StatsService
@@ -149,8 +147,11 @@ async def query_stats(
             beverage_discount=_safe_float(row.get("beverage_discount")),
             order_count=_safe_int(row.get("orders")),
             # sales 表指标
+            sales_qty=_safe_int(row.get("sales_qty")),
+            sales_amount=_safe_float(row.get("sales_amount")),
             cost=_safe_float(row.get("cost_total")),
             profit=_safe_float(row.get("profit")),
+            # 赠送相关 (通用)
             gift_qty=_safe_int(row.get("gift_qty")),
             gift_amount=_safe_float(row.get("gift_amount")),
         )
@@ -173,129 +174,55 @@ async def query_stats(
     )
 
 
-# ============================================================
-# Dashboard 接口
-# ============================================================
-
-@router.get("/dashboard/summary", response_model=DashboardSummary, summary="首页看板数据")
-async def get_dashboard_summary(
-    store_id: Optional[int] = Query(None, description="门店ID (不传则汇总所有门店)"),
+@router.get("/date-range", summary="获取数据日期范围")
+async def get_date_range(
+    table: TableType = Query(TableType.BOOKING, description="表类型"),
     db: Session = Depends(get_db),
 ):
     """
-    获取首页看板汇总数据
+    获取指定表的数据日期范围
     
-    参考: docs/web界面5.md (2.2.1 节)
+    用于前端页面自动设置默认日期范围
     """
     stats_service = StatsService(db)
-    today = date.today()
-    yesterday = today - timedelta(days=1)
-    day_before_yesterday = today - timedelta(days=2)
-    month_start = today.replace(day=1)
     
-    # 上月同期计算
-    if today.month == 1:
-        last_month_start = today.replace(year=today.year - 1, month=12, day=1)
-    else:
-        last_month_start = today.replace(month=today.month - 1, day=1)
+    if table.value not in stats_service.TABLE_MAP:
+        return {
+            "success": False,
+            "min_date": None,
+            "max_date": None,
+            "suggested_start": None,
+            "suggested_end": None,
+        }
     
-    # 查询昨日数据 (使用 booking 表作为主要数据源)
-    yesterday_actual = 0.0
-    day_before_actual = 0.0
-    month_actual = 0.0
-    last_month_actual = 0.0
+    model = stats_service.TABLE_MAP[table.value]
     
     try:
-        # 昨日数据
-        yesterday_result = stats_service.query_stats(
-            table="booking",
-            start_date=yesterday,
-            end_date=yesterday,
-            store_id=store_id,
-            dimension="date",
-            granularity="day",
-        )
-        for row in yesterday_result.get("data", []):
-            yesterday_actual += _safe_float(row.get("actual"))
+        min_date = db.query(func.min(model.biz_date)).scalar()
+        max_date = db.query(func.max(model.biz_date)).scalar()
         
-        # 前天数据
-        day_before_result = stats_service.query_stats(
-            table="booking",
-            start_date=day_before_yesterday,
-            end_date=day_before_yesterday,
-            store_id=store_id,
-            dimension="date",
-            granularity="day",
-        )
-        for row in day_before_result.get("data", []):
-            day_before_actual += _safe_float(row.get("actual"))
+        if max_date:
+            # 建议日期范围：最新数据所在月份
+            suggested_start = max_date.replace(day=1)
+            suggested_end = max_date
+        else:
+            suggested_start = None
+            suggested_end = None
         
-        # 本月累计
-        month_result = stats_service.query_stats(
-            table="booking",
-            start_date=month_start,
-            end_date=yesterday,
-            store_id=store_id,
-            dimension="date",
-            granularity="day",
-        )
-        for row in month_result.get("data", []):
-            month_actual += _safe_float(row.get("actual"))
-    except Exception:
-        pass
-    
-    # 计算环比
-    def calc_change(current: float, previous: float) -> float:
-        if previous == 0:
-            return 0.0 if current == 0 else 1.0
-        return round((current - previous) / previous, 4)
-    
-    yesterday_change = calc_change(yesterday_actual, day_before_actual)
-    month_change = calc_change(month_actual, last_month_actual) if last_month_actual > 0 else 0.0
-    
-    # 生成趋势数据 (近30天)
-    revenue_trend = []
-    try:
-        trend_start = today - timedelta(days=30)
-        trend_result = stats_service.query_stats(
-            table="booking",
-            start_date=trend_start,
-            end_date=yesterday,
-            store_id=store_id,
-            dimension="date",
-            granularity="day",
-        )
-        for row in trend_result.get("data", []):
-            revenue_trend.append(TrendItem(
-                date=str(row.get("dimension_key", "")),
-                value=round(_safe_float(row.get("actual")), 2),
-            ))
-    except Exception:
-        # 如果查询失败，生成空趋势
-        for i in range(30, 0, -1):
-            d = today - timedelta(days=i)
-            revenue_trend.append(TrendItem(
-                date=d.strftime("%Y-%m-%d"),
-                value=0.0,
-            ))
-    
-    # TODO: 获取 Top 5 门店/员工/商品 (需要扩展 StatsService)
-    # 暂时返回空列表
-    top_stores = []
-    top_employees = []
-    top_products = []
-    
-    return DashboardSummary(
-        yesterday_actual=round(yesterday_actual, 2),
-        yesterday_change=yesterday_change,
-        month_actual=round(month_actual, 2),
-        month_change=month_change,
-        month_profit=round(month_actual * 0.4, 2),  # 估算毛利
-        profit_rate=0.4,
-        gift_rate=0.05,
-        revenue_trend=revenue_trend,
-        top_stores=top_stores,
-        top_employees=top_employees,
-        top_products=top_products,
-    )
+        return {
+            "success": True,
+            "min_date": min_date.isoformat() if min_date else None,
+            "max_date": max_date.isoformat() if max_date else None,
+            "suggested_start": suggested_start.isoformat() if suggested_start else None,
+            "suggested_end": suggested_end.isoformat() if suggested_end else None,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "min_date": None,
+            "max_date": None,
+            "suggested_start": None,
+            "suggested_end": None,
+            "error": str(e),
+        }
 

@@ -60,21 +60,27 @@ class StatsItem(BaseModel):
     dimension_key: str = Field(..., description="维度键 (如日期、门店名等)")
     dimension_label: Optional[str] = Field(None, description="维度显示名称")
     
-    # 核心指标
-    sales: float = Field(0, description="销售金额")
+    # booking 表核心指标
+    sales: float = Field(0, description="销售金额 (booking)")
     actual: float = Field(0, description="实收金额")
+    performance: Optional[float] = Field(None, description="基本业绩")
+    booking_qty: Optional[int] = Field(None, description="订台数")
     
-    # 成本与利润 (酒水表)
+    # room 表指标
+    gmv: Optional[float] = Field(None, description="GMV (应收金额)")
+    room_discount: Optional[float] = Field(None, description="包厢折扣")
+    beverage_discount: Optional[float] = Field(None, description="酒水折扣")
+    order_count: Optional[int] = Field(None, description="订单数/开台数")
+    
+    # sales 表指标
+    sales_qty: Optional[int] = Field(None, description="销售数量")
+    sales_amount: Optional[float] = Field(None, description="销售金额 (sales)")
     cost: Optional[float] = Field(None, description="成本")
     profit: Optional[float] = Field(None, description="毛利")
     
-    # 赠送相关
+    # 赠送相关 (通用)
     gift_qty: Optional[int] = Field(None, description="赠送数量")
     gift_amount: Optional[float] = Field(None, description="赠送金额")
-    
-    # 其他指标
-    order_count: Optional[int] = Field(None, description="订单数/开台数")
-    booking_qty: Optional[int] = Field(None, description="订台数")
     
     # 扣减项统计
     discount_amount: Optional[float] = Field(None, description="折扣金额")
