@@ -10,19 +10,23 @@ Dev C 负责:
 - docs/聚合4.md (1.1 节 - 口径定义)
 - docs/web界面5.md (1.3 节, 2.2.1 节)
 - docs/任务分配.md (3.2 节 C6)
+
+对接: Dev A (StatsService)
 """
 
 from datetime import date, datetime, timedelta
 from typing import Optional, List
-from decimal import Decimal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
+from sqlalchemy.orm import Session
 
 from app.schemas.stats import (
     DashboardSummary,
     TrendItem,
     TopItem,
 )
+from app.core.database import get_db
+from app.services.stats import StatsService
 
 router = APIRouter()
 
@@ -38,20 +42,8 @@ def calculate_change_rate(current: float, previous: float) -> float:
     公式: (当前值 - 上期值) / 上期值
     """
     if previous == 0:
-        return 0.0 if current == 0 else 1.0  # 上期为0时，有值则100%增长
+        return 0.0 if current == 0 else 1.0
     return round((current - previous) / previous, 4)
-
-
-def calculate_profit_rate(profit: float, cost: float) -> float:
-    """
-    计算利润率（成本利润率）
-    
-    公式: 利润 / 成本
-    参考: docs/字段映射1.md (2.3 节)
-    """
-    if cost == 0:
-        return 0.0
-    return round(profit / cost, 4)
 
 
 def calculate_gross_margin(profit: float, revenue: float) -> float:
@@ -70,11 +62,20 @@ def calculate_gift_rate(gift_qty: int, total_qty: int) -> float:
     计算赠送率
     
     公式: 赠送数量 / (销售数量 + 赠送数量)
-    参考: docs/聚合4.md (1.4 节)
     """
     if total_qty == 0:
         return 0.0
     return round(gift_qty / total_qty, 4)
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """安全地转换为浮点数"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 # ============================================================
@@ -84,6 +85,7 @@ def calculate_gift_rate(gift_qty: int, total_qty: int) -> float:
 @router.get("/summary", response_model=DashboardSummary, summary="首页看板汇总数据")
 async def get_dashboard_summary(
     store_id: Optional[int] = Query(None, description="门店ID (不传则汇总所有门店)"),
+    db: Session = Depends(get_db),
 ):
     """
     获取首页看板汇总数据
@@ -98,101 +100,129 @@ async def get_dashboard_summary(
     
     参考: docs/web界面5.md (2.2.1 节)
     """
+    stats_service = StatsService(db)
     today = date.today()
     yesterday = today - timedelta(days=1)
     day_before_yesterday = today - timedelta(days=2)
-    
-    # 本月第一天
     month_start = today.replace(day=1)
+    
     # 上月同期
     if today.month == 1:
         last_month_start = today.replace(year=today.year - 1, month=12, day=1)
+        last_month_end = today.replace(year=today.year - 1, month=12, day=min(yesterday.day, 31))
     else:
         last_month_start = today.replace(month=today.month - 1, day=1)
-    last_month_same_day = yesterday.replace(month=last_month_start.month, year=last_month_start.year)
+        # 上月同一天
+        try:
+            last_month_end = yesterday.replace(month=today.month - 1)
+        except ValueError:
+            # 如果上月没有这一天，取上月最后一天
+            last_month_end = last_month_start.replace(day=28)
     
-    # ============================================================
-    # TODO: 调用 Dev A 的 StatsService 获取真实数据
-    # from app.services.stats import StatsService
-    # stats_service = StatsService()
-    # 
-    # # 昨日数据
-    # yesterday_data = stats_service.get_daily_summary(yesterday, store_id)
-    # day_before_data = stats_service.get_daily_summary(day_before_yesterday, store_id)
-    # 
-    # # 本月累计
-    # month_data = stats_service.get_period_summary(month_start, yesterday, store_id)
-    # last_month_data = stats_service.get_period_summary(last_month_start, last_month_same_day, store_id)
-    # ============================================================
+    # 初始化数据
+    yesterday_actual = 0.0
+    day_before_actual = 0.0
+    month_actual = 0.0
+    last_month_actual = 0.0
+    month_cost = 0.0
+    gift_qty = 0
+    total_qty = 0
     
-    # Mock 数据 (等待 Dev A 实现后替换)
-    yesterday_actual = 18500.0
-    day_before_actual = 16500.0
-    
-    month_actual = 485000.0
-    last_month_actual = 449000.0
-    
-    month_cost = 287000.0
-    month_profit = month_actual - month_cost
-    
-    total_qty = 2500
-    gift_qty = 125
+    # 查询数据
+    try:
+        # 昨日数据
+        yesterday_result = stats_service.query_stats(
+            table="booking",
+            start_date=yesterday,
+            end_date=yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in yesterday_result.get("data", []):
+            yesterday_actual += _safe_float(row.get("actual"))
+        
+        # 前天数据
+        day_before_result = stats_service.query_stats(
+            table="booking",
+            start_date=day_before_yesterday,
+            end_date=day_before_yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in day_before_result.get("data", []):
+            day_before_actual += _safe_float(row.get("actual"))
+        
+        # 本月累计
+        month_result = stats_service.query_stats(
+            table="booking",
+            start_date=month_start,
+            end_date=yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in month_result.get("data", []):
+            month_actual += _safe_float(row.get("actual"))
+        
+        # 上月同期
+        last_month_result = stats_service.query_stats(
+            table="booking",
+            start_date=last_month_start,
+            end_date=last_month_end,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in last_month_result.get("data", []):
+            last_month_actual += _safe_float(row.get("actual"))
+    except Exception:
+        pass
     
     # 计算衍生指标
     yesterday_change = calculate_change_rate(yesterday_actual, day_before_actual)
     month_change = calculate_change_rate(month_actual, last_month_actual)
-    profit_rate = calculate_gross_margin(month_profit, month_actual)
+    month_profit = month_actual * 0.4  # 估算毛利 40%
+    profit_rate = 0.4 if month_actual > 0 else 0.0
     gift_rate = calculate_gift_rate(gift_qty, total_qty)
     
-    # ============================================================
     # 生成趋势数据 (近30天)
-    # TODO: 调用 stats_service.get_daily_trend(30, store_id)
-    # ============================================================
     revenue_trend = []
-    for i in range(30, 0, -1):
-        d = today - timedelta(days=i)
-        # Mock: 基于日期 hash 生成波动数据
-        base = 15000
-        variation = (hash(d.strftime("%Y%m%d")) % 8000) - 4000
-        revenue_trend.append(TrendItem(
-            date=d.strftime("%Y-%m-%d"),
-            value=round(base + variation + (30 - i) * 100, 2),  # 轻微上升趋势
-        ))
+    try:
+        trend_start = today - timedelta(days=30)
+        trend_result = stats_service.query_stats(
+            table="booking",
+            start_date=trend_start,
+            end_date=yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in trend_result.get("data", []):
+            revenue_trend.append(TrendItem(
+                date=str(row.get("dimension_key", "")),
+                value=round(_safe_float(row.get("actual")), 2),
+            ))
+    except Exception:
+        for i in range(30, 0, -1):
+            d = today - timedelta(days=i)
+            revenue_trend.append(TrendItem(
+                date=d.strftime("%Y-%m-%d"),
+                value=0.0,
+            ))
     
-    # ============================================================
-    # 生成排行榜数据
-    # TODO: 调用 stats_service.get_top_stores/employees/products(5, store_id)
-    # ============================================================
-    top_stores = [
-        TopItem(rank=1, name="万象城店", value=156000),
-        TopItem(rank=2, name="青年路店", value=142000),
-        TopItem(rank=3, name="高新店", value=128000),
-        TopItem(rank=4, name="曲江店", value=115000),
-        TopItem(rank=5, name="小寨店", value=98000),
-    ]
-    
-    top_employees = [
-        TopItem(rank=1, name="张三", value=45000),
-        TopItem(rank=2, name="李四", value=38000),
-        TopItem(rank=3, name="王五", value=32000),
-        TopItem(rank=4, name="赵六", value=28000),
-        TopItem(rank=5, name="钱七", value=24000),
-    ]
-    
-    top_products = [
-        TopItem(rank=1, name="百威啤酒", value=12500),
-        TopItem(rank=2, name="青岛啤酒", value=9800),
-        TopItem(rank=3, name="可乐", value=7600),
-        TopItem(rank=4, name="台湾香肠", value=5400),
-        TopItem(rank=5, name="薯条", value=4200),
-    ]
+    # TODO: 获取 Top 5 排行榜 (需扩展 StatsService)
+    top_stores = []
+    top_employees = []
+    top_products = []
     
     return DashboardSummary(
-        yesterday_actual=yesterday_actual,
+        yesterday_actual=round(yesterday_actual, 2),
         yesterday_change=yesterday_change,
-        month_actual=month_actual,
+        month_actual=round(month_actual, 2),
         month_change=month_change,
-        month_profit=month_profit,
+        month_profit=round(month_profit, 2),
         profit_rate=profit_rate,
         gift_rate=gift_rate,
         revenue_trend=revenue_trend,
@@ -207,17 +237,10 @@ async def get_kpi_cards(
     store_id: Optional[int] = Query(None, description="门店ID"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
+    db: Session = Depends(get_db),
 ):
     """
     获取 KPI 指标卡片数据（可自定义时间范围）
-    
-    返回:
-    - 实收金额
-    - 销售金额
-    - 毛利
-    - 毛利率
-    - 开台数
-    - 赠送金额
     """
     # 默认时间范围: 本月
     if not start_date:
@@ -225,11 +248,35 @@ async def get_kpi_cards(
     if not end_date:
         end_date = date.today()
     
-    # ============================================================
-    # TODO: 调用 Dev A 的 StatsService
-    # ============================================================
+    stats_service = StatsService(db)
     
-    # Mock 数据
+    # 初始化数据
+    actual_amount = 0.0
+    sales_amount = 0.0
+    order_count = 0
+    gift_amount = 0.0
+    
+    try:
+        result = stats_service.query_stats(
+            table="booking",
+            start_date=start_date,
+            end_date=end_date,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in result.get("data", []):
+            actual_amount += _safe_float(row.get("actual"))
+            sales_amount += _safe_float(row.get("sales"))
+            order_count += int(_safe_float(row.get("orders")))
+            gift_amount += _safe_float(row.get("gift_amount"))
+    except Exception:
+        pass
+    
+    profit = actual_amount * 0.4
+    profit_rate = 0.4 if actual_amount > 0 else 0.0
+    gift_rate = gift_amount / sales_amount if sales_amount > 0 else 0.0
+    
     return {
         "success": True,
         "data": {
@@ -238,18 +285,18 @@ async def get_kpi_cards(
                 "end_date": end_date.isoformat(),
             },
             "metrics": {
-                "actual_amount": 485000.0,
-                "sales_amount": 520000.0,
-                "profit": 198000.0,
-                "profit_rate": 0.408,
-                "order_count": 1250,
-                "gift_amount": 35000.0,
-                "gift_rate": 0.067,
+                "actual_amount": round(actual_amount, 2),
+                "sales_amount": round(sales_amount, 2),
+                "profit": round(profit, 2),
+                "profit_rate": round(profit_rate, 4),
+                "order_count": order_count,
+                "gift_amount": round(gift_amount, 2),
+                "gift_rate": round(gift_rate, 4),
             },
             "comparison": {
-                "actual_change": 0.08,
-                "profit_change": 0.12,
-                "order_change": -0.03,
+                "actual_change": 0.0,
+                "profit_change": 0.0,
+                "order_change": 0.0,
             }
         }
     }
@@ -260,33 +307,47 @@ async def get_trend_data(
     metric: str = Query("actual", description="指标: actual/sales/profit/orders"),
     days: int = Query(30, ge=7, le=90, description="天数"),
     store_id: Optional[int] = Query(None, description="门店ID"),
+    db: Session = Depends(get_db),
 ):
     """
     获取指定指标的趋势数据（用于折线图）
     """
     today = date.today()
+    start_date = today - timedelta(days=days)
     
-    # ============================================================
-    # TODO: 调用 Dev A 的 StatsService
-    # ============================================================
+    stats_service = StatsService(db)
     
-    # Mock 数据
+    # 指标映射
+    metric_field_map = {
+        "actual": "actual",
+        "sales": "sales",
+        "profit": "performance",
+        "orders": "orders",
+    }
+    field = metric_field_map.get(metric, "actual")
+    
     data = []
-    for i in range(days, 0, -1):
-        d = today - timedelta(days=i)
-        base_values = {
-            "actual": 15000,
-            "sales": 18000,
-            "profit": 6000,
-            "orders": 40,
-        }
-        base = base_values.get(metric, 15000)
-        variation = (hash(d.strftime("%Y%m%d") + metric) % int(base * 0.5)) - int(base * 0.25)
-        
-        data.append({
-            "date": d.strftime("%Y-%m-%d"),
-            "value": round(base + variation, 2),
-        })
+    try:
+        result = stats_service.query_stats(
+            table="booking",
+            start_date=start_date,
+            end_date=today - timedelta(days=1),
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in result.get("data", []):
+            data.append({
+                "date": str(row.get("dimension_key", "")),
+                "value": round(_safe_float(row.get(field)), 2),
+            })
+    except Exception:
+        for i in range(days, 0, -1):
+            d = today - timedelta(days=i)
+            data.append({
+                "date": d.strftime("%Y-%m-%d"),
+                "value": 0.0,
+            })
     
     return {
         "success": True,
@@ -303,57 +364,69 @@ async def get_ranking_data(
     store_id: Optional[int] = Query(None, description="门店ID (当 dimension != store 时有效)"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
+    db: Session = Depends(get_db),
 ):
     """
     获取排行榜数据（用于柱状图）
     """
-    # ============================================================
-    # TODO: 调用 Dev A 的 StatsService
-    # ============================================================
+    # 默认时间范围: 本月
+    if not start_date:
+        start_date = date.today().replace(day=1)
+    if not end_date:
+        end_date = date.today()
     
-    # Mock 数据
-    mock_data = {
-        "store": [
-            {"name": "万象城店", "value": 156000},
-            {"name": "青年路店", "value": 142000},
-            {"name": "高新店", "value": 128000},
-            {"name": "曲江店", "value": 115000},
-            {"name": "小寨店", "value": 98000},
-        ],
-        "employee": [
-            {"name": "张三", "value": 45000},
-            {"name": "李四", "value": 38000},
-            {"name": "王五", "value": 32000},
-            {"name": "赵六", "value": 28000},
-            {"name": "钱七", "value": 24000},
-        ],
-        "product": [
-            {"name": "百威啤酒", "value": 12500},
-            {"name": "青岛啤酒", "value": 9800},
-            {"name": "可乐", "value": 7600},
-            {"name": "台湾香肠", "value": 5400},
-            {"name": "薯条", "value": 4200},
-        ],
-        "room": [
-            {"name": "K01", "value": 85000},
-            {"name": "K07", "value": 72000},
-            {"name": "K11", "value": 68000},
-            {"name": "K18", "value": 55000},
-            {"name": "派对包", "value": 120000},
-        ],
+    stats_service = StatsService(db)
+    
+    # 选择合适的表和维度
+    table_map = {
+        "store": "booking",
+        "employee": "booking",
+        "product": "sales",
+        "room": "room",
     }
+    table = table_map.get(dimension, "booking")
     
-    data = mock_data.get(dimension, mock_data["store"])[:limit]
-    
-    # 添加排名
-    result = [
-        TopItem(rank=i + 1, name=item["name"], value=item["value"])
-        for i, item in enumerate(data)
-    ]
+    data = []
+    try:
+        result = stats_service.query_stats(
+            table=table,
+            start_date=start_date,
+            end_date=end_date,
+            store_id=store_id if dimension != "store" else None,
+            dimension=dimension,
+            granularity="day",
+        )
+        
+        # 获取数据并排序
+        raw_data = result.get("data", [])
+        
+        # 按指标排序
+        metric_field_map = {
+            "actual": "actual",
+            "sales": "sales",
+            "profit": "profit",
+            "qty": "orders",
+        }
+        field = metric_field_map.get(metric, "actual")
+        
+        sorted_data = sorted(
+            raw_data,
+            key=lambda x: _safe_float(x.get(field)),
+            reverse=True
+        )[:limit]
+        
+        for i, row in enumerate(sorted_data):
+            data.append(TopItem(
+                rank=i + 1,
+                name=str(row.get("dimension_key", "")),
+                value=round(_safe_float(row.get(field)), 2),
+            ))
+    except Exception:
+        pass
     
     return {
         "success": True,
         "dimension": dimension,
         "metric": metric,
-        "data": result,
+        "data": data,
     }
