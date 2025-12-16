@@ -493,14 +493,26 @@ class ImporterService:
 
             # booking: 员工维度
             if table_type == "booking" and "employee_name" in row:
+                employee_name = row.get("employee_name")
                 employee_id = self.get_or_create_dimension(
                     DimEmployee,
                     store_id,
-                    name=row.get("employee_name"),
+                    name=employee_name,
                     department=row.get("department"),
                 )
                 row_copy["employee_id"] = employee_id
                 row_copy.pop("employee_name", None)
+
+                customer_name = row_copy.get("customer_name")
+                if (
+                    not customer_name
+                    or (isinstance(customer_name, str) and not customer_name.strip())
+                ):
+                    fallback_name = employee_name
+                    if isinstance(fallback_name, str):
+                        fallback_name = fallback_name.strip()
+                    if fallback_name:
+                        row_copy["customer_name"] = fallback_name
 
             # room: 包厢维度
             if table_type == "room" and "room_no" in row:
@@ -521,9 +533,12 @@ class ImporterService:
 
             # sales: 商品维度
             if table_type == "sales" and "product_name" in row:
+                category_value = row.get("category_name")
+                if category_value is None:
+                    category_value = row.get("category")
                 product_kwargs = {
                     "name": row.get("product_name"),
-                    "category": row.get("category"),
+                    "category": category_value,
                 }
                 product_id = self.get_or_create_dimension(
                     DimProduct,
@@ -531,7 +546,6 @@ class ImporterService:
                     **{k: v for k, v in product_kwargs.items() if v is not None},
                 )
                 row_copy["product_id"] = product_id
-                row_copy.pop("product_name", None)
                 # 兼容字段命名差异：category -> category_name
                 if "category_name" not in row_copy and "category" in row_copy:
                     row_copy["category_name"] = row_copy.pop("category")
