@@ -45,7 +45,6 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      # 挂载代码目录实现热重载
       - ./backend/app:/app/app:cached
       - ./backend/alembic:/app/alembic:cached
       - ./backend/alembic.ini:/app/alembic.ini:cached
@@ -70,7 +69,6 @@ services:
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     volumes:
-      # 挂载代码目录实现热重载
       - ./frontend/src:/app/src:cached
       - ./frontend/public:/app/public:cached
       - ./frontend/index.html:/app/index.html:cached
@@ -88,4 +86,3 @@ networks:
   ktv-network:
     name: ktv-network
     driver: bridge
-

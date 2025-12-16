@@ -3,12 +3,18 @@
 
 参考文档:
 - docs/web界面5.md (1.4 节)
+
+对接: Dev A 的数据库模型 (DimStore)
 """
 
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException, Depends
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.models.dims import DimStore
 
 router = APIRouter()
 
@@ -22,6 +28,9 @@ class StoreInfo(BaseModel):
     id: int = Field(..., description="门店ID")
     name: str = Field(..., description="门店名称")
     is_active: bool = Field(True, description="是否启用")
+    
+    class Config:
+        from_attributes = True
 
 
 class StoreListResponse(BaseModel):
@@ -31,41 +40,38 @@ class StoreListResponse(BaseModel):
 
 
 # ============================================================
-# Mock 数据 (等待 Dev A 实现数据库后替换)
-# ============================================================
-
-MOCK_STORES = [
-    StoreInfo(id=1, name="万象城店", is_active=True),
-    StoreInfo(id=2, name="青年路店", is_active=True),
-    StoreInfo(id=3, name="高新店", is_active=True),
-    StoreInfo(id=4, name="曲江店", is_active=True),
-    StoreInfo(id=5, name="小寨店", is_active=False),
-]
-
-
-# ============================================================
 # API 接口
 # ============================================================
 
 @router.get("", response_model=StoreListResponse, summary="获取门店列表")
 async def list_stores(
     is_active: Optional[bool] = Query(None, description="是否只返回启用的门店"),
+    db: Session = Depends(get_db),
 ):
     """
     获取门店列表
     
     参考: docs/web界面5.md (1.4 节)
     """
-    # ============================================================
-    # TODO: 调用数据库查询 (Dev A 负责)
-    # from app.services.store import StoreService
-    # stores = store_service.list_stores(is_active)
-    # ============================================================
+    # 构建查询
+    query = db.query(DimStore)
     
-    result = MOCK_STORES.copy()
-    
+    # 应用筛选条件
     if is_active is not None:
-        result = [s for s in result if s.is_active == is_active]
+        query = query.filter(DimStore.is_active == is_active)
+    
+    # 按 ID 排序
+    stores = query.order_by(DimStore.id).all()
+    
+    # 转换为 Schema
+    result = [
+        StoreInfo(
+            id=store.id,
+            name=store.store_name,
+            is_active=store.is_active if store.is_active is not None else True,
+        )
+        for store in stores
+    ]
     
     return StoreListResponse(
         success=True,
@@ -74,12 +80,19 @@ async def list_stores(
 
 
 @router.get("/{store_id}", response_model=StoreInfo, summary="获取门店详情")
-async def get_store(store_id: int):
+async def get_store(
+    store_id: int,
+    db: Session = Depends(get_db),
+):
     """获取单个门店信息"""
-    for store in MOCK_STORES:
-        if store.id == store_id:
-            return store
+    store = db.query(DimStore).filter(DimStore.id == store_id).first()
     
-    from fastapi import HTTPException
-    raise HTTPException(status_code=404, detail="门店不存在")
+    if not store:
+        raise HTTPException(status_code=404, detail="门店不存在")
+    
+    return StoreInfo(
+        id=store.id,
+        name=store.store_name,
+        is_active=store.is_active if store.is_active is not None else True,
+    )
 
