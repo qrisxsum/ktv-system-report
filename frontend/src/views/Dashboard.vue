@@ -73,13 +73,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, inject, watch } from 'vue'
 import * as echarts from 'echarts'
 import { getDashboardSummary } from '@/api/dashboard'
 
 // 状态
 const loading = ref(false)
 const dashboardData = ref(null)
+
+// 注入门店选择状态
+const currentStore = inject('currentStore', ref(''))
 
 // KPI 数据 (从 API 响应计算)
 const kpiList = computed(() => {
@@ -152,15 +155,43 @@ let charts = []
 // 初始化趋势图
 const initTrendChart = (trendData) => {
   if (!trendChartRef.value) return
-  
+
+  // 清理之前的图表实例
+  const existingChart = echarts.getInstanceByDom(trendChartRef.value)
+  if (existingChart) {
+    existingChart.dispose()
+    const index = charts.indexOf(existingChart)
+    if (index > -1) {
+      charts.splice(index, 1)
+    }
+  }
+
   const chart = echarts.init(trendChartRef.value)
   charts.push(chart)
-  
+
+  if (!trendData || trendData.length === 0) {
+    chart.setOption({
+      title: {
+        text: '暂无数据',
+        left: 'center',
+        top: 'center',
+        textStyle: {
+          color: '#999',
+          fontSize: 14
+        }
+      },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      series: []
+    })
+    return
+  }
+
   const dates = trendData.map(item => item.date.slice(5)) // MM-DD
   const values = trendData.map(item => (item.value / 10000).toFixed(2))
-  
+
   chart.setOption({
-    tooltip: { 
+    tooltip: {
       trigger: 'axis',
       formatter: (params) => {
         const data = params[0]
@@ -193,13 +224,41 @@ const initTrendChart = (trendData) => {
 // 初始化门店排行
 const initStoreChart = (topStores) => {
   if (!storeChartRef.value) return
-  
+
+  // 清理之前的图表实例
+  const existingChart = echarts.getInstanceByDom(storeChartRef.value)
+  if (existingChart) {
+    existingChart.dispose()
+    const index = charts.indexOf(existingChart)
+    if (index > -1) {
+      charts.splice(index, 1)
+    }
+  }
+
   const chart = echarts.init(storeChartRef.value)
   charts.push(chart)
-  
+
+  if (!topStores || topStores.length === 0) {
+    chart.setOption({
+      title: {
+        text: '暂无数据',
+        left: 'center',
+        top: 'center',
+        textStyle: {
+          color: '#999',
+          fontSize: 14
+        }
+      },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      series: []
+    })
+    return
+  }
+
   const names = topStores.map(item => item.name).reverse()
   const values = topStores.map(item => item.value).reverse()
-  
+
   chart.setOption({
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
@@ -217,9 +276,9 @@ const initStoreChart = (topStores) => {
           { offset: 1, color: '#f5576c' }
         ])
       },
-      label: { 
-        show: true, 
-        position: 'right', 
+      label: {
+        show: true,
+        position: 'right',
         formatter: (params) => `¥${(params.value / 10000).toFixed(1)}万`
       }
     }]
@@ -229,13 +288,41 @@ const initStoreChart = (topStores) => {
 // 初始化员工排行
 const initStaffChart = (topEmployees) => {
   if (!staffChartRef.value) return
-  
+
+  // 清理之前的图表实例
+  const existingChart = echarts.getInstanceByDom(staffChartRef.value)
+  if (existingChart) {
+    existingChart.dispose()
+    const index = charts.indexOf(existingChart)
+    if (index > -1) {
+      charts.splice(index, 1)
+    }
+  }
+
   const chart = echarts.init(staffChartRef.value)
   charts.push(chart)
-  
+
+  if (!topEmployees || topEmployees.length === 0) {
+    chart.setOption({
+      title: {
+        text: '暂无数据',
+        left: 'center',
+        top: 'center',
+        textStyle: {
+          color: '#999',
+          fontSize: 14
+        }
+      },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      series: []
+    })
+    return
+  }
+
   const names = topEmployees.map(item => item.name).reverse()
   const values = topEmployees.map(item => item.value).reverse()
-  
+
   chart.setOption({
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
@@ -253,9 +340,9 @@ const initStaffChart = (topEmployees) => {
           { offset: 1, color: '#764ba2' }
         ])
       },
-      label: { 
-        show: true, 
-        position: 'right', 
+      label: {
+        show: true,
+        position: 'right',
         formatter: (params) => `¥${params.value.toLocaleString()}`
       }
     }]
@@ -265,13 +352,41 @@ const initStaffChart = (topEmployees) => {
 // 初始化商品排行
 const initProductChart = (topProducts) => {
   if (!productChartRef.value) return
-  
+
+  // 清理之前的图表实例
+  const existingChart = echarts.getInstanceByDom(productChartRef.value)
+  if (existingChart) {
+    existingChart.dispose()
+    const index = charts.indexOf(existingChart)
+    if (index > -1) {
+      charts.splice(index, 1)
+    }
+  }
+
   const chart = echarts.init(productChartRef.value)
   charts.push(chart)
-  
+
+  if (!topProducts || topProducts.length === 0) {
+    chart.setOption({
+      title: {
+        text: '暂无数据',
+        left: 'center',
+        top: 'center',
+        textStyle: {
+          color: '#999',
+          fontSize: 14
+        }
+      },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      series: []
+    })
+    return
+  }
+
   const names = topProducts.map(item => item.name).reverse()
   const values = topProducts.map(item => item.value).reverse()
-  
+
   chart.setOption({
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
@@ -289,9 +404,9 @@ const initProductChart = (topProducts) => {
           { offset: 1, color: '#38f9d7' }
         ])
       },
-      label: { 
-        show: true, 
-        position: 'right', 
+      label: {
+        show: true,
+        position: 'right',
         formatter: (params) => `¥${params.value.toLocaleString()}`
       }
     }]
@@ -299,26 +414,20 @@ const initProductChart = (topProducts) => {
 }
 
 // 加载数据
-const loadDashboardData = async () => {
+const loadDashboardData = async (storeId = null) => {
   loading.value = true
-  
+
   try {
-    const data = await getDashboardSummary()
+    // 转换门店ID：'all'表示全部门店，'1'表示万象城店，'2'表示青年路店
+    const storeIdParam = storeId === 'all' ? null : (storeId ? parseInt(storeId) : null)
+    const data = await getDashboardSummary(storeIdParam)
     dashboardData.value = data
     
-    // 初始化图表
-    if (data.revenue_trend?.length) {
-      initTrendChart(data.revenue_trend)
-    }
-    if (data.top_stores?.length) {
-      initStoreChart(data.top_stores)
-    }
-    if (data.top_employees?.length) {
-      initStaffChart(data.top_employees)
-    }
-    if (data.top_products?.length) {
-      initProductChart(data.top_products)
-    }
+    // 初始化图表 (无论是否有数据都要初始化，确保清空之前的图表)
+    initTrendChart(data.revenue_trend || [])
+    initStoreChart(data.top_stores || [])
+    initStaffChart(data.top_employees || [])
+    initProductChart(data.top_products || [])
   } catch (error) {
     console.error('加载看板数据失败:', error)
   } finally {
@@ -331,8 +440,14 @@ const handleResize = () => {
   charts.forEach(chart => chart.resize())
 }
 
+// 监听门店选择变化
+watch(currentStore, (newStoreId) => {
+  console.log('Dashboard检测到门店变化:', newStoreId)
+  loadDashboardData(newStoreId)
+})
+
 onMounted(() => {
-  loadDashboardData()
+  loadDashboardData(currentStore.value)
   window.addEventListener('resize', handleResize)
 })
 

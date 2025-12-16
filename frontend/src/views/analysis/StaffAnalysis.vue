@@ -56,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, inject } from 'vue'
 import * as echarts from 'echarts'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
@@ -65,6 +65,9 @@ const loading = ref(false)
 const dateRange = ref([])
 const chartRef = ref(null)
 let chart = null
+
+// 注入门店选择状态
+const currentStore = inject('currentStore', ref('all'))
 
 const rawData = ref([])
 
@@ -119,14 +122,21 @@ const fetchData = async () => {
   
   try {
     const [startDate, endDate] = dateRange.value
-    
-    const response = await queryStats({
+
+    const params = {
       table: 'booking',
       start_date: startDate,
       end_date: endDate,
       dimension: 'employee',
       granularity: 'day'
-    })
+    }
+
+    // 根据当前门店选择设置store_id参数
+    if (currentStore.value !== 'all') {
+      params.store_id = parseInt(currentStore.value)
+    }
+
+    const response = await queryStats(params)
     
     if (response.success && response.data) {
       rawData.value = response.data
@@ -198,6 +208,11 @@ const updateChart = () => {
     }]
   })
 }
+
+// 监听门店变化，重新获取数据
+watch(currentStore, () => {
+  fetchData()
+})
 
 // 监听数据变化，更新图表
 watch(staffData, () => {

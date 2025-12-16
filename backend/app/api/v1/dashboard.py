@@ -291,7 +291,7 @@ async def get_dashboard_summary(
             limit=5,
             start_date=sales_month_start,
             end_date=sales_end,
-            store_id=None,  # 商品排行不分门店
+            store_id=store_id,  # 支持按门店筛选商品排行
         )
         top_products = [
             TopItem(rank=i + 1, name=row["dimension_label"], value=round(row["metric_value"], 2))

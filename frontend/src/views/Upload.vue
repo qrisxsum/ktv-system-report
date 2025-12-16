@@ -167,7 +167,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, inject, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { parseFile, confirmImport, cancelUpload } from '@/api/upload'
 import { listBatches, deleteBatch } from '@/api/batch'
@@ -179,6 +179,9 @@ const uploading = ref(false)
 const uploadHistory = ref([])
 const loadingHistory = ref(false)
 
+// 注入门店选择状态
+const currentStore = inject('currentStore', ref('all'))
+
 // 状态映射
 const STATUS_MAP = {
   pending: { type: 'warning', text: '处理中' },
@@ -189,6 +192,12 @@ const STATUS_MAP = {
 
 const getStatusType = (status) => STATUS_MAP[status]?.type || 'info'
 const getStatusText = (status) => STATUS_MAP[status]?.text || status
+
+// 监听门店变化，自动刷新上传历史
+watch(currentStore, (newStore) => {
+  console.log('Upload页面检测到门店变化:', newStore)
+  refreshHistory()
+})
 
 // 文件变化处理
 const handleFileChange = async (file) => {
@@ -256,10 +265,18 @@ const resetUpload = async () => {
 // 刷新上传历史
 const refreshHistory = async () => {
   loadingHistory.value = true
-  
+
   try {
-    const response = await listBatches({ page: 1, page_size: 10 })
-    
+    // 根据当前门店选择构建查询参数
+    const params = { page: 1, page_size: 10 }
+
+    // 转换门店ID：'all'表示全部门店，数字表示具体门店
+    if (currentStore.value !== 'all') {
+      params.store_id = parseInt(currentStore.value)
+    }
+
+    const response = await listBatches(params)
+
     if (response.success) {
       uploadHistory.value = response.data || []
     }
