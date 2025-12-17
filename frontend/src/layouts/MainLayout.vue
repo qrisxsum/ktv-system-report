@@ -28,6 +28,11 @@
           <el-icon><List /></el-icon>
           <template #title>批次管理</template>
         </el-menu-item>
+
+        <el-menu-item index="/general-analysis">
+          <el-icon><DataLine /></el-icon>
+          <template #title>通用分析</template>
+        </el-menu-item>
         
         <el-sub-menu index="/analysis">
           <template #title>
@@ -37,7 +42,6 @@
           <el-menu-item index="/analysis/staff">人员风云榜</el-menu-item>
           <el-menu-item index="/analysis/products">商品销售</el-menu-item>
           <el-menu-item index="/analysis/rooms">包厢效能</el-menu-item>
-          <el-menu-item index="/analysis/general">通用分析</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-aside>
@@ -60,7 +64,10 @@
           </el-breadcrumb>
         </div>
         
-        <div class="header-right">
+        <div
+          v-if="showStoreSelector"
+          class="header-right"
+        >
           <el-select v-model="currentStore" placeholder="选择门店" style="width: 180px">
             <el-option
               v-for="store in stores"
@@ -121,6 +128,7 @@ const loadStores = async () => {
 
 const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => route.meta?.title || '首页')
+const showStoreSelector = computed(() => route.meta?.hideStoreSelector !== true)
 
 // 组件挂载时加载门店列表
 onMounted(() => {

@@ -4,7 +4,6 @@
       <template #header>
         <div class="card-header">
           <h2>通用数据分析</h2>
-          <span class="card-subtitle">Data Explorer (Phase 1)</span>
         </div>
       </template>
 
