@@ -28,6 +28,11 @@
           <el-icon><List /></el-icon>
           <template #title>批次管理</template>
         </el-menu-item>
+
+        <el-menu-item index="/general-analysis">
+          <el-icon><DataLine /></el-icon>
+          <template #title>通用分析</template>
+        </el-menu-item>
         
         <el-sub-menu index="/analysis">
           <template #title>
@@ -59,6 +64,7 @@
           </el-breadcrumb>
         </div>
         
+<<<<<<< HEAD
         <div class="header-right">
           <!-- 显示当前门店名称 -->
           <div class="current-store-display" style="width: 180px; text-align: right; padding-right: 20px;">
@@ -82,6 +88,20 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
+=======
+        <div
+          v-if="showStoreSelector"
+          class="header-right"
+        >
+          <el-select v-model="currentStore" placeholder="选择门店" style="width: 180px">
+            <el-option
+              v-for="store in stores"
+              :key="store.id"
+              :label="store.name"
+              :value="store.id.toString()"
+            />
+          </el-select>
+>>>>>>> 74df8e1d05a8a41e361c03c6e8f9d57f1ca9c1dd
         </div>
       </el-header>
 
@@ -224,6 +244,7 @@ const loadStores = async () => {
 
 const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => route.meta?.title || '首页')
+const showStoreSelector = computed(() => route.meta?.hideStoreSelector !== true)
 
 // 组件挂载时加载数据
 onMounted(() => {

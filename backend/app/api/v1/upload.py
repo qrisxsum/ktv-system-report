@@ -11,6 +11,7 @@ Pipeline: Raw File -> Dev B (Parser) -> DataFrame -> Dev B (Cleaner) -> Cleaned 
 
 import uuid
 import os
+import hashlib
 from typing import Optional, Tuple, Dict, Any, List
 from datetime import datetime
 from decimal import Decimal
@@ -25,6 +26,8 @@ from fastapi import (
     BackgroundTasks,
     Depends,
 )
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -39,14 +42,18 @@ from app.schemas import (
     RowError,
 )
 from app.core.database import get_db
+<<<<<<< HEAD
 from app.core.security import get_current_admin
+=======
+from app.models.meta import MetaFileBatch
+>>>>>>> 74df8e1d05a8a41e361c03c6e8f9d57f1ca9c1dd
 from app.services.cleaner import CleanerService
 from app.services.parser import (
     read_excel_file,
     detect_report_type,
     ParserError,
 )
-from app.services.importer import ImporterService
+from app.services.importer import ImporterService, DuplicateFileError, describe_duplicate_batch
 
 router = APIRouter()
 settings = get_settings()
@@ -98,6 +105,31 @@ def _to_builtin(obj: Any) -> Any:
         return [_to_builtin(x) for x in obj]
 
     return obj
+
+
+def _calculate_file_hash(contents: bytes) -> str:
+    """计算文件内容的 SHA256 哈希"""
+    return hashlib.sha256(contents).hexdigest()
+
+
+def _find_success_batch_by_hash(db: Session, file_hash: Optional[str]) -> Optional[MetaFileBatch]:
+    if not file_hash:
+        return None
+    return (
+        db.query(MetaFileBatch)
+        .filter(
+            MetaFileBatch.file_hash == file_hash,
+            MetaFileBatch.status == BatchStatus.SUCCESS.value,
+        )
+        .order_by(MetaFileBatch.created_at.desc())
+        .first()
+    )
+
+
+def _conflict_response(message: str) -> JSONResponse:
+    payload = UploadResponse(success=False, message=message, data=None)
+    # 注意：UploadResponse 内含 timestamp(datetime)，需用 jsonable_encoder 才能被 JSONResponse 正确序列化
+    return JSONResponse(status_code=409, content=jsonable_encoder(payload))
 
 
 # ============================================================
@@ -202,6 +234,7 @@ def _determine_table_type(filename: str, df) -> Tuple[TableType, str]:
 async def parse_file(
     file: UploadFile = File(..., description="Excel/CSV 文件"),
     store_id: Optional[int] = Form(None, description="门店ID (可选)"),
+    db: Session = Depends(get_db),
 ):
     """
     步骤1: 解析上传的文件，返回预览数据供用户确认
@@ -229,8 +262,19 @@ async def parse_file(
 
     file_path = os.path.join(upload_dir, f"{session_id}_{file.filename}")
 
+    file_hash: Optional[str] = None
     try:
         contents = await file.read()
+
+        if not contents:
+            raise HTTPException(status_code=400, detail="文件内容为空")
+
+        file_hash = _calculate_file_hash(contents)
+        duplicate_batch = _find_success_batch_by_hash(db, file_hash)
+        if duplicate_batch:
+            message = describe_duplicate_batch(duplicate_batch)
+            return _conflict_response(message)
+
         with open(file_path, "wb") as f:
             f.write(contents)
     except Exception as e:
@@ -284,6 +328,7 @@ async def parse_file(
         "store_name": resolved_store_name,
         "meta": meta,
         "created_at": datetime.now(),
+        "file_hash": file_hash,
     }
 
     return UploadResponse(
@@ -321,21 +366,39 @@ async def confirm_import(
         parse_result.file_type.value if parse_result.file_type else None
     )
     store_name = cached_store_name or parse_result.store_name
+    file_hash = cache.get("file_hash")
+    if not file_hash and os.path.exists(file_path):
+        try:
+            with open(file_path, "rb") as f:
+                file_hash = _calculate_file_hash(f.read())
+                cache["file_hash"] = file_hash
+        except Exception:
+            file_hash = None
+
     if not table_type_value:
         raise HTTPException(status_code=400, detail="无法识别表类型，请重新上传文件")
+
+    duplicate_batch = _find_success_batch_by_hash(db, file_hash)
+    if duplicate_batch:
+        message = describe_duplicate_batch(duplicate_batch)
+        return _conflict_response(message)
 
     importer = ImporterService(db)
     meta = cache.get("meta") or {}
 
-    service_result = importer.process_upload(
-        file_name=os.path.basename(file_path),
-        store_id=parse_result.store_id,
-        table_type=table_type_value,
-        cleaned_data=cleaned_data,
-        biz_date=meta.get("biz_date"),
-        store_name=store_name,
-        payment_methods=meta.get("payment_methods"),
-    )
+    try:
+        service_result = importer.process_upload(
+            file_name=os.path.basename(file_path),
+            store_id=parse_result.store_id,
+            table_type=table_type_value,
+            cleaned_data=cleaned_data,
+            biz_date=meta.get("biz_date"),
+            store_name=store_name,
+            payment_methods=meta.get("payment_methods"),
+            file_hash=file_hash,
+        )
+    except DuplicateFileError as duplicate_error:
+        return _conflict_response(str(duplicate_error))
 
     status_value = service_result.get("status", BatchStatus.FAILED.value)
     try:

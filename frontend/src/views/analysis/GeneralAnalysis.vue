@@ -1,0 +1,627 @@
+<template>
+  <div class="general-analysis">
+    <el-card class="analysis-card" shadow="never">
+      <template #header>
+        <div class="card-header">
+          <h2>通用数据分析</h2>
+        </div>
+      </template>
+
+      <div class="query-toolbar">
+        <div class="toolbar-item">
+          <span class="toolbar-label">数据源</span>
+          <el-select v-model="queryParams.table" placeholder="选择数据源">
+            <el-option
+              v-for="option in tableOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </div>
+
+        <div class="toolbar-item">
+          <span class="toolbar-label">时间范围</span>
+          <el-date-picker
+            v-model="queryParams.dateRange"
+            type="daterange"
+            unlink-panels
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+          />
+        </div>
+
+        <div class="toolbar-item">
+          <span class="toolbar-label">门店</span>
+          <el-select
+            v-model="queryParams.store_id"
+            placeholder="全部门店"
+            clearable
+          >
+            <el-option
+              v-for="store in storeOptions"
+              :key="store.id"
+              :label="store.name"
+              :value="store.id"
+            />
+          </el-select>
+        </div>
+
+        <div class="toolbar-item">
+          <span class="toolbar-label">分析维度</span>
+          <el-select v-model="queryParams.dimension" placeholder="选择维度">
+            <el-option
+              v-for="option in dimensionOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </div>
+
+        <div
+          v-if="showGranularity"
+          class="toolbar-item"
+        >
+          <span class="toolbar-label">时间粒度</span>
+          <el-select v-model="queryParams.granularity" placeholder="选择粒度">
+            <el-option
+              v-for="option in granularityOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </div>
+
+        <div class="toolbar-item toolbar-action">
+          <el-button type="primary" @click="handleQuery">查询</el-button>
+        </div>
+      </div>
+
+      <div class="chart-section">
+        <div class="chart-header">
+          <div class="chart-info">
+            <h3>可视化分析</h3>
+            <p v-if="currentMetricLabel" class="chart-subtitle">
+              当前指标：{{ currentMetricLabel }}
+            </p>
+          </div>
+          <el-radio-group
+            v-if="metricOptions.length"
+            v-model="selectedMetric"
+            size="small"
+            class="metric-selector"
+          >
+            <el-radio-button
+              v-for="metric in metricOptions"
+              :key="metric.prop"
+              :label="metric.prop"
+            >
+              {{ metric.label }}
+            </el-radio-button>
+          </el-radio-group>
+          <span v-else class="metric-placeholder">暂无可选指标</span>
+        </div>
+        <div class="chart-body">
+          <div ref="chartRef" class="chart-container"></div>
+          <div v-if="!hasChartData" class="chart-empty">
+            暂无可视化数据，请先执行查询
+          </div>
+        </div>
+      </div>
+
+      <el-table
+        class="result-table"
+        :data="renderedTableData"
+        border
+        stripe
+        v-loading="loading"
+        :empty-text="loading ? '数据加载中…' : '暂无数据，请先执行查询'"
+      >
+        <el-table-column
+          v-for="column in tableColumns"
+          :key="column.prop"
+          :prop="column.prop"
+          :label="column.label"
+          :min-width="column.minWidth || 120"
+          :align="column.align || 'left'"
+          show-overflow-tooltip
+        >
+          <template #default="{ row }">
+            {{ row[column.prop] ?? '--' }}
+          </template>
+        </el-table-column>
+      </el-table>
+
+    </el-card>
+  </div>
+</template>
+
+<script setup>
+import { reactive, computed, watch, ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import * as echarts from 'echarts'
+import { ElMessage } from 'element-plus'
+import { queryStats } from '@/api/stats'
+import { listStores } from '@/api/store'
+
+const EMPTY_DATASET = Object.freeze([])
+
+const queryParams = reactive({
+  table: 'sales',
+  dateRange: [],
+  dimension: 'date',
+  granularity: 'day',
+  store_id: null
+})
+
+const TABLE_OPTIONS = [
+  { label: '商品 (Sales)', value: 'sales' },
+  { label: '预订 (Booking)', value: 'booking' },
+  { label: '包厢 (Room)', value: 'room' }
+]
+
+const DIMENSION_OPTIONS_MAP = {
+  sales: [
+    { label: '日期', value: 'date' },
+    { label: '门店', value: 'store' },
+    { label: '商品', value: 'product' }
+  ],
+  booking: [
+    { label: '日期', value: 'date' },
+    { label: '门店', value: 'store' },
+    { label: '员工', value: 'employee' }
+  ],
+  room: [
+    { label: '日期', value: 'date' },
+    { label: '门店', value: 'store' },
+    { label: '包厢', value: 'room' },
+    { label: '包厢类型', value: 'room_type' }
+  ]
+}
+
+const DEFAULT_DIMENSION_MAP = {
+  sales: 'date',
+  booking: 'date',
+  room: 'date'
+}
+
+const GRANULARITY_OPTIONS = [
+  { label: '按日 (Day)', value: 'day' },
+  { label: '按周 (Week)', value: 'week' },
+  { label: '按月 (Month)', value: 'month' }
+]
+
+const DIMENSION_COLUMN_MAP = {
+  date: { label: '日期', prop: 'dimension_value', minWidth: 140 },
+  store: { label: '门店', prop: 'dimension_value', minWidth: 160 },
+  employee: { label: '员工', prop: 'dimension_value', minWidth: 160 },
+  product: { label: '商品', prop: 'dimension_value', minWidth: 160 },
+  room: { label: '包厢', prop: 'dimension_value', minWidth: 140 },
+  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160 }
+}
+
+const COLUMN_CONFIG = {
+  booking: [
+    { prop: 'orders', label: '订单数', align: 'right', minWidth: 100 },
+    { prop: 'sales_amount', label: '销售额', align: 'right', minWidth: 120 },
+    { prop: 'actual', label: '实收', align: 'right', minWidth: 120 },
+    { prop: 'performance', label: '业绩', align: 'right', minWidth: 120 }
+  ],
+  sales: [
+    { prop: 'sales_qty', label: '销量', align: 'right', minWidth: 100 },
+    { prop: 'sales_amount', label: '销售额', align: 'right', minWidth: 120 },
+    { prop: 'gift_amount', label: '赠送金额', align: 'right', minWidth: 120 },
+    { prop: 'cost', label: '成本', align: 'right', minWidth: 100 },
+    { prop: 'profit', label: '毛利', align: 'right', minWidth: 100 }
+  ],
+  room: [
+    { prop: 'orders', label: '开台数', align: 'right', minWidth: 100 },
+    { prop: 'gmv', label: 'GMV', align: 'right', minWidth: 120 },
+    { prop: 'actual', label: '实收', align: 'right', minWidth: 120 },
+    { prop: 'duration', label: '时长', align: 'right', minWidth: 100 } // 假设后端字段为 duration
+  ]
+}
+
+const tableOptions = TABLE_OPTIONS
+
+const dimensionOptions = computed(() => DIMENSION_OPTIONS_MAP[queryParams.table] || [])
+
+const showGranularity = computed(() => queryParams.dimension === 'date')
+
+const granularityOptions = GRANULARITY_OPTIONS
+
+const metricOptions = computed(() => COLUMN_CONFIG[queryParams.table] || [])
+
+const tableData = ref([])
+const appliedParams = ref(null)
+const tableColumns = ref([])
+const loading = ref(false)
+const selectedMetric = ref('')
+const chartRef = ref(null)
+let chartInstance = null
+const storeOptions = ref([])
+
+const chartType = computed(() => (queryParams.dimension === 'date' ? 'line' : 'bar'))
+
+const snapshotCurrentQuery = () => ({
+  table: queryParams.table,
+  dimension: queryParams.dimension,
+  granularity: queryParams.dimension === 'date' ? queryParams.granularity : undefined,
+  store_id: queryParams.store_id ?? null,
+  dateRange: Array.isArray(queryParams.dateRange) ? [...queryParams.dateRange] : []
+})
+
+const normalizeRangeKey = (range) =>
+  Array.isArray(range) && range.length === 2 ? range.join('|') : ''
+
+const isViewSynced = computed(() => {
+  if (!appliedParams.value) {
+    return false
+  }
+  const targetGranularity = queryParams.dimension === 'date' ? queryParams.granularity : undefined
+  return (
+    appliedParams.value.table === queryParams.table &&
+    appliedParams.value.dimension === queryParams.dimension &&
+    appliedParams.value.granularity === targetGranularity &&
+    appliedParams.value.store_id === (queryParams.store_id ?? null) &&
+    normalizeRangeKey(appliedParams.value.dateRange) === normalizeRangeKey(queryParams.dateRange)
+  )
+})
+
+const renderedTableData = computed(() =>
+  isViewSynced.value ? tableData.value : EMPTY_DATASET
+)
+
+const hasChartData = computed(
+  () =>
+    isViewSynced.value &&
+    renderedTableData.value.length > 0 &&
+    Boolean(selectedMetric.value)
+)
+
+const currentMetricLabel = computed(() => {
+  const current = metricOptions.value.find((item) => item.prop === selectedMetric.value)
+  return current?.label || ''
+})
+
+const buildTableColumns = () => {
+  const dimensionKey = queryParams.dimension
+  const dimensionColumn = DIMENSION_COLUMN_MAP[dimensionKey] || {
+    label: '当前维度',
+    prop: 'dimension_value',
+    minWidth: 140
+  }
+  const metrics = COLUMN_CONFIG[queryParams.table] || []
+  tableColumns.value = [dimensionColumn, ...metrics]
+}
+
+const handleQuery = async () => {
+  const [startDate, endDate] = queryParams.dateRange || []
+  if (!startDate || !endDate) {
+    ElMessage.warning('请选择完整的时间范围后再查询')
+    return
+  }
+  const rawParams = {
+    table: queryParams.table,
+    dimension: queryParams.dimension,
+    granularity: queryParams.dimension === 'date' ? queryParams.granularity : undefined,
+    start_date: startDate,
+    end_date: endDate,
+    store_id: queryParams.store_id
+  }
+  const requestParams = Object.fromEntries(
+    Object.entries(rawParams).filter(([, value]) => value !== undefined && value !== null && value !== '')
+  )
+
+  loading.value = true
+
+  try {
+    const response = await queryStats(requestParams)
+    if (response?.success && Array.isArray(response.data)) {
+      tableData.value = response.data.map((item) => ({
+        ...item,
+        dimension_value: item.dimension_label || item.dimension_key || '--'
+      }))
+      appliedParams.value = snapshotCurrentQuery()
+    } else {
+      tableData.value = []
+      appliedParams.value = null
+    }
+  } catch (error) {
+    console.error('[GeneralAnalysis] 查询失败:', error)
+    ElMessage.error('查询失败，请稍后重试')
+    tableData.value = []
+    appliedParams.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchStoreOptions = async () => {
+  try {
+    const response = await listStores(true)
+    if (Array.isArray(response?.data)) {
+      storeOptions.value = response.data
+    } else {
+      storeOptions.value = []
+    }
+  } catch (error) {
+    console.error('[GeneralAnalysis] 门店列表获取失败:', error)
+    storeOptions.value = []
+  }
+}
+
+const handleResize = () => {
+  if (chartInstance) {
+    chartInstance.resize()
+  }
+}
+
+const buildChartOption = () => {
+  if (!hasChartData.value) {
+    return null
+  }
+
+  const metric = metricOptions.value.find((item) => item.prop === selectedMetric.value)
+  if (!metric) {
+    return null
+  }
+
+  const sourceData = renderedTableData.value
+  const xData = sourceData.map((item) => item.dimension_value ?? '--')
+  const yData = sourceData.map((item) => Number(item[metric.prop]) || 0)
+
+  const series = {
+    name: metric.label,
+    type: chartType.value,
+    data: yData,
+    smooth: chartType.value === 'line'
+  }
+
+  if (chartType.value === 'line') {
+    series.areaStyle = { opacity: 0.12 }
+    series.symbol = 'circle'
+    series.symbolSize = 6
+  } else {
+    series.showBackground = true
+    series.backgroundStyle = {
+      color: 'rgba(64, 158, 255, 0.05)'
+    }
+  }
+
+  return {
+    tooltip: {
+      trigger: 'axis'
+    },
+    grid: {
+      left: 48,
+      right: 24,
+      top: 52,
+      bottom: 32
+    },
+    xAxis: {
+      type: 'category',
+      data: xData,
+      boundaryGap: chartType.value === 'bar'
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: {
+        lineStyle: {
+          type: 'dashed'
+        }
+      }
+    },
+    series: [series],
+    color: ['#409EFF']
+  }
+}
+
+const updateChart = () => {
+  if (!chartInstance) {
+    return
+  }
+
+  const option = buildChartOption()
+  if (!option) {
+    chartInstance.clear()
+    return
+  }
+
+  chartInstance.setOption(option, true)
+}
+
+const initChart = () => {
+  if (!chartRef.value || chartInstance) {
+    return
+  }
+  chartInstance = echarts.init(chartRef.value)
+  window.addEventListener('resize', handleResize)
+  updateChart()
+}
+
+watch(
+  () => queryParams.table,
+  (nextTable) => {
+    tableData.value = []
+    const defaultDimension = DEFAULT_DIMENSION_MAP[nextTable] || 'date'
+    queryParams.dimension = defaultDimension
+  },
+  { immediate: true }
+)
+
+watch(
+  metricOptions,
+  (options) => {
+    if (!options.length) {
+      selectedMetric.value = ''
+      return
+    }
+    if (!options.some((item) => item.prop === selectedMetric.value)) {
+      selectedMetric.value = options[0].prop
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => [queryParams.table, queryParams.dimension],
+  () => {
+    buildTableColumns()
+  },
+  { immediate: true }
+)
+
+watch(
+  [renderedTableData, selectedMetric, () => queryParams.dimension, isViewSynced],
+  () => {
+    nextTick(() => {
+      if (!isViewSynced.value) {
+        if (chartInstance) {
+          chartInstance.clear()
+        }
+        return
+      }
+      updateChart()
+    })
+  },
+  { deep: true }
+)
+
+onMounted(() => {
+  fetchStoreOptions()
+  nextTick(() => {
+    initChart()
+  })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+})
+
+</script>
+
+<style lang="scss" scoped>
+.general-analysis {
+  padding: 16px;
+
+  .analysis-card {
+    min-height: 360px;
+  }
+
+  .query-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+
+    .toolbar-item {
+      display: flex;
+      flex-direction: column;
+      min-width: 180px;
+
+      .toolbar-label {
+        font-size: 13px;
+        color: #606266;
+        margin-bottom: 6px;
+      }
+    }
+
+    .toolbar-action {
+      justify-content: flex-end;
+      min-width: auto;
+      align-items: flex-end;
+      display: flex;
+    }
+  }
+
+  .chart-section {
+    margin-bottom: 16px;
+
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+
+      .chart-info {
+        display: flex;
+        flex-direction: column;
+
+        h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+        }
+
+        .chart-subtitle {
+          margin: 4px 0 0;
+          font-size: 13px;
+          color: #909399;
+        }
+      }
+
+      .metric-placeholder {
+        font-size: 13px;
+        color: #c0c4cc;
+      }
+    }
+
+    .chart-body {
+      position: relative;
+      min-height: 350px;
+
+      .chart-container {
+        width: 100%;
+        height: 350px;
+      }
+
+      .chart-empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #c0c4cc;
+        font-size: 14px;
+        background-color: rgba(255, 255, 255, 0.85);
+        border: 1px dashed #ebeef5;
+      }
+    }
+  }
+
+  .card-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+
+    h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #1d2129;
+    }
+
+    .card-subtitle {
+      margin-top: 4px;
+      font-size: 13px;
+      color: #909399;
+    }
+  }
+
+  .result-table {
+    margin-bottom: 16px;
+  }
+
+}
+</style>
+

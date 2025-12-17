@@ -74,6 +74,12 @@ const routes = [
         meta: { title: '批次管理', icon: 'List' }
       },
       {
+        path: 'general-analysis',
+        name: 'GeneralAnalysis',
+        component: () => import('@/views/analysis/GeneralAnalysis.vue'),
+        meta: { title: '通用分析', icon: 'DataLine', hideStoreSelector: true }
+      },
+      {
         path: 'analysis',
         name: 'Analysis',
         redirect: '/analysis/staff',

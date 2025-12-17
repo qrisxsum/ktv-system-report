@@ -65,12 +65,14 @@ class StatsItem(BaseModel):
     actual: float = Field(0, description="实收金额")
     performance: Optional[float] = Field(None, description="基本业绩")
     booking_qty: Optional[int] = Field(None, description="订台数")
+    orders: Optional[int] = Field(None, description="通用订单/开台数")
     
     # room 表指标
     gmv: Optional[float] = Field(None, description="GMV (应收金额)")
     room_discount: Optional[float] = Field(None, description="包厢折扣")
     beverage_discount: Optional[float] = Field(None, description="酒水折扣")
     order_count: Optional[int] = Field(None, description="订单数/开台数")
+    duration: Optional[int] = Field(None, description="包厢时长(分钟)")
     
     # sales 表指标
     sales_qty: Optional[int] = Field(None, description="销售数量")

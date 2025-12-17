@@ -89,11 +89,15 @@ request.interceptors.response.use(
         case 404:
           message = data.detail || '请求的资源不存在'
           break
+        case 409:
+          // 409 冲突通常需要业务侧给出更明确的 UI（例如上传页阻止确认入库）
+          // 这里不自动弹窗，避免“全局拦截器 + 页面 catch”重复提示
+          return Promise.reject(error)
         case 500:
           message = '服务器内部错误'
           break
         default:
-          message = data.detail || `请求失败 (${status})`
+          message = data?.message || data?.detail || `请求失败 (${status})`
       }
     } else if (error.request) {
       message = '服务器无响应，请检查网络'
