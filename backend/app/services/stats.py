@@ -3,6 +3,7 @@
 
 根据表类型、时间范围、维度和粒度进行实时聚合
 """
+
 from datetime import date
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -21,6 +22,11 @@ class StatsService:
         "room": FactRoom,
         "sales": FactSales,
     }
+
+    @staticmethod
+    def _safe_sum(expr):
+        """统一为 SUM 结果提供 0 兜底，避免返回 NULL"""
+        return func.coalesce(func.sum(expr), 0)
 
     def __init__(self, db: Session):
         self.db = db
@@ -48,31 +54,30 @@ class StatsService:
             if hasattr(model, "room_id"):
                 return model.room_id.label("dimension_key")
         elif dimension == "room_type":
-            if hasattr(model, "room_id"):
-                # room_type 在 fact_room 中可作为冗余来源（若有）
-                if hasattr(model, "room_type"):
-                    return model.room_type.label("dimension_key")
+            if model is FactRoom:
+                return DimRoom.room_type.label("dimension_key")
         raise ValueError(f"不支持的维度: {dimension}  或该表缺少对应字段")
 
     def _get_metrics_exprs(self, model) -> List[Tuple[str, Any]]:
         """根据表类型生成常用指标表达式"""
         if model is FactBooking:
             return [
-                ("sales", func.sum(model.sales_amount)),
-                ("actual", func.sum(model.actual_amount)),
-                ("performance", func.sum(model.base_performance)),
-                ("gift_amount", func.sum(model.gift_amount)),
-                ("discount_amount", func.sum(model.discount_amount)),
-                ("orders", func.count()),
+                ("sales_amount", self._safe_sum(model.sales_amount)),
+                ("actual", self._safe_sum(model.actual_amount)),
+                ("performance", self._safe_sum(model.base_performance)),
+                ("gift_amount", self._safe_sum(model.gift_amount)),
+                ("discount_amount", self._safe_sum(model.discount_amount)),
+                ("orders", self._safe_sum(model.booking_qty)),
             ]
         if model is FactRoom:
             return [
-                ("gmv", func.sum(model.receivable_amount)),
-                ("actual", func.sum(model.actual_amount)),
-                ("gift_amount", func.sum(model.gift_amount)),
-                ("room_discount", func.sum(model.room_discount)),
-                ("beverage_discount", func.sum(model.beverage_discount)),
-                ("orders", func.count(model.order_no)),
+                ("gmv", self._safe_sum(model.receivable_amount)),
+                ("actual", self._safe_sum(model.actual_amount)),
+                ("gift_amount", self._safe_sum(model.gift_amount)),
+                ("room_discount", self._safe_sum(model.room_discount)),
+                ("beverage_discount", self._safe_sum(model.beverage_discount)),
+                ("duration", self._safe_sum(model.duration_min)),
+                ("orders", func.count()),
             ]
         if model is FactSales:
             return [
@@ -107,11 +112,11 @@ class StatsService:
 
         # 构建基础 SELECT 列表
         selects = [dim_expr] + [expr.label(name) for name, expr in metrics]
-        
+
         # 如果是非日期维度，需要 JOIN 维度表获取标签
         dim_label_expr = None
         stmt = select(*selects)
-        
+
         if dimension == "store":
             dim_label_expr = DimStore.store_name.label("dimension_label")
             stmt = stmt.add_columns(dim_label_expr).join(
@@ -135,17 +140,22 @@ class StatsService:
                 stmt = stmt.add_columns(dim_label_expr).join(
                     DimRoom, model.room_id == DimRoom.id
                 )
-        
-        stmt = (
-            stmt
-            .where(model.biz_date.between(start_date, end_date))
-            .group_by(dim_expr)
+        elif dimension == "room_type":
+            if table != "room":
+                raise ValueError("room_type 仅支持 room 表")
+            dim_label_expr = DimRoom.room_type.label("dimension_label")
+            stmt = stmt.add_columns(dim_label_expr).join(
+                DimRoom, model.room_id == DimRoom.id
+            )
+
+        stmt = stmt.where(model.biz_date.between(start_date, end_date)).group_by(
+            dim_expr
         )
-        
+
         # 如果有维度标签，也需要加入 GROUP BY
         if dim_label_expr is not None:
             stmt = stmt.group_by(dim_label_expr)
-        
+
         stmt = stmt.order_by(dim_expr)
 
         if store_id is not None:
@@ -155,21 +165,21 @@ class StatsService:
 
         data: List[Dict[str, Any]] = []
         num_metrics = len(metrics)
-        
+
         for row in rows:
             record = {"dimension_key": row[0]}
-            
+
             # 添加指标
             for idx, (name, _) in enumerate(metrics, start=1):
                 record[name] = row[idx]
-            
+
             # 添加维度标签（如果有）
             if dim_label_expr is not None:
                 record["dimension_label"] = row[num_metrics + 1]
             else:
                 # 对于日期维度，直接使用日期作为标签
                 record["dimension_label"] = str(row[0])
-            
+
             data.append(record)
 
         return {
@@ -186,10 +196,7 @@ class StatsService:
         }
 
     def get_aggregated_stats(
-        self,
-        metrics: List[str],
-        group_by: str,
-        filters: Dict[str, Any]
+        self, metrics: List[str], group_by: str, filters: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
         通用聚合方法 (兼容任务分配要求)
@@ -222,7 +229,7 @@ class StatsService:
             end_date=end_date,
             store_id=store_id,
             dimension=group_by,
-            granularity=granularity
+            granularity=granularity,
         )
 
         return result["data"]
@@ -267,42 +274,39 @@ class StatsService:
         # ===== booking 表的排行榜 =====
         if table == "booking":
             if dimension == "store":
-                query = self.db.query(
-                    DimStore.id.label("dimension_key"),
-                    DimStore.store_name.label("dimension_label"),
-                    func.sum(model.actual_amount).label("metric_value"),
-                ).join(
-                    DimStore, model.store_id == DimStore.id
-                ).group_by(
-                    model.store_id, DimStore.id, DimStore.store_name
-                ).order_by(
-                    func.sum(model.actual_amount).desc()
+                query = (
+                    self.db.query(
+                        DimStore.id.label("dimension_key"),
+                        DimStore.store_name.label("dimension_label"),
+                        func.sum(model.actual_amount).label("metric_value"),
+                    )
+                    .join(DimStore, model.store_id == DimStore.id)
+                    .group_by(model.store_id, DimStore.id, DimStore.store_name)
+                    .order_by(func.sum(model.actual_amount).desc())
                 )
 
             elif dimension == "employee":
-                query = self.db.query(
-                    DimEmployee.id.label("dimension_key"),
-                    DimEmployee.name.label("dimension_label"),
-                    func.sum(model.actual_amount).label("metric_value"),
-                ).join(
-                    DimEmployee, model.employee_id == DimEmployee.id
-                ).group_by(
-                    model.employee_id, DimEmployee.id, DimEmployee.name
-                ).order_by(
-                    func.sum(model.actual_amount).desc()
+                query = (
+                    self.db.query(
+                        DimEmployee.id.label("dimension_key"),
+                        DimEmployee.name.label("dimension_label"),
+                        func.sum(model.actual_amount).label("metric_value"),
+                    )
+                    .join(DimEmployee, model.employee_id == DimEmployee.id)
+                    .group_by(model.employee_id, DimEmployee.id, DimEmployee.name)
+                    .order_by(func.sum(model.actual_amount).desc())
                 )
 
             elif dimension == "room":
-                query = self.db.query(
-                    DimRoom.id.label("dimension_key"),
-                    DimRoom.room_no.label("dimension_label"),
-                    func.sum(model.actual_amount).label("metric_value"),
-                ).join(
-                    DimRoom, model.room_id == DimRoom.id
-                ).group_by(
-                    model.room_id, DimRoom.id, DimRoom.room_no
-                ).order_by(
-                    func.sum(model.actual_amount).desc()
+                query = (
+                    self.db.query(
+                        DimRoom.id.label("dimension_key"),
+                        DimRoom.room_no.label("dimension_label"),
+                        func.sum(model.actual_amount).label("metric_value"),
+                    )
+                    .join(DimRoom, model.room_id == DimRoom.id)
+                    .group_by(model.room_id, DimRoom.id, DimRoom.room_no)
+                    .order_by(func.sum(model.actual_amount).desc())
                 )
             else:
                 raise ValueError(f"booking 表不支持的维度: {dimension}")
@@ -310,28 +314,26 @@ class StatsService:
         # ===== room 表的排行榜 =====
         elif table == "room":
             if dimension == "room":
-                query = self.db.query(
-                    DimRoom.id.label("dimension_key"),
-                    DimRoom.room_no.label("dimension_label"),
-                    func.sum(model.actual_amount).label("metric_value"),
-                ).join(
-                    DimRoom, model.room_id == DimRoom.id
-                ).group_by(
-                    model.room_id, DimRoom.id, DimRoom.room_no
-                ).order_by(
-                    func.sum(model.actual_amount).desc()
+                query = (
+                    self.db.query(
+                        DimRoom.id.label("dimension_key"),
+                        DimRoom.room_no.label("dimension_label"),
+                        func.sum(model.actual_amount).label("metric_value"),
+                    )
+                    .join(DimRoom, model.room_id == DimRoom.id)
+                    .group_by(model.room_id, DimRoom.id, DimRoom.room_no)
+                    .order_by(func.sum(model.actual_amount).desc())
                 )
             elif dimension == "store":
-                query = self.db.query(
-                    DimStore.id.label("dimension_key"),
-                    DimStore.store_name.label("dimension_label"),
-                    func.sum(model.actual_amount).label("metric_value"),
-                ).join(
-                    DimStore, model.store_id == DimStore.id
-                ).group_by(
-                    model.store_id, DimStore.id, DimStore.store_name
-                ).order_by(
-                    func.sum(model.actual_amount).desc()
+                query = (
+                    self.db.query(
+                        DimStore.id.label("dimension_key"),
+                        DimStore.store_name.label("dimension_label"),
+                        func.sum(model.actual_amount).label("metric_value"),
+                    )
+                    .join(DimStore, model.store_id == DimStore.id)
+                    .group_by(model.store_id, DimStore.id, DimStore.store_name)
+                    .order_by(func.sum(model.actual_amount).desc())
                 )
             else:
                 raise ValueError(f"room 表不支持的维度: {dimension}")
@@ -349,16 +351,15 @@ class StatsService:
                 else:
                     sum_field = model.sales_amount
 
-                query = self.db.query(
-                    DimProduct.id.label("dimension_key"),
-                    DimProduct.name.label("dimension_label"),
-                    func.sum(sum_field).label("metric_value"),
-                ).join(
-                    DimProduct, model.product_id == DimProduct.id
-                ).group_by(
-                    model.product_id, DimProduct.id, DimProduct.name
-                ).order_by(
-                    func.sum(sum_field).desc()
+                query = (
+                    self.db.query(
+                        DimProduct.id.label("dimension_key"),
+                        DimProduct.name.label("dimension_label"),
+                        func.sum(sum_field).label("metric_value"),
+                    )
+                    .join(DimProduct, model.product_id == DimProduct.id)
+                    .group_by(model.product_id, DimProduct.id, DimProduct.name)
+                    .order_by(func.sum(sum_field).desc())
                 )
             elif dimension == "store":
                 if metric == "sales":
@@ -370,16 +371,15 @@ class StatsService:
                 else:
                     sum_field = model.sales_amount
 
-                query = self.db.query(
-                    DimStore.id.label("dimension_key"),
-                    DimStore.store_name.label("dimension_label"),
-                    func.sum(sum_field).label("metric_value"),
-                ).join(
-                    DimStore, model.store_id == DimStore.id
-                ).group_by(
-                    model.store_id, DimStore.id, DimStore.store_name
-                ).order_by(
-                    func.sum(sum_field).desc()
+                query = (
+                    self.db.query(
+                        DimStore.id.label("dimension_key"),
+                        DimStore.store_name.label("dimension_label"),
+                        func.sum(sum_field).label("metric_value"),
+                    )
+                    .join(DimStore, model.store_id == DimStore.id)
+                    .group_by(model.store_id, DimStore.id, DimStore.store_name)
+                    .order_by(func.sum(sum_field).desc())
                 )
             else:
                 raise ValueError(f"sales 表不支持的维度: {dimension}")
@@ -399,11 +399,14 @@ class StatsService:
         rows = query.all()
         result = []
         for row in rows:
-            result.append({
-                "dimension_key": str(row.dimension_key),
-                "dimension_label": str(row.dimension_label),
-                "metric_value": float(row.metric_value) if row.metric_value else 0.0,
-            })
+            result.append(
+                {
+                    "dimension_key": str(row.dimension_key),
+                    "dimension_label": str(row.dimension_label),
+                    "metric_value": (
+                        float(row.metric_value) if row.metric_value else 0.0
+                    ),
+                }
+            )
 
         return result
-

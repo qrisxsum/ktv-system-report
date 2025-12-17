@@ -37,6 +37,7 @@
           <el-menu-item index="/analysis/staff">人员风云榜</el-menu-item>
           <el-menu-item index="/analysis/products">商品销售</el-menu-item>
           <el-menu-item index="/analysis/rooms">包厢效能</el-menu-item>
+          <el-menu-item index="/analysis/general">通用分析</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-aside>
