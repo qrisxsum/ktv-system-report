@@ -23,7 +23,21 @@ cp env.example .env
 docker compose up -d --build
 
 # 4. 初始化数据库
+#
+# Windows 本地运行时，如果遇到 alembic.ini 编码/locale 解码问题，
+# 可改用 ASCII-only 配置文件启动（不影响 env.py 覆盖 DATABASE_URL）：
+#   python -m alembic -c backend/alembic.ascii.ini upgrade head
 docker compose exec backend alembic upgrade head
+
+# 常见问题：Table already exists
+# - 原因：数据库里已经被其他方式建过表（例如旧版 init.sql 预建表），但 alembic_version 里没有版本号。
+# - 方案A（推荐，干净重建）：删除 MySQL volume 后重启再迁移
+#   docker compose down -v
+#   docker compose up -d
+#   docker compose exec backend alembic upgrade head
+# - 方案B（保留现有表/数据）：将现有结构“标记”为初始迁移版本，再升级到最新
+#   docker compose exec backend alembic stamp 628a6c05dd81
+#   docker compose exec backend alembic upgrade head
 
 # 5. 访问
 # 前端: http://localhost:5173

@@ -44,7 +44,7 @@ class MetaFileBatch(Base):
         Index("idx_batch_no", "batch_no", unique=True),
         Index("idx_store_date", "store_id", "created_at"),
         Index("idx_status", "status"),
-        Index("idx_file_hash", "file_hash"),
+        Index("uq_meta_file_batch_file_hash", "file_hash", unique=True),
         {"comment": "文件导入批次管理表"}
     )
     
