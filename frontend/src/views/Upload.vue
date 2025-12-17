@@ -87,6 +87,14 @@
                 </div>
               </template>
             </el-alert>
+            <el-alert
+              v-if="duplicateWarning"
+              :title="duplicateWarning"
+              type="warning"
+              :closable="false"
+              show-icon
+              style="margin-top: 15px"
+            />
             
             <!-- 数据预览表格 -->
             <div class="preview-table" v-if="parseResult.preview_rows?.length">
@@ -107,7 +115,7 @@
               <el-button 
                 type="primary" 
                 @click="confirmUpload"
-                :disabled="!parseResult.validation.is_valid"
+                :disabled="!parseResult.validation.is_valid || !!duplicateWarning"
                 :loading="uploading"
               >
                 确认入库
@@ -176,6 +184,7 @@ import { listBatches, deleteBatch } from '@/api/batch'
 const parseResult = ref(null)
 const parsing = ref(false)
 const uploading = ref(false)
+const duplicateWarning = ref('')
 const uploadHistory = ref([])
 const loadingHistory = ref(false)
 
@@ -203,19 +212,28 @@ watch(currentStore, (newStore) => {
 const handleFileChange = async (file) => {
   parsing.value = true
   parseResult.value = null
+  duplicateWarning.value = ''
   
   try {
     const response = await parseFile(file.raw)
     
     if (response.success && response.data) {
       parseResult.value = response.data
-  ElMessage.success(`文件 ${file.name} 解析成功`)
+      duplicateWarning.value = ''
+      ElMessage.success(`文件 ${file.name} 解析成功`)
     } else {
       ElMessage.error(response.message || '文件解析失败')
     }
   } catch (error) {
     console.error('解析失败:', error)
-    ElMessage.error('文件解析失败，请检查文件格式')
+    if (error?.response?.status === 409) {
+      const message = error.response?.data?.message || '检测到重复文件，请勿重复上传'
+      // 解析阶段无预览区域可展示告警，直接给出清晰提示即可
+      ElMessage.warning(message)
+    } else if (!error?.response) {
+      // 只有在无 HTTP 响应（网络/跨域等）时，页面兜底提示；有响应的情况交给全局拦截器
+      ElMessage.error('文件解析失败，请检查文件格式')
+    }
   } finally {
     parsing.value = false
   }
@@ -231,11 +249,13 @@ const confirmUpload = async () => {
   uploading.value = true
   
   try {
+    duplicateWarning.value = ''
     const response = await confirmImport(parseResult.value.session_id)
     
     if (response.success) {
       ElMessage.success(response.message || `成功导入 ${parseResult.value.row_count} 条数据`)
       parseResult.value = null
+      duplicateWarning.value = ''
       
       // 刷新上传历史
       await refreshHistory()
@@ -244,7 +264,16 @@ const confirmUpload = async () => {
     }
   } catch (error) {
     console.error('入库失败:', error)
-    ElMessage.error('入库失败，请稍后重试')
+    if (error?.response?.status === 409) {
+      const message = error.response?.data?.message || '检测到重复文件，请勿重复入库'
+      duplicateWarning.value = message
+    } else {
+      duplicateWarning.value = ''
+      // 有 HTTP 响应的情况交给全局拦截器提示；仅在无响应时兜底
+      if (!error?.response) {
+        ElMessage.error('入库失败，请稍后重试')
+      }
+    }
   } finally {
     uploading.value = false
   }
@@ -260,6 +289,7 @@ const resetUpload = async () => {
     }
   }
   parseResult.value = null
+  duplicateWarning.value = ''
 }
 
 // 刷新上传历史
