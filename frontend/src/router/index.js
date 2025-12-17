@@ -47,6 +47,12 @@ const routes = [
             name: 'RoomAnalysis',
             component: () => import('@/views/analysis/RoomAnalysis.vue'),
             meta: { title: '包厢效能' }
+          },
+          {
+            path: 'general',
+            name: 'GeneralAnalysis',
+            component: () => import('@/views/analysis/GeneralAnalysis.vue'),
+            meta: { title: '通用分析', icon: 'DataLine' }
           }
         ]
       }

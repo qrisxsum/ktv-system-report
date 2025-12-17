@@ -115,11 +115,11 @@ SALES_MAPPING: Dict[str, str] = {
     "销售金额_销售": "sales_amount_sales",
     "销售金额_套餐子物品": "sales_amount_package",
     # 赠送数量字段
-    "赠送数量_小计": "gift_qty_total",
+    "赠送数量_小计": "gift_qty",
     "赠送数量_赠送": "gift_qty_gift",
     "赠送数量_套餐子物品": "gift_qty_combo",
     # 赠送金额字段
-    "赠送金额_小计": "gift_amount_total",
+    "赠送金额_小计": "gift_amount",
     "赠送金额_赠送": "gift_amount_gift",
     "赠送金额_套餐子物品": "gift_amount_combo",
 }
@@ -168,6 +168,13 @@ ROOM_MAPPING: Dict[str, str] = {
     "支付方式_店长签单": "pay_manager_sign",
     "支付方式_美团": "pay_meituan",
     "支付方式_抖音": "pay_douyin",
+}
+
+# 关键数值字段（缺失时需自动补 0）
+CORE_NUMERIC_FIELDS: Dict[str, Tuple[str, ...]] = {
+    "booking": ("booking_qty",),
+    "room": ("duration_min",),
+    "sales": (),
 }
 
 # 收入类支付方式（计入实收）
@@ -698,6 +705,7 @@ class CleanerService:
 
         # 4. 重命名列（应用映射，包含模糊匹配）
         df_clean = self._apply_mapping(df_clean, mapping)
+        df_clean = self._ensure_core_numeric_fields(df_clean, report_type)
 
         extracted_store_name = self._extract_store_from_filename(filename)
 
@@ -949,6 +957,24 @@ class CleanerService:
             columns_to_keep.append("extra_info")
 
         return df[columns_to_keep] if columns_to_keep else df
+
+    def _ensure_core_numeric_fields(
+        self, df: pd.DataFrame, report_type: str
+    ) -> pd.DataFrame:
+        """
+        确保关键数值字段存在且缺失值补 0。
+        """
+        required_fields = CORE_NUMERIC_FIELDS.get(report_type.lower())
+        if not required_fields:
+            return df
+
+        df_filled = df.copy()
+        for field in required_fields:
+            if field not in df_filled.columns:
+                df_filled[field] = 0
+            else:
+                df_filled[field] = df_filled[field].fillna(0)
+        return df_filled
 
     def _find_best_fuzzy_match(
         self, column_name: str, available_sources: Dict[str, str]

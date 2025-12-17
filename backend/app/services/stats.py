@@ -22,6 +22,11 @@ class StatsService:
         "sales": FactSales,
     }
 
+    @staticmethod
+    def _safe_sum(expr):
+        """统一为 SUM 结果提供 0 兜底，避免返回 NULL"""
+        return func.coalesce(func.sum(expr), 0)
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -48,40 +53,39 @@ class StatsService:
             if hasattr(model, "room_id"):
                 return model.room_id.label("dimension_key")
         elif dimension == "room_type":
-            if hasattr(model, "room_id"):
-                # room_type 在 fact_room 中可作为冗余来源（若有）
-                if hasattr(model, "room_type"):
-                    return model.room_type.label("dimension_key")
+            if model is FactRoom:
+                return DimRoom.room_type.label("dimension_key")
         raise ValueError(f"不支持的维度: {dimension}  或该表缺少对应字段")
 
     def _get_metrics_exprs(self, model) -> List[Tuple[str, Any]]:
         """根据表类型生成常用指标表达式"""
         if model is FactBooking:
             return [
-                ("sales", func.sum(model.sales_amount)),
-                ("actual", func.sum(model.actual_amount)),
-                ("performance", func.sum(model.base_performance)),
-                ("gift_amount", func.sum(model.gift_amount)),
-                ("discount_amount", func.sum(model.discount_amount)),
-                ("orders", func.count()),
+                ("sales_amount", self._safe_sum(model.sales_amount)),
+                ("actual", self._safe_sum(model.actual_amount)),
+                ("performance", self._safe_sum(model.base_performance)),
+                ("gift_amount", self._safe_sum(model.gift_amount)),
+                ("discount_amount", self._safe_sum(model.discount_amount)),
+                ("orders", self._safe_sum(model.booking_qty)),
             ]
         if model is FactRoom:
             return [
-                ("gmv", func.sum(model.receivable_amount)),
-                ("actual", func.sum(model.actual_amount)),
-                ("gift_amount", func.sum(model.gift_amount)),
-                ("room_discount", func.sum(model.room_discount)),
-                ("beverage_discount", func.sum(model.beverage_discount)),
-                ("orders", func.count(model.order_no)),
+                ("gmv", self._safe_sum(model.receivable_amount)),
+                ("actual", self._safe_sum(model.actual_amount)),
+                ("gift_amount", self._safe_sum(model.gift_amount)),
+                ("room_discount", self._safe_sum(model.room_discount)),
+                ("beverage_discount", self._safe_sum(model.beverage_discount)),
+                ("duration", self._safe_sum(model.duration_min)),
+                ("orders", func.count()),
             ]
         if model is FactSales:
             return [
-                ("sales_qty", func.sum(model.sales_qty)),
-                ("sales_amount", func.sum(model.sales_amount)),
-                ("gift_qty", func.sum(model.gift_qty)),
-                ("gift_amount", func.sum(model.gift_amount)),
-                ("cost_total", func.sum(model.cost_total)),
-                ("profit", func.sum(model.profit)),
+                ("sales_qty", self._safe_sum(model.sales_qty)),
+                ("sales_amount", self._safe_sum(model.sales_amount)),
+                ("gift_qty", self._safe_sum(model.gift_qty)),
+                ("gift_amount", self._safe_sum(model.gift_amount)),
+                ("cost_total", self._safe_sum(model.cost_total)),
+                ("profit", self._safe_sum(model.profit)),
             ]
         raise ValueError("未知表类型")
 
@@ -134,6 +138,13 @@ class StatsService:
                 stmt = stmt.add_columns(dim_label_expr).join(
                     DimRoom, model.room_id == DimRoom.id
                 )
+        elif dimension == "room_type":
+            if table != "room":
+                raise ValueError("room_type 仅支持 room 表")
+            dim_label_expr = DimRoom.room_type.label("dimension_label")
+            stmt = stmt.add_columns(dim_label_expr).join(
+                DimRoom, model.room_id == DimRoom.id
+            )
         
         stmt = (
             stmt

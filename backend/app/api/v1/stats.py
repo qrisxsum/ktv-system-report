@@ -48,6 +48,7 @@ def _convert_dimension_to_string(dimension: Dimension) -> str:
         Dimension.EMPLOYEE: "employee",
         Dimension.PRODUCT: "product",
         Dimension.ROOM: "room",
+        Dimension.ROOM_TYPE: "room_type",
     }
     return dimension_map.get(dimension, "date")
 
@@ -133,22 +134,30 @@ async def query_stats(
     stats_items = []
     
     for row in raw_data:
+        raw_sales_amount = row.get("sales_amount")
+        if raw_sales_amount is None:
+            raw_sales_amount = row.get("sales")
+        sales_amount_value = _safe_float(raw_sales_amount)
+        orders_value = _safe_int(row.get("orders"))
+        duration_value = _safe_int(row.get("duration"))
         item = StatsItem(
             dimension_key=str(row.get("dimension_key", "")),
             dimension_label=row.get("dimension_label"),
             # booking 表指标
-            sales=_safe_float(row.get("sales")),
+            sales=sales_amount_value,
             actual=_safe_float(row.get("actual")),
             performance=_safe_float(row.get("performance")),
-            booking_qty=_safe_int(row.get("orders")),
+            booking_qty=orders_value,
+            orders=orders_value,
             # room 表指标
             gmv=_safe_float(row.get("gmv")),
             room_discount=_safe_float(row.get("room_discount")),
             beverage_discount=_safe_float(row.get("beverage_discount")),
-            order_count=_safe_int(row.get("orders")),
+            order_count=orders_value,
+            duration=duration_value,
             # sales 表指标
             sales_qty=_safe_int(row.get("sales_qty")),
-            sales_amount=_safe_float(row.get("sales_amount")),
+            sales_amount=sales_amount_value,
             cost=_safe_float(row.get("cost_total")),
             profit=_safe_float(row.get("profit")),
             # 赠送相关 (通用)
