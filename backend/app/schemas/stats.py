@@ -79,6 +79,7 @@ class StatsItem(BaseModel):
     sales_amount: Optional[float] = Field(None, description="销售金额 (sales)")
     cost: Optional[float] = Field(None, description="成本")
     profit: Optional[float] = Field(None, description="毛利")
+    profit_rate: Optional[float] = Field(None, description="利润率 (%) - 成本利润率 = 利润/成本*100")
     
     # 赠送相关 (通用)
     gift_qty: Optional[int] = Field(None, description="赠送数量")

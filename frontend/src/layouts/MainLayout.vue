@@ -62,9 +62,12 @@
         
         <div class="header-right">
           <el-select v-model="currentStore" placeholder="选择门店" style="width: 180px">
-            <el-option label="全部门店" value="" />
-            <el-option label="万象城店" value="1" />
-            <el-option label="青年路店" value="2" />
+            <el-option
+              v-for="store in stores"
+              :key="store.id"
+              :label="store.name"
+              :value="store.id.toString()"
+            />
           </el-select>
         </div>
       </el-header>
@@ -78,15 +81,51 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, provide, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { listStores } from '@/api/store'
 
 const route = useRoute()
 const isCollapse = ref(false)
-const currentStore = ref('')
+const currentStore = ref('all')
+const stores = ref([])
+
+// 提供门店状态给子组件
+provide('currentStore', currentStore)
+
+// 监听门店变化，用于调试
+watch(currentStore, (newValue) => {
+  console.log('门店切换到:', newValue)
+})
+
+// 加载门店列表
+const loadStores = async () => {
+  try {
+    const response = await listStores(true) // 只加载启用的门店
+    const apiStores = response.data || []
+    // 在门店列表开头添加"全部门店"选项
+    stores.value = [
+      { id: 'all', name: '全部门店' },
+      ...apiStores
+    ]
+  } catch (error) {
+    console.error('加载门店列表失败:', error)
+    // 如果API调用失败，使用默认门店选项作为后备
+    stores.value = [
+      { id: 'all', name: '全部门店' },
+      { id: 1, name: '万象城店' },
+      { id: 2, name: '青年路店' }
+    ]
+  }
+}
 
 const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => route.meta?.title || '首页')
+
+// 组件挂载时加载门店列表
+onMounted(() => {
+  loadStores()
+})
 </script>
 
 <style lang="scss" scoped>
