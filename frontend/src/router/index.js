@@ -25,6 +25,12 @@ const routes = [
         meta: { title: '批次管理', icon: 'List' }
       },
       {
+        path: 'general-analysis',
+        name: 'GeneralAnalysis',
+        component: () => import('@/views/analysis/GeneralAnalysis.vue'),
+        meta: { title: '通用分析', icon: 'DataLine', hideStoreSelector: true }
+      },
+      {
         path: 'analysis',
         name: 'Analysis',
         redirect: '/analysis/staff',
@@ -47,12 +53,6 @@ const routes = [
             name: 'RoomAnalysis',
             component: () => import('@/views/analysis/RoomAnalysis.vue'),
             meta: { title: '包厢效能' }
-          },
-          {
-            path: 'general',
-            name: 'GeneralAnalysis',
-            component: () => import('@/views/analysis/GeneralAnalysis.vue'),
-            meta: { title: '通用分析', icon: 'DataLine' }
           }
         ]
       }
