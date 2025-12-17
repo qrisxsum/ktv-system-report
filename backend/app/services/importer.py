@@ -18,6 +18,26 @@ from app.models.facts import FactBooking, FactRoom, FactSales
 from app.models.dims import DimEmployee, DimProduct, DimRoom, DimStore, DimPaymentMethod
 
 
+class DuplicateFileError(Exception):
+    """上传文件与历史批次重复"""
+
+    def __init__(self, batch: Optional[MetaFileBatch] = None, message: Optional[str] = None):
+        self.batch = batch
+        final_message = message or describe_duplicate_batch(batch)
+        super().__init__(final_message)
+
+
+def describe_duplicate_batch(batch: Optional[MetaFileBatch]) -> str:
+    """构造重复文件的人类可读提示"""
+    if batch and batch.created_at:
+        timestamp = batch.created_at.strftime("%Y-%m-%d %H:%M")
+    else:
+        timestamp = "之前"
+
+    batch_no = batch.batch_no if batch and batch.batch_no else "未知批次"
+    return f"该文件已于 {timestamp} 导入 (批次 {batch_no})，无需重复上传"
+
+
 class ImporterService:
     """数据入库服务类"""
 
@@ -59,6 +79,7 @@ class ImporterService:
         table_type: str,
         cleaned_data: List[Dict[str, Any]],
         overwrite: bool = True,
+        file_hash: Optional[str] = None,
     ) -> int:
         """
         保存数据到事实表
@@ -105,30 +126,26 @@ class ImporterService:
             if batch:
                 batch.status = "success"
                 batch.row_count = len(records)
+                if file_hash:
+                    batch.file_hash = file_hash
 
             # 提交事务
             self.db.commit()
 
             return len(records)
 
-        except Exception as e:
-            # 回滚事务
+        except IntegrityError as exc:
             self.db.rollback()
+            if file_hash and self._is_file_hash_constraint(exc):
+                duplicate_batch = self._find_success_batch_by_hash(file_hash)
+                raise DuplicateFileError(duplicate_batch)
 
-            # 更新批次状态为失败
-            try:
-                batch = (
-                    self.db.query(MetaFileBatch)
-                    .filter(MetaFileBatch.id == batch_id)
-                    .first()
-                )
-                if batch:
-                    batch.status = "failed"
-                    batch.error_log = str(e)
-                    self.db.commit()
-            except:  # noqa: E722 - 保底不影响原始异常
-                pass
+            self._mark_batch_failed(batch_id, exc)
+            raise
 
+        except Exception as e:
+            self.db.rollback()
+            self._mark_batch_failed(batch_id, e)
             raise
 
     def _get_model_columns(self, model) -> Set[str]:
@@ -395,6 +412,7 @@ class ImporterService:
         biz_date: Optional[str] = None,
         store_name: Optional[str] = None,
         payment_methods: Optional[List[Dict[str, Any]]] = None,
+        file_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         处理文件上传的完整流程
@@ -428,6 +446,11 @@ class ImporterService:
             if payment_methods:
                 self._sync_payment_methods(self.db, payment_methods)
 
+            if file_hash:
+                duplicate_batch = self._find_success_batch_by_hash(file_hash)
+                if duplicate_batch:
+                    raise DuplicateFileError(duplicate_batch)
+
             # 1. 创建批次并标记处理中
             batch = self.create_batch(file_name, resolved_store_id, table_type)
             batch.status = "processing"
@@ -456,7 +479,11 @@ class ImporterService:
 
             # 4. 入库（不再覆盖同批次，因为 batch_id 唯一）
             row_count = self.save_batch(
-                batch.id, table_type, processed_data, overwrite=False
+                batch.id,
+                table_type,
+                processed_data,
+                overwrite=False,
+                file_hash=file_hash,
             )
 
             return {
@@ -467,6 +494,9 @@ class ImporterService:
                 "actual_total": actual_total,
                 "status": "success",
             }
+
+        except DuplicateFileError:
+            raise
 
         except Exception as e:
             return {
@@ -592,3 +622,41 @@ class ImporterService:
             return float(value)
         except (TypeError, ValueError):
             return 0.0
+
+    def _find_success_batch_by_hash(self, file_hash: Optional[str]) -> Optional[MetaFileBatch]:
+        if not file_hash:
+            return None
+        return (
+            self.db.query(MetaFileBatch)
+            .filter(
+                MetaFileBatch.file_hash == file_hash,
+                MetaFileBatch.status == "success",
+            )
+            .order_by(MetaFileBatch.created_at.desc())
+            .first()
+        )
+
+    @staticmethod
+    def _is_file_hash_constraint(error: IntegrityError) -> bool:
+        message = ""
+        if hasattr(error, "orig") and getattr(error.orig, "args", None):
+            message = " ".join(str(arg) for arg in error.orig.args)
+        elif error.args:
+            message = " ".join(str(arg) for arg in error.args)
+
+        message = message.lower()
+        return "file_hash" in message or "uq_meta_file_batch_file_hash" in message
+
+    def _mark_batch_failed(self, batch_id: int, error: Exception) -> None:
+        try:
+            batch = (
+                self.db.query(MetaFileBatch)
+                .filter(MetaFileBatch.id == batch_id)
+                .first()
+            )
+            if batch:
+                batch.status = "failed"
+                batch.error_log = str(error)
+                self.db.commit()
+        except Exception:
+            self.db.rollback()

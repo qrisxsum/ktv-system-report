@@ -9,6 +9,9 @@
 alembic revision --autogenerate -m "描述信息"
 
 # 执行所有待执行的迁移
+#
+# Windows 本地运行若遇到 alembic.ini UnicodeDecodeError（locale=GBK），可使用 ASCII-only 配置文件：
+#   python -m alembic -c backend/alembic.ascii.ini upgrade head
 alembic upgrade head
 
 # 回滚到上一个版本
