@@ -23,11 +23,11 @@ request.interceptors.request.use(
     // 开启进度条
     NProgress.start()
     
-    // 可以在这里添加 token 等认证信息
-    // const token = localStorage.getItem('token')
-    // if (token) {
-    //   config.headers.Authorization = `Bearer ${token}`
-    // }
+    // 添加 token 认证信息
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   (error) => {
@@ -75,8 +75,13 @@ request.interceptors.response.use(
           break
         case 401:
           message = '未登录或登录已过期'
-          // 可以在这里跳转到登录页
-          // router.push('/login')
+          // 清除本地存储的用户信息
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('user')
+          // 跳转到登录页
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login'
+          }
           break
         case 403:
           message = '没有权限访问'
@@ -102,6 +107,7 @@ request.interceptors.response.use(
 export default request
 
 // 导出各模块 API
+export * from './auth'
 export * from './upload'
 export * from './stats'
 export * from './dashboard'

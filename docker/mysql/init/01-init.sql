@@ -18,6 +18,59 @@ USE ktv_report;
 -- ========================================
 
 -- ========================================
+-- 用户表 (User Table)
+-- ========================================
+
+-- 用户表
+CREATE TABLE IF NOT EXISTS users (
+    id INT PRIMARY KEY AUTO_INCREMENT COMMENT '自增主键',
+    username VARCHAR(50) NOT NULL UNIQUE COMMENT '用户名',
+    hashed_password VARCHAR(255) NOT NULL COMMENT '密码哈希',
+    role VARCHAR(20) NOT NULL COMMENT '角色: admin/manager',
+    store_id INT COMMENT '关联门店ID (管理员为NULL)',
+    full_name VARCHAR(100) COMMENT '真实姓名',
+    email VARCHAR(100) COMMENT '邮箱',
+    phone VARCHAR(20) COMMENT '手机号',
+    is_active BOOLEAN DEFAULT TRUE COMMENT '是否激活',
+    last_login_at DATETIME COMMENT '最后登录时间',
+    current_token VARCHAR(500) COMMENT '当前有效的token (用于单设备登录控制)',
+    token_expires_at DATETIME COMMENT 'token过期时间',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
+
+CREATE UNIQUE INDEX idx_username ON users (username);
+CREATE INDEX idx_role ON users (role);
+CREATE INDEX idx_store_id ON users (store_id);
+
+-- 插入初始用户数据
+-- 管理员用户 (可以访问所有门店)
+INSERT INTO users (username, hashed_password, role, store_id, full_name, email, phone, is_active)
+VALUES (
+    'admin',
+    '$pbkdf2-sha256$29000$.n8PgXDufa91zjlnbE3J.Q$P5vIMVWWgkxXfwVBC4vuSC2MTDk49w0ntDTlF8oMhso', -- 密码: admin123
+    'admin',
+    NULL,
+    '系统管理员',
+    'admin@ktv.com',
+    '13800138000',
+    TRUE
+);
+
+-- 店长用户 (只能访问门店1)
+INSERT INTO users (username, hashed_password, role, store_id, full_name, email, phone, is_active)
+VALUES (
+    'manager',
+    '$pbkdf2-sha256$29000$wxjjPAegtBYiZExpjRFibA$XXxQ9BL4LBGC0Hp7FOsmgVdTUYyksQEdsHRIlqGoeOU', -- 密码: manager123
+    'manager',
+    1,
+    '门店店长',
+    'manager@ktv.com',
+    '13800138001',
+    TRUE
+);
+
+-- ========================================
 -- 维度表 (Dimension Tables)
 -- ========================================
 

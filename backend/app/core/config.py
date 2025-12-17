@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """应用配置类 - 从环境变量读取"""
     
     # ==================== 数据库配置 ====================
-    DB_HOST: str = "mysql"  # Docker 服务名，本地直连可改为 localhost
+    DB_HOST: str = "localhost"  # Docker 服务名，本地直连可改为 localhost
     DB_PORT: int = 3306
     DB_USER: str = "ktv_user"
     DB_PASSWORD: str = "ktv123456"

@@ -27,6 +27,7 @@ from app.schemas.stats import (
     TopItem,
 )
 from app.core.database import get_db
+from app.core.security import get_current_manager, check_store_access, filter_store_access
 from app.services.stats import StatsService
 
 router = APIRouter()
@@ -87,10 +88,11 @@ def _safe_float(value, default: float = 0.0) -> float:
 async def get_dashboard_summary(
     store_id: Optional[int] = Query(None, description="门店ID (不传则汇总所有门店)"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     获取首页看板汇总数据
-    
+
     包含:
     - 昨日实收 & 环比
     - 本月实收 & 同比
@@ -98,9 +100,21 @@ async def get_dashboard_summary(
     - 赠送率
     - 近30天营收趋势
     - Top5 门店/员工/商品
-    
+
     参考: docs/web界面5.md (2.2.1 节)
     """
+    # 根据用户角色过滤store_id权限
+    if current_user["role"] == "manager":
+        # 店长只能查看自己门店的数据
+        if store_id is None:
+            store_id = current_user["store_id"]
+        elif store_id != current_user["store_id"]:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail="无权限访问其他门店数据"
+            )
+
     stats_service = StatsService(db)
 
     # 以 booking 最新数据日期作为看板“参考日”（避免导入的是历史月份导致本月统计/排行全为空）
@@ -316,22 +330,35 @@ async def get_dashboard_summary(
     )
 
 
-@router.get("/kpi", summary="获取 KPI 指标卡片数据")
+@router.get("/kpi", summary="获取 KPI 指标卡片数据", response_model=None)
 async def get_kpi_cards(
     store_id: Optional[int] = Query(None, description="门店ID"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     获取 KPI 指标卡片数据（可自定义时间范围）
     """
+    # 根据用户角色过滤store_id权限
+    if current_user["role"] == "manager":
+        # 店长只能查看自己门店的数据
+        if store_id is None:
+            store_id = current_user["store_id"]
+        elif store_id != current_user["store_id"]:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail="无权限访问其他门店数据"
+            )
+
     # 默认时间范围: 本月
     if not start_date:
         start_date = date.today().replace(day=1)
     if not end_date:
         end_date = date.today()
-    
+
     stats_service = StatsService(db)
     
     # 初始化数据
@@ -386,19 +413,32 @@ async def get_kpi_cards(
     }
 
 
-@router.get("/trend", summary="获取趋势数据")
+@router.get("/trend", summary="获取趋势数据", response_model=None)
 async def get_trend_data(
     metric: str = Query("actual", description="指标: actual/sales/profit/orders"),
     days: int = Query(30, ge=7, le=90, description="天数"),
     store_id: Optional[int] = Query(None, description="门店ID"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     获取指定指标的趋势数据（用于折线图）
     """
+    # 根据用户角色过滤store_id权限
+    if current_user["role"] == "manager":
+        # 店长只能查看自己门店的数据
+        if store_id is None:
+            store_id = current_user["store_id"]
+        elif store_id != current_user["store_id"]:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail="无权限访问其他门店数据"
+            )
+
     today = date.today()
     start_date = today - timedelta(days=days)
-    
+
     stats_service = StatsService(db)
     
     # 指标映射
@@ -440,7 +480,7 @@ async def get_trend_data(
     }
 
 
-@router.get("/ranking", summary="获取排行榜数据")
+@router.get("/ranking", summary="获取排行榜数据", response_model=None)
 async def get_ranking_data(
     dimension: str = Query("store", description="维度: store/employee/product/room"),
     metric: str = Query("actual", description="指标: actual/sales/profit/qty"),
@@ -449,10 +489,22 @@ async def get_ranking_data(
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     获取排行榜数据（用于柱状图）
     """
+    # 根据用户角色过滤store_id权限
+    if current_user["role"] == "manager":
+        # 店长只能查看自己门店的数据
+        if dimension == "store":
+            # 按门店排行时，强制限制为只看自己的门店
+            store_id = current_user["store_id"]
+        else:
+            # 按其他维度排行时，如果没有指定store_id或指定了其他门店，强制使用自己的门店
+            if store_id is None or store_id != current_user["store_id"]:
+                store_id = current_user["store_id"]
+
     stats_service = StatsService(db)
     
     # 选择合适的表和维度
