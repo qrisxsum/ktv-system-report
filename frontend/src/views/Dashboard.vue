@@ -26,7 +26,7 @@
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
-              <span>📈 营收趋势（近30天）</span>
+              <span>📈 营收趋势（按月显示）</span>
             </div>
           </template>
           <div class="chart-container" ref="trendChartRef"></div>
@@ -187,29 +187,52 @@ const initTrendChart = (trendData) => {
     return
   }
 
-  const dates = trendData.map(item => item.date.slice(5)) // MM-DD
-  const values = trendData.map(item => (item.value / 10000).toFixed(2))
+  // 按月聚合（兼容后端返回日粒度或月粒度：YYYY-MM-DD / YYYY-MM）
+  const monthKeyOf = (dateStr) => {
+    if (!dateStr) return ''
+    const s = String(dateStr)
+    // e.g. 2025-12-01 -> 2025-12
+    if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7)
+    return s
+  }
+
+  const monthMap = new Map()
+  for (const item of trendData) {
+    const key = monthKeyOf(item.date)
+    const v = Number(item.value || 0)
+    monthMap.set(key, (monthMap.get(key) || 0) + v)
+  }
+
+  const months = Array.from(monthMap.keys()).filter(Boolean).sort()
+  const seriesData = months.map((m) => {
+    const raw = monthMap.get(m) || 0
+    return { value: Number((raw / 10000).toFixed(2)), raw }
+  })
 
   chart.setOption({
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
         const data = params[0]
-        return `${data.name}<br/>营收: ¥${(data.value * 10000).toLocaleString()}`
+        const raw = data?.data?.raw ?? data?.value * 10000
+        return `${data.name}<br/>营收: ¥${Number(raw).toLocaleString()}`
       }
     },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: dates,
-      axisLabel: { interval: 4 }
+      data: months,
+      axisLabel: {
+        interval: 0,
+        rotate: months.length > 12 ? 45 : 0
+      }
     },
     yAxis: { type: 'value', name: '金额（万元）' },
     series: [{
       name: '营收',
       type: 'line',
       smooth: true,
-      data: values,
+      data: seriesData,
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: 'rgba(102, 126, 234, 0.5)' },
