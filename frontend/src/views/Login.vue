@@ -167,7 +167,15 @@ const handleLogin = async () => {
     console.error('登录失败:', error)
     console.error('错误详情:', error.response?.data)
     // 显示具体的错误信息
-    const errorMessage = error.response?.data?.detail || error.message || '登录失败，请检查用户名和密码'
+    // 优先显示后端返回的详细错误信息（如"账号已停用"）
+    let errorMessage = '登录失败，请检查用户名和密码'
+    if (error.response?.data?.detail) {
+      errorMessage = error.response.data.detail
+    } else if (error.response?.data?.message) {
+      errorMessage = error.response.data.message
+    } else if (error.message) {
+      errorMessage = error.message
+    }
     ElMessage.error(errorMessage)
   } finally {
     loading.value = false

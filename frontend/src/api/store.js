@@ -31,3 +31,31 @@ export function getStore(storeId) {
   })
 }
 
+/**
+ * 创建门店
+ * @param {Object} data - 门店信息
+ * @param {string} data.store_name - 门店名称
+ * @param {string} [data.region] - 所属区域/城市
+ * @param {string} [data.address] - 门店地址
+ * @returns {Promise} 创建结果
+ */
+export function createStore(data) {
+  return request({
+    url: '/stores',
+    method: 'POST',
+    data,
+  })
+}
+
+/**
+ * 删除门店
+ * @param {number} storeId - 门店ID
+ * @returns {Promise} 删除结果
+ */
+export function deleteStore(storeId) {
+  return request({
+    url: `/stores/${storeId}`,
+    method: 'DELETE',
+  })
+}
+

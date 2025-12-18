@@ -43,6 +43,14 @@
           <el-menu-item index="/analysis/products">商品销售</el-menu-item>
           <el-menu-item index="/analysis/rooms">包厢效能</el-menu-item>
         </el-sub-menu>
+
+        <el-menu-item 
+          v-if="currentUser?.role === 'admin'"
+          index="/users"
+        >
+          <el-icon><User /></el-icon>
+          <template #title>账号管理</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -132,8 +140,41 @@ const currentStore = ref('')
 const stores = ref([])
 const currentUser = ref(null)
 
-// 提供门店状态给子组件
+// 创建简单的事件发射器
+const eventEmitter = {
+  listeners: {},
+  on(event, callback) {
+    if (!this.listeners[event]) {
+      this.listeners[event] = []
+    }
+    this.listeners[event].push(callback)
+  },
+  off(event, callback) {
+    if (!this.listeners[event]) return
+    const index = this.listeners[event].indexOf(callback)
+    if (index > -1) {
+      this.listeners[event].splice(index, 1)
+    }
+  },
+  emit(event, ...args) {
+    if (!this.listeners[event]) return
+    this.listeners[event].forEach(callback => {
+      callback(...args)
+    })
+  }
+}
+
+// 监听文件入库事件，更新门店选择器
+eventEmitter.on('file-imported', (importData) => {
+  console.log('收到文件入库事件:', importData)
+  // 文件入库成功后，刷新门店列表以确保数据最新
+  // 这对于"全部门店"选择特别重要，因为可能有新门店数据
+  loadStores()
+})
+
+// 提供门店状态和事件发射器给子组件
 provide('currentStore', currentStore)
+provide('eventEmitter', eventEmitter)
 
 // 监听门店变化，用于调试
 watch(currentStore, (newValue) => {

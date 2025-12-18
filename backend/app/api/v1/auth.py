@@ -30,6 +30,19 @@ class UserInfo(BaseModel):
 @router.post("/login", response_model=None)
 async def login(request: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """用户登录"""
+    from app.services.user_service import UserService
+    user_service = UserService(db)
+    
+    # 先检查用户是否存在
+    user = user_service.get_user_by_username(request.username)
+    if not user:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    
+    # 检查账号是否激活
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
+    
+    # 验证密码
     from app.core.security import authenticate_user_db
     user_info = authenticate_user_db(request.username, request.password, db)
     if not user_info:
