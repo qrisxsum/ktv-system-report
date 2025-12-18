@@ -96,7 +96,7 @@ const rawData = ref([])
 
 // 汇总统计
 const summary = computed(() => {
-  const totalOrders = rawData.value.reduce((sum, item) => sum + (item.order_count || 0), 0)
+  const totalOrders = rawData.value.reduce((sum, item) => sum + (item.orders || 0), 0)
   const totalGmv = rawData.value.reduce((sum, item) => sum + (item.gmv || 0), 0)
   const totalActual = rawData.value.reduce((sum, item) => sum + (item.actual || 0), 0)
   const avgActual = totalOrders > 0 ? totalActual / totalOrders : 0
@@ -113,7 +113,7 @@ const summary = computed(() => {
 const roomData = computed(() => {
   return rawData.value.map(item => ({
     room_name: item.dimension_label || '未知包厢',
-    order_count: item.order_count || 0,
+    order_count: item.orders || 0,
     gmv: item.gmv || 0,
     actual: item.actual || 0,
     room_discount: item.room_discount || 0,
@@ -173,9 +173,9 @@ const fetchData = async () => {
     }
 
     const response = await queryStats(params)
-    
-    if (response.success && response.data) {
-      rawData.value = response.data
+
+    if (response.success && response.data?.series_rows) {
+      rawData.value = response.data.series_rows
     } else {
       rawData.value = []
     }

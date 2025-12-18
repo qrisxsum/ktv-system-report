@@ -17,6 +17,14 @@ from app.models.dims import DimStore, DimEmployee, DimProduct, DimRoom
 class StatsService:
     """统计聚合服务"""
 
+    GRANULARITY_ORDER = ["day", "week", "month"]
+    MAX_SERIES_POINTS = 400
+    MAX_DAY_SPAN = 365
+    DEFAULT_PAGE_SIZE = 20
+    MAX_PAGE_SIZE = 200
+    DEFAULT_TOP_N = 50
+    MAX_TOP_N = 200
+
     TABLE_MAP = {
         "booking": FactBooking,
         "room": FactRoom,
@@ -91,6 +99,143 @@ class StatsService:
             ]
         raise ValueError("未知表类型")
 
+    def _validate_pagination(self, page: int, page_size: int):
+        if page < 1:
+            raise ValueError("page 必须 >= 1")
+        if page_size < 1:
+            raise ValueError("page_size 必须 >= 1")
+        if page_size > self.MAX_PAGE_SIZE:
+            raise ValueError(f"page_size 不能超过 {self.MAX_PAGE_SIZE}")
+
+    def _clamp_top_n(self, top_n: int) -> int:
+        if top_n < 1:
+            raise ValueError("top_n 必须 >= 1")
+        return min(top_n, self.MAX_TOP_N)
+
+    def _get_dimension_join_config(self, model, dimension: str):
+        if dimension == "store":
+            return (
+                DimStore,
+                model.store_id == DimStore.id,
+                DimStore.store_name.label("dimension_label"),
+            )
+        if dimension == "employee" and hasattr(model, "employee_id"):
+            return (
+                DimEmployee,
+                model.employee_id == DimEmployee.id,
+                DimEmployee.name.label("dimension_label"),
+            )
+        if dimension == "product" and hasattr(model, "product_id"):
+            return (
+                DimProduct,
+                model.product_id == DimProduct.id,
+                DimProduct.name.label("dimension_label"),
+            )
+        if dimension == "room" and hasattr(model, "room_id"):
+            return (
+                DimRoom,
+                model.room_id == DimRoom.id,
+                DimRoom.room_no.label("dimension_label"),
+            )
+        if dimension == "room_type":
+            if model is not FactRoom:
+                raise ValueError("room_type 仅支持 room 表")
+            return (
+                DimRoom,
+                model.room_id == DimRoom.id,
+                DimRoom.room_type.label("dimension_label"),
+            )
+        return (None, None, None)
+
+    def _build_group_stmt(
+        self,
+        model,
+        dimension: str,
+        granularity: str,
+        metrics: List[Tuple[str, Any]],
+        start_date: date,
+        end_date: date,
+        store_id: Optional[int],
+    ):
+        dim_expr = self._get_dimension_expr(model, dimension, granularity)
+        metric_columns: Dict[str, Any] = {}
+        select_columns = [dim_expr]
+        for name, expr in metrics:
+            labeled = expr.label(name)
+            metric_columns[name] = labeled
+            select_columns.append(labeled)
+
+        join_model, join_condition, dim_label_expr = self._get_dimension_join_config(
+            model, dimension
+        )
+        if dim_label_expr is not None:
+            select_columns.append(dim_label_expr)
+
+        stmt = select(*select_columns)
+        if join_model is not None:
+            stmt = stmt.join(join_model, join_condition)
+        stmt = stmt.where(model.biz_date.between(start_date, end_date))
+        if store_id is not None:
+            stmt = stmt.where(model.store_id == store_id)
+        stmt = stmt.group_by(dim_expr)
+        if dim_label_expr is not None:
+            stmt = stmt.group_by(dim_label_expr)
+        stmt = stmt.order_by(dim_expr)
+        return stmt, dim_expr, dim_label_expr is not None, metric_columns
+
+    def _count_group_rows(self, stmt):
+        subquery = stmt.order_by(None).subquery()
+        return self.db.execute(select(func.count()).select_from(subquery)).scalar() or 0
+
+    def _fetch_rows(
+        self, stmt, metrics: List[Tuple[str, Any]], has_label: bool
+    ) -> List[Dict[str, Any]]:
+        rows = self.db.execute(stmt).all()
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            mapping = row._mapping
+            record = {"dimension_key": mapping["dimension_key"]}
+            for name, _ in metrics:
+                record[name] = mapping.get(name)
+            if has_label and "dimension_label" in mapping:
+                record["dimension_label"] = mapping["dimension_label"]
+            else:
+                record["dimension_label"] = str(mapping["dimension_key"])
+            result.append(record)
+        return result
+
+    def _estimate_bucket_count(
+        self, start_date: date, end_date: date, granularity: str
+    ) -> int:
+        days = (end_date - start_date).days + 1
+        if granularity == "day":
+            return max(days, 0)
+        if granularity == "week":
+            return max((days + 6) // 7, 0)
+        if granularity == "month":
+            return (
+                (end_date.year - start_date.year) * 12
+                + (end_date.month - start_date.month)
+                + 1
+            )
+        return days
+
+    def _next_granularity(self, granularity: str) -> Optional[str]:
+        try:
+            idx = self.GRANULARITY_ORDER.index(granularity)
+        except ValueError:
+            return None
+        if idx + 1 >= len(self.GRANULARITY_ORDER):
+            return None
+        return self.GRANULARITY_ORDER[idx + 1]
+
+    def _determine_primary_metric(self, metric_columns: Dict[str, Any]) -> str:
+        preferred = ["sales_amount", "actual", "gmv", "profit", "orders"]
+        for name in preferred:
+            if name in metric_columns:
+                return name
+        return next(iter(metric_columns.keys()))
+
     def query_stats(
         self,
         table: str,
@@ -99,6 +244,9 @@ class StatsService:
         store_id: Optional[int] = None,
         dimension: str = "date",
         granularity: str = "day",
+        page: int = 1,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        top_n: int = DEFAULT_TOP_N,
     ) -> Dict[str, Any]:
         """
         通用聚合查询
@@ -107,91 +255,113 @@ class StatsService:
             raise ValueError(f"不支持的表类型: {table}")
 
         model = self.TABLE_MAP[table]
-        dim_expr = self._get_dimension_expr(model, dimension, granularity)
+        if granularity not in self.GRANULARITY_ORDER:
+            raise ValueError(f"不支持的粒度: {granularity}")
+
+        self._validate_pagination(page, page_size)
+        top_n = self._clamp_top_n(top_n)
+
         metrics = self._get_metrics_exprs(model)
 
-        # 构建基础 SELECT 列表
-        selects = [dim_expr] + [expr.label(name) for name, expr in metrics]
-
-        # 如果是非日期维度，需要 JOIN 维度表获取标签
-        dim_label_expr = None
-        stmt = select(*selects)
-
-        if dimension == "store":
-            dim_label_expr = DimStore.store_name.label("dimension_label")
-            stmt = stmt.add_columns(dim_label_expr).join(
-                DimStore, model.store_id == DimStore.id
-            )
-        elif dimension == "employee":
-            if hasattr(model, "employee_id"):
-                dim_label_expr = DimEmployee.name.label("dimension_label")
-                stmt = stmt.add_columns(dim_label_expr).join(
-                    DimEmployee, model.employee_id == DimEmployee.id
-                )
-        elif dimension == "product":
-            if hasattr(model, "product_id"):
-                dim_label_expr = DimProduct.name.label("dimension_label")
-                stmt = stmt.add_columns(dim_label_expr).join(
-                    DimProduct, model.product_id == DimProduct.id
-                )
-        elif dimension == "room":
-            if hasattr(model, "room_id"):
-                dim_label_expr = DimRoom.room_no.label("dimension_label")
-                stmt = stmt.add_columns(dim_label_expr).join(
-                    DimRoom, model.room_id == DimRoom.id
-                )
-        elif dimension == "room_type":
-            if table != "room":
-                raise ValueError("room_type 仅支持 room 表")
-            dim_label_expr = DimRoom.room_type.label("dimension_label")
-            stmt = stmt.add_columns(dim_label_expr).join(
-                DimRoom, model.room_id == DimRoom.id
-            )
-
-        stmt = stmt.where(model.biz_date.between(start_date, end_date)).group_by(
-            dim_expr
+        rows_stmt, _, has_label_rows, _ = self._build_group_stmt(
+            model=model,
+            dimension=dimension,
+            granularity=granularity,
+            metrics=metrics,
+            start_date=start_date,
+            end_date=end_date,
+            store_id=store_id,
         )
 
-        # 如果有维度标签，也需要加入 GROUP BY
-        if dim_label_expr is not None:
-            stmt = stmt.group_by(dim_label_expr)
+        total = self._count_group_rows(rows_stmt)
+        offset = (page - 1) * page_size
+        paginated_stmt = rows_stmt.offset(offset).limit(page_size)
+        rows = self._fetch_rows(paginated_stmt, metrics, has_label_rows)
 
-        stmt = stmt.order_by(dim_expr)
+        series_granularity = granularity
+        auto_adjusted = False
+        is_truncated = False
+        suggestions: List[str] = []
 
-        if store_id is not None:
-            stmt = stmt.where(model.store_id == store_id)
+        if dimension == "date":
+            bucket_count = self._estimate_bucket_count(
+                start_date, end_date, series_granularity
+            )
+            while bucket_count > self.MAX_SERIES_POINTS:
+                next_gran = self._next_granularity(series_granularity)
+                if not next_gran:
+                    raise ValueError("时间跨度过大，请提升粒度或缩小时间范围")
+                series_granularity = next_gran
+                bucket_count = self._estimate_bucket_count(
+                    start_date, end_date, series_granularity
+                )
+                auto_adjusted = True
+            if (
+                granularity == "day"
+                and (end_date - start_date).days + 1 > self.MAX_DAY_SPAN
+                and not auto_adjusted
+            ):
+                raise ValueError(
+                    "按日查询跨度超过 365 天，请改为按周/按月或缩小时间范围"
+                )
+            if auto_adjusted:
+                suggestions.append(
+                    f"数据点过多，已自动调整为按 {series_granularity} 聚合"
+                )
 
-        rows = self.db.execute(stmt).all()
-
-        data: List[Dict[str, Any]] = []
-        num_metrics = len(metrics)
-
-        for row in rows:
-            record = {"dimension_key": row[0]}
-
-            # 添加指标
-            for idx, (name, _) in enumerate(metrics, start=1):
-                record[name] = row[idx]
-
-            # 添加维度标签（如果有）
-            if dim_label_expr is not None:
-                record["dimension_label"] = row[num_metrics + 1]
-            else:
-                # 对于日期维度，直接使用日期作为标签
-                record["dimension_label"] = str(row[0])
-
-            data.append(record)
+            series_stmt, _, has_label_series, _ = self._build_group_stmt(
+                model=model,
+                dimension=dimension,
+                granularity=series_granularity,
+                metrics=metrics,
+                start_date=start_date,
+                end_date=end_date,
+                store_id=store_id,
+            )
+            series_rows = self._fetch_rows(series_stmt, metrics, has_label_series)
+        else:
+            series_stmt, dim_expr_series, has_label_series, metric_columns = (
+                self._build_group_stmt(
+                    model=model,
+                    dimension=dimension,
+                    granularity=granularity,
+                    metrics=metrics,
+                    start_date=start_date,
+                    end_date=end_date,
+                    store_id=store_id,
+                )
+            )
+            primary_metric_name = self._determine_primary_metric(metric_columns)
+            primary_metric_expr = metric_columns[primary_metric_name]
+            series_stmt = series_stmt.order_by(None).order_by(
+                primary_metric_expr.desc(), dim_expr_series
+            )
+            series_stmt = series_stmt.limit(top_n)
+            series_rows = self._fetch_rows(series_stmt, metrics, has_label_series)
+            if total > len(series_rows):
+                is_truncated = True
+                suggestions.append(
+                    f"已限制为前 {top_n} 项，建议缩小筛选范围或调大 top_n"
+                )
 
         return {
-            "data": data,
+            "rows": rows,
+            "series_rows": series_rows,
+            "total": total,
             "meta": {
                 "table": table,
                 "dimension": dimension,
                 "granularity": granularity if dimension == "date" else None,
+                "series_granularity": (
+                    series_granularity if dimension == "date" else None
+                ),
                 "store_id": store_id,
                 "start_date": str(start_date),
                 "end_date": str(end_date),
-                "count": len(data),
+                "count": total,
+                "is_truncated": is_truncated,
+                "auto_adjusted": auto_adjusted,
+                "suggestions": suggestions,
             },
         }
 
@@ -221,6 +391,8 @@ class StatsService:
 
         store_id = filters.get("store_id")
         granularity = filters.get("granularity", "day")
+        page_size = filters.get("page_size", self.DEFAULT_PAGE_SIZE)
+        top_n = filters.get("top_n", self.DEFAULT_TOP_N)
 
         # 调用现有的 query_stats 方法
         result = self.query_stats(
@@ -230,9 +402,12 @@ class StatsService:
             store_id=store_id,
             dimension=group_by,
             granularity=granularity,
+            page=1,
+            page_size=page_size,
+            top_n=top_n,
         )
 
-        return result["data"]
+        return result["series_rows"]
 
     def get_top_items(
         self,

@@ -114,6 +114,31 @@
             </el-radio-button>
           </el-radio-group>
           <span v-else class="metric-placeholder">暂无可选指标</span>
+          <div
+            v-if="chartNeedsDataZoom"
+            class="chart-actions"
+          >
+            <el-button
+              size="small"
+              text
+              @click="handleResetZoom"
+            >
+              重置缩放
+            </el-button>
+          </div>
+        </div>
+        <div
+          v-if="chartNotices.length"
+          class="chart-notice-list"
+        >
+          <el-alert
+            v-for="(notice, index) in chartNotices"
+            :key="index"
+            :title="notice.message"
+            :type="notice.type"
+            :closable="false"
+            show-icon
+          />
         </div>
         <div class="chart-body">
           <div ref="chartRef" class="chart-container"></div>
@@ -124,6 +149,7 @@
       </div>
 
       <el-table
+        ref="tableRef"
         class="result-table"
         :data="renderedTableData"
         border
@@ -146,6 +172,20 @@
         </el-table-column>
       </el-table>
 
+      <div class="table-pagination">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :current-page="pagination.page"
+          :page-size="pagination.pageSize"
+          :page-sizes="pageSizeOptions"
+          :total="renderedTableTotal"
+          :disabled="paginationDisabled"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
+
     </el-card>
   </div>
 </template>
@@ -158,6 +198,12 @@ import { queryStats } from '@/api/stats'
 import { listStores } from '@/api/store'
 
 const EMPTY_DATASET = Object.freeze([])
+const PAGINATION_CONFIG = Object.freeze({
+  defaultPage: 1,
+  defaultPageSize: 50,
+  pageSizeOptions: [20, 50, 100, 200],
+  maxPageSize: 200
+})
 
 const queryParams = reactive({
   table: 'sales',
@@ -165,6 +211,11 @@ const queryParams = reactive({
   dimension: 'date',
   granularity: 'day',
   store_id: null
+})
+
+const pagination = reactive({
+  page: PAGINATION_CONFIG.defaultPage,
+  pageSize: PAGINATION_CONFIG.defaultPageSize
 })
 
 const TABLE_OPTIONS = [
@@ -243,15 +294,23 @@ const showGranularity = computed(() => queryParams.dimension === 'date')
 
 const granularityOptions = GRANULARITY_OPTIONS
 
+const pageSizeOptions = PAGINATION_CONFIG.pageSizeOptions
+
 const metricOptions = computed(() => COLUMN_CONFIG[queryParams.table] || [])
 
 const tableData = ref([])
+const chartSeriesRows = ref([])
+const chartMeta = ref({})
+const tableTotal = ref(0)
 const appliedParams = ref(null)
 const tableColumns = ref([])
 const loading = ref(false)
 const selectedMetric = ref('')
 const chartRef = ref(null)
+const tableRef = ref(null)
 let chartInstance = null
+let activeQueryController = null
+let latestRequestToken = 0
 const storeOptions = ref([])
 const currentUser = ref(null)
 
@@ -310,12 +369,66 @@ const renderedTableData = computed(() =>
   isViewSynced.value ? tableData.value : EMPTY_DATASET
 )
 
+const renderedTableTotal = computed(() =>
+  isViewSynced.value ? tableTotal.value : 0
+)
+
+const chartSourceRows = computed(() =>
+  isViewSynced.value ? chartSeriesRows.value : EMPTY_DATASET
+)
+
+const chartPointCount = computed(() => chartSourceRows.value.length)
+
+const CHART_CONFIG = Object.freeze({
+  dataZoomThreshold: 80,
+  sliderWindowThreshold: 120,
+  defaultWindowSize: 100,
+  safeSymbolThreshold: 300,
+  denseThreshold: 1200,
+  heavyThreshold: 3000
+})
+
+const GRANULARITY_LABEL_MAP = {
+  day: '按日',
+  week: '按周',
+  month: '按月'
+}
+
+const detectChartMode = (count) => {
+  if (count === 0) return 'empty'
+  if (count <= CHART_CONFIG.safeSymbolThreshold) return 'normal'
+  if (count <= CHART_CONFIG.denseThreshold) return 'dense'
+  if (count <= CHART_CONFIG.heavyThreshold) return 'heavy'
+  return 'overload'
+}
+
+const chartMode = computed(() => detectChartMode(chartPointCount.value))
+
+const chartNeedsDataZoom = computed(
+  () => chartPointCount.value > CHART_CONFIG.dataZoomThreshold
+)
+
+const formatDimensionLabel = (value) => {
+  const label = value ?? '--'
+  if (typeof label !== 'string') {
+    return String(label)
+  }
+  return label.length > 20 ? `${label.slice(0, 18)}…` : label
+}
+
+const normalizeRow = (item) => ({
+  ...item,
+  dimension_value: item.dimension_label || item.dimension_key || '--'
+})
+
 const hasChartData = computed(
   () =>
     isViewSynced.value &&
-    renderedTableData.value.length > 0 &&
+    chartSourceRows.value.length > 0 &&
     Boolean(selectedMetric.value)
 )
+
+const paginationDisabled = computed(() => !appliedParams.value || !isViewSynced.value)
 
 const currentMetricLabel = computed(() => {
   const current = metricOptions.value.find((item) => item.prop === selectedMetric.value)
@@ -333,46 +446,149 @@ const buildTableColumns = () => {
   tableColumns.value = [dimensionColumn, ...metrics]
 }
 
-const handleQuery = async () => {
-  const [startDate, endDate] = queryParams.dateRange || []
-  if (!startDate || !endDate) {
-    ElMessage.warning('请选择完整的时间范围后再查询')
+const resetResultState = () => {
+  tableData.value = []
+  chartSeriesRows.value = []
+  tableTotal.value = 0
+  chartMeta.value = {}
+  appliedParams.value = null
+}
+
+const cloneSnapshot = (snapshot) => {
+  if (!snapshot) {
+    return null
+  }
+  return {
+    ...snapshot,
+    dateRange: Array.isArray(snapshot.dateRange) ? [...snapshot.dateRange] : []
+  }
+}
+
+const cancelActiveQuery = () => {
+  if (activeQueryController) {
+    activeQueryController.abort()
+    activeQueryController = null
+  }
+}
+
+const isAbortError = (error) =>
+  error?.code === 'ERR_CANCELED' ||
+  error?.name === 'CanceledError' ||
+  error?.message === 'canceled'
+
+const scrollTableToTop = () => {
+  nextTick(() => {
+    if (tableRef.value?.setScrollTop) {
+      tableRef.value.setScrollTop(0)
+    }
+  })
+}
+
+const performQuery = async ({ resetPage = false, source = 'query', paramsSnapshot } = {}) => {
+  const snapshotSource =
+    paramsSnapshot ||
+    (source === 'query'
+      ? snapshotCurrentQuery()
+      : appliedParams.value)
+
+  const snapshot = cloneSnapshot(snapshotSource)
+
+  if (!snapshot) {
+    if (source === 'query') {
+      ElMessage.warning('请选择完整的时间范围后再查询')
+    }
     return
   }
+
+  const [startDate, endDate] = snapshot.dateRange || []
+  if (!startDate || !endDate) {
+    if (source === 'query') {
+      ElMessage.warning('请选择完整的时间范围后再查询')
+    }
+    return
+  }
+
+  if (resetPage) {
+    pagination.page = PAGINATION_CONFIG.defaultPage
+  }
+
   const rawParams = {
-    table: queryParams.table,
-    dimension: queryParams.dimension,
-    granularity: queryParams.dimension === 'date' ? queryParams.granularity : undefined,
+    table: snapshot.table,
+    dimension: snapshot.dimension,
+    granularity: snapshot.dimension === 'date' ? snapshot.granularity : undefined,
     start_date: startDate,
     end_date: endDate,
-    store_id: queryParams.store_id
+    store_id: snapshot.store_id ?? undefined,
+    page: pagination.page,
+    page_size: Math.min(
+      pagination.pageSize || PAGINATION_CONFIG.defaultPageSize,
+      PAGINATION_CONFIG.maxPageSize
+    )
   }
   const requestParams = Object.fromEntries(
     Object.entries(rawParams).filter(([, value]) => value !== undefined && value !== null && value !== '')
   )
 
+  cancelActiveQuery()
+  const controller = new AbortController()
+  activeQueryController = controller
+  const requestId = ++latestRequestToken
   loading.value = true
 
   try {
-    const response = await queryStats(requestParams)
-    if (response?.success && Array.isArray(response.data)) {
-      tableData.value = response.data.map((item) => ({
-        ...item,
-        dimension_value: item.dimension_label || item.dimension_key || '--'
-      }))
-      appliedParams.value = snapshotCurrentQuery()
+    const response = await queryStats(requestParams, { signal: controller.signal })
+    const payload = response?.data || {}
+    if (response?.success) {
+      const rows = Array.isArray(payload.rows) ? payload.rows : []
+      const seriesRows = Array.isArray(payload.series_rows) ? payload.series_rows : []
+      tableData.value = rows.map(normalizeRow)
+      chartSeriesRows.value = seriesRows.map(normalizeRow)
+      const parsedTotal = Number(payload.total)
+      tableTotal.value = Number.isFinite(parsedTotal) ? parsedTotal : rows.length || 0
+      chartMeta.value = payload.meta || {}
+      appliedParams.value = snapshot
+      if (source === 'pagination' || source === 'pageSize') {
+        scrollTableToTop()
+      }
     } else {
-      tableData.value = []
-      appliedParams.value = null
+      resetResultState()
     }
   } catch (error) {
+    if (isAbortError(error)) {
+      return
+    }
     console.error('[GeneralAnalysis] 查询失败:', error)
     ElMessage.error('查询失败，请稍后重试')
-    tableData.value = []
-    appliedParams.value = null
+    resetResultState()
   } finally {
-    loading.value = false
+    if (activeQueryController === controller) {
+      activeQueryController = null
+    }
+    if (requestId === latestRequestToken) {
+      loading.value = false
+    }
   }
+}
+
+const handleQuery = () => {
+  performQuery({ resetPage: true, source: 'query' })
+}
+
+const handlePageChange = (page) => {
+  if (!appliedParams.value || !isViewSynced.value || page === pagination.page) {
+    return
+  }
+  pagination.page = page
+  performQuery({ source: 'pagination', paramsSnapshot: appliedParams.value })
+}
+
+const handlePageSizeChange = (size) => {
+  if (!appliedParams.value || !isViewSynced.value || size === pagination.pageSize) {
+    return
+  }
+  pagination.pageSize = size
+  pagination.page = PAGINATION_CONFIG.defaultPage
+  performQuery({ source: 'pageSize', paramsSnapshot: appliedParams.value })
 }
 
 const fetchStoreOptions = async () => {
@@ -409,42 +625,111 @@ const buildChartOption = () => {
     return null
   }
 
-  const sourceData = renderedTableData.value
+  const sourceData = chartSourceRows.value
   const xData = sourceData.map((item) => item.dimension_value ?? '--')
   const yData = sourceData.map((item) => Number(item[metric.prop]) || 0)
+  const mode = chartMode.value
+  const isLine = chartType.value === 'line'
+  const showSymbol = isLine && mode === 'normal'
+  const smooth = isLine && mode === 'normal'
+  const sampling = mode === 'heavy' || mode === 'overload' ? 'lttb' : undefined
 
   const series = {
     name: metric.label,
     type: chartType.value,
     data: yData,
-    smooth: chartType.value === 'line'
+    smooth,
+    showSymbol,
+    symbol: showSymbol ? 'circle' : 'none',
+    symbolSize: showSymbol ? 6 : 0,
+    sampling
   }
 
-  if (chartType.value === 'line') {
-    series.areaStyle = { opacity: 0.12 }
-    series.symbol = 'circle'
-    series.symbolSize = 6
+  if (isLine) {
+    series.areaStyle = showSymbol ? { opacity: 0.12 } : undefined
+    series.lineStyle = {
+      width: mode === 'normal' ? 2 : mode === 'dense' ? 1.5 : 1,
+      opacity: mode === 'overload' ? 0.9 : 1
+    }
   } else {
     series.showBackground = true
     series.backgroundStyle = {
       color: 'rgba(64, 158, 255, 0.05)'
     }
+    series.barMaxWidth = mode === 'overload' ? 14 : 24
   }
+
+  const axisLabelInterval = (() => {
+    const count = chartPointCount.value
+    if (count <= 40) return 0
+    if (mode === 'dense') return Math.ceil(count / 12)
+    if (mode === 'heavy') return Math.ceil(count / 18)
+    if (mode === 'overload') return Math.ceil(count / 24)
+    return 0
+  })()
+
+  const dataZoom = []
+  if (chartNeedsDataZoom.value) {
+    dataZoom.push({
+      type: 'inside',
+      moveOnMouseWheel: true,
+      zoomOnMouseWheel: 'shift',
+      moveOnMouseMove: true,
+      minSpan: 5
+    })
+    const slider = {
+      type: 'slider',
+      height: 18,
+      bottom: 6,
+      showDetail: false,
+      brushSelect: true,
+      handleSize: 10
+    }
+    if (chartPointCount.value > CHART_CONFIG.sliderWindowThreshold) {
+      slider.startValue = Math.max(
+        0,
+        chartPointCount.value - CHART_CONFIG.defaultWindowSize
+      )
+      slider.endValue = chartPointCount.value - 1
+    }
+    dataZoom.push(slider)
+  }
+
+  const toolbox =
+    dataZoom.length > 0
+      ? {
+          feature: {
+            restore: { title: '重置缩放' },
+            saveAsImage: { show: false }
+          },
+          top: 8,
+          right: 12
+        }
+      : undefined
 
   return {
     tooltip: {
       trigger: 'axis'
     },
     grid: {
-      left: 48,
-      right: 24,
-      top: 52,
-      bottom: 32
+      left: 20,
+      right: 20,
+      top: 60,
+      bottom: 20,
+      containLabel: true
     },
     xAxis: {
       type: 'category',
       data: xData,
-      boundaryGap: chartType.value === 'bar'
+      boundaryGap: chartType.value === 'bar',
+      axisLabel: {
+        rotate: 45,
+        interval: axisLabelInterval,
+        formatter: formatDimensionLabel,
+        width: 100,
+        overflow: 'truncate',
+        ellipsis: '...'
+      }
     },
     yAxis: {
       type: 'value',
@@ -454,6 +739,8 @@ const buildChartOption = () => {
         }
       }
     },
+    toolbox,
+    dataZoom,
     series: [series],
     color: ['#409EFF']
   }
@@ -482,10 +769,88 @@ const initChart = () => {
   updateChart()
 }
 
+const handleResetZoom = () => {
+  if (!chartInstance || !chartNeedsDataZoom.value) {
+    return
+  }
+  if (chartPointCount.value > CHART_CONFIG.sliderWindowThreshold) {
+    const endValue = chartPointCount.value - 1
+    const startValue = Math.max(0, endValue - CHART_CONFIG.defaultWindowSize)
+    chartInstance.dispatchAction({
+      type: 'dataZoom',
+      startValue,
+      endValue
+    })
+  } else {
+    chartInstance.dispatchAction({
+      type: 'dataZoom',
+      start: 0,
+      end: 100
+    })
+  }
+}
+
+const chartNotices = computed(() => {
+  const notices = []
+  const meta = chartMeta.value || {}
+
+  if (meta.auto_adjusted) {
+    const granularityText =
+      GRANULARITY_LABEL_MAP[meta.series_granularity] ||
+      meta.series_granularity ||
+      ''
+    notices.push({
+      type: 'info',
+      message: granularityText
+        ? `已自动调整时间粒度为 ${granularityText} 展示`
+        : '已自动调整时间粒度以保障可读性'
+    })
+  }
+
+  if (meta.is_truncated) {
+    notices.push({
+      type: 'warning',
+      message: '结果已按 Top-N 截断，图表仅展示受控范围内的数据。'
+    })
+  }
+
+  const suggestions = Array.isArray(meta.suggestions)
+    ? meta.suggestions
+    : meta.suggestions
+      ? [meta.suggestions]
+      : []
+  suggestions.slice(0, 3).forEach((tip) => {
+    notices.push({
+      type: 'warning',
+      message: tip
+    })
+  })
+
+  if (chartMode.value === 'heavy') {
+    notices.push({
+      type: 'warning',
+      message: '数据点超过 1200 个，已开启降级渲染与默认缩放，建议缩小时间范围或提升粒度。'
+    })
+  } else if (chartMode.value === 'overload') {
+    notices.push({
+      type: 'error',
+      message: '数据点超过 3000 个，当前仅展示最新窗口。请缩小查询范围或提升粒度以查看完整趋势。'
+    })
+  }
+
+  return notices
+})
+
 watch(
   () => queryParams.table,
   (nextTable) => {
     tableData.value = []
+    chartSeriesRows.value = []
+    chartMeta.value = {}
+    tableTotal.value = 0
+    appliedParams.value = null
+    pagination.page = PAGINATION_CONFIG.defaultPage
+    cancelActiveQuery()
     const defaultDimension = DEFAULT_DIMENSION_MAP[nextTable] || 'date'
     queryParams.dimension = defaultDimension
   },
@@ -515,7 +880,7 @@ watch(
 )
 
 watch(
-  [renderedTableData, selectedMetric, () => queryParams.dimension, isViewSynced],
+  [chartSourceRows, selectedMetric, () => queryParams.dimension, isViewSynced],
   () => {
     nextTick(() => {
       if (!isViewSynced.value) {
@@ -550,6 +915,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  cancelActiveQuery()
   window.removeEventListener('resize', handleResize)
   if (chartInstance) {
     chartInstance.dispose()
@@ -625,6 +991,17 @@ onBeforeUnmount(() => {
         font-size: 13px;
         color: #c0c4cc;
       }
+
+      .chart-actions {
+        margin-left: auto;
+      }
+    }
+
+    .chart-notice-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
     }
 
     .chart-body {
@@ -671,6 +1048,12 @@ onBeforeUnmount(() => {
 
   .result-table {
     margin-bottom: 16px;
+  }
+
+  .table-pagination {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
   }
 
 }
