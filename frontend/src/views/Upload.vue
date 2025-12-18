@@ -188,8 +188,9 @@ const duplicateWarning = ref('')
 const uploadHistory = ref([])
 const loadingHistory = ref(false)
 
-// 注入门店选择状态
+// 注入门店选择状态和事件发射器
 const currentStore = inject('currentStore', ref('all'))
+const eventEmitter = inject('eventEmitter', null)
 
 // 状态映射
 const STATUS_MAP = {
@@ -253,12 +254,27 @@ const confirmUpload = async () => {
     const response = await confirmImport(parseResult.value.session_id)
     
     if (response.success) {
-      ElMessage.success(response.message || `成功导入 ${parseResult.value.row_count} 条数据`)
+      // 先保存入库信息，再清空 parseResult
+      const importedStoreId = parseResult.value?.store_id
+      const importedStoreName = parseResult.value?.store_name
+      const rowCount = parseResult.value?.row_count || response.data?.summary?.row_count || 0
+      
+      ElMessage.success(response.message || `成功导入 ${rowCount} 条数据`)
+      
       parseResult.value = null
       duplicateWarning.value = ''
       
       // 刷新上传历史
       await refreshHistory()
+      
+      // 触发文件入库事件，通知 MainLayout 更新门店选择器
+      if (eventEmitter) {
+        eventEmitter.emit('file-imported', {
+          store_id: importedStoreId,
+          store_name: importedStoreName,
+          row_count: rowCount
+        })
+      }
     } else {
       ElMessage.error(response.message || '入库失败')
     }
