@@ -50,6 +50,7 @@ class User(Base):
     def to_user_info(self):
         """转换为用户信息格式（用于认证返回）"""
         return {
+            "id": self.id,
             "username": self.username,
             "role": self.role,
             "store_id": self.store_id,

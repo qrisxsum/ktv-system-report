@@ -43,6 +43,14 @@
           <el-menu-item index="/analysis/products">商品销售</el-menu-item>
           <el-menu-item index="/analysis/rooms">包厢效能</el-menu-item>
         </el-sub-menu>
+
+        <el-menu-item 
+          v-if="currentUser?.role === 'admin'"
+          index="/users"
+        >
+          <el-icon><User /></el-icon>
+          <template #title>账号管理</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 

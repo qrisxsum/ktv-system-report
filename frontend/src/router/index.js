@@ -104,6 +104,12 @@ const routes = [
             meta: { title: '包厢效能' }
           }
         ]
+      },
+      {
+        path: 'users',
+        name: 'UserManagement',
+        component: () => import('@/views/UserManagement.vue'),
+        meta: { title: '账号管理', icon: 'User' }
       }
     ]
   },

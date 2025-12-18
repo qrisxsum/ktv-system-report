@@ -36,6 +36,8 @@ authRequest.interceptors.response.use(
   (error) => {
     // 关闭进度条
     if (window.NProgress) window.NProgress.done()
+    // 保留原始错误信息，让调用方可以获取详细的错误信息
+    // 特别是登录时的账号停用错误（403）
     return Promise.reject(error)
   }
 )
