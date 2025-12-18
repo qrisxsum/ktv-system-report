@@ -16,21 +16,15 @@ Dev C 负责:
 """
 
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, Any, Dict, List
 
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.schemas import (
-    TableType,
-    Dimension,
-    TimeGranularity,
-    StatsResponse,
-    StatsItem,
-    StatsMeta,
-)
+from app.schemas import TableType, Dimension, TimeGranularity
 from app.core.database import get_db
+from app.core.security import get_current_manager
 from app.services.stats import StatsService
 
 router = APIRouter()
@@ -87,7 +81,7 @@ def _safe_int(value, default: int = 0) -> int:
 # 通用查询接口
 # ============================================================
 
-@router.get("/query", response_model=StatsResponse, summary="通用数据查询")
+@router.get("/query", response_model=None, summary="通用数据查询")
 async def query_stats(
     table: TableType = Query(TableType.BOOKING, description="表类型"),
     start_date: date = Query(..., description="开始日期"),
@@ -95,7 +89,11 @@ async def query_stats(
     store_id: Optional[int] = Query(None, description="门店ID"),
     dimension: Dimension = Query(Dimension.DATE, description="聚合维度"),
     granularity: TimeGranularity = Query(TimeGranularity.DAY, description="时间粒度"),
+    page: int = Query(1, ge=1, description="分页页码（表格 rows 用）"),
+    page_size: int = Query(20, ge=1, le=200, description="分页大小（表格 rows 用）"),
+    top_n: int = Query(50, ge=1, le=200, description="非时间维度 Top-N（series_rows 用）"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     通用聚合查询接口
@@ -104,9 +102,14 @@ async def query_stats(
     
     参考: docs/web界面5.md (1.3 节)
     """
-    # 调用 StatsService 获取基础数据
+    # 店长权限：只能查看自己门店
+    if current_user.get("role") == "manager":
+        if store_id is None:
+            store_id = current_user.get("store_id")
+        elif store_id != current_user.get("store_id"):
+            raise HTTPException(status_code=403, detail="无权限访问其他门店数据")
+
     stats_service = StatsService(db)
-    
     try:
         result = stats_service.query_stats(
             table=table.value,
@@ -115,73 +118,23 @@ async def query_stats(
             store_id=store_id,
             dimension=_convert_dimension_to_string(dimension),
             granularity=_convert_granularity_to_string(granularity),
+            page=page,
+            page_size=page_size,
+            top_n=top_n,
         )
     except ValueError as e:
-        # 如果维度不支持，返回空数据
-        return StatsResponse(
-            success=False,
-            data=[],
-            meta=StatsMeta(
-                total_sales=0,
-                total_actual=0,
-                total_profit=None,
-                total_records=0,
-            ),
-        )
-    
-    # 将 StatsService 返回的数据转换为前端需要的格式
-    raw_data = result.get("data", [])
-    stats_items = []
-    
-    for row in raw_data:
-        raw_sales_amount = row.get("sales_amount")
-        if raw_sales_amount is None:
-            raw_sales_amount = row.get("sales")
-        sales_amount_value = _safe_float(raw_sales_amount)
-        orders_value = _safe_int(row.get("orders"))
-        duration_value = _safe_int(row.get("duration"))
-        item = StatsItem(
-            dimension_key=str(row.get("dimension_key", "")),
-            dimension_label=row.get("dimension_label"),
-            # booking 表指标
-            sales=sales_amount_value,
-            actual=_safe_float(row.get("actual")),
-            performance=_safe_float(row.get("performance")),
-            booking_qty=orders_value,
-            orders=orders_value,
-            # room 表指标
-            gmv=_safe_float(row.get("gmv")),
-            room_discount=_safe_float(row.get("room_discount")),
-            beverage_discount=_safe_float(row.get("beverage_discount")),
-            order_count=orders_value,
-            duration=duration_value,
-            # sales 表指标
-            sales_qty=_safe_int(row.get("sales_qty")),
-            sales_amount=sales_amount_value,
-            cost=_safe_float(row.get("cost_total")),
-            profit=_safe_float(row.get("profit")),
-            profit_rate=_safe_float(row.get("profit_rate")),
-            # 赠送相关 (通用)
-            gift_qty=_safe_int(row.get("gift_qty")),
-            gift_amount=_safe_float(row.get("gift_amount")),
-        )
-        stats_items.append(item)
-    
-    # 计算汇总
-    total_sales = sum(item.sales for item in stats_items)
-    total_actual = sum(item.actual for item in stats_items)
-    total_profit = sum(item.profit or 0 for item in stats_items)
-    
-    return StatsResponse(
-        success=True,
-        data=stats_items,
-        meta=StatsMeta(
-            total_sales=round(total_sales, 2),
-            total_actual=round(total_actual, 2),
-            total_profit=round(total_profit, 2) if total_profit else None,
-            total_records=len(stats_items),
-        ),
-    )
+        return {"success": False, "message": str(e), "data": None}
+
+    # 轻量字段兼容：部分前端仍使用 cost（而 StatsService 输出 cost_total）
+    if table.value == "sales":
+        for row in (result.get("rows") or []):
+            if "cost" not in row and "cost_total" in row:
+                row["cost"] = row.get("cost_total")
+        for row in (result.get("series_rows") or []):
+            if "cost" not in row and "cost_total" in row:
+                row["cost"] = row.get("cost_total")
+
+    return {"success": True, "data": result}
 
 
 @router.get("/date-range", summary="获取数据日期范围")

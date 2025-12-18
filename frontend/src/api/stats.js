@@ -17,11 +17,12 @@ import request from './index'
  * @param {string} params.granularity - 时间粒度: day | week | month
  * @returns {Promise} 统计结果
  */
-export function queryStats(params) {
+export function queryStats(params, config = {}) {
   return request({
     url: '/stats/query',
     method: 'GET',
     params,
+    ...config,
   })
 }
 

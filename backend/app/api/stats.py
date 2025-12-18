@@ -1,6 +1,7 @@
 """
 统计查询接口
 """
+
 from datetime import date
 from typing import Optional
 
@@ -22,6 +23,9 @@ def query_stats(
     store_id: Optional[int] = Query(None),
     dimension: str = Query("date"),
     granularity: str = Query("day"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    top_n: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_manager),
 ):
@@ -35,10 +39,8 @@ def query_stats(
             store_id = current_user["store_id"]
         elif store_id != current_user["store_id"]:
             from fastapi import HTTPException
-            raise HTTPException(
-                status_code=403,
-                detail="无权限访问其他门店数据"
-            )
+
+            raise HTTPException(status_code=403, detail="无权限访问其他门店数据")
 
     service = StatsService(db)
     result = service.query_stats(
@@ -48,10 +50,8 @@ def query_stats(
         store_id=store_id,
         dimension=dimension,
         granularity=granularity,
+        page=page,
+        page_size=page_size,
+        top_n=top_n,
     )
-    return {
-        "success": True,
-        "data": result["data"],
-        "meta": result["meta"],
-    }
-
+    return {"success": True, "data": result}

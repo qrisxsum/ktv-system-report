@@ -80,7 +80,7 @@ const rawData = ref([])
 const productData = computed(() => {
   return rawData.value.map(item => {
     const salesAmount = item.sales_amount || 0
-    const cost = item.cost || 0
+    const cost = item.cost ?? item.cost_total ?? 0
     const profit = item.profit || 0
     const profitRate = item.profit_rate || 0  // 直接使用后端返回的利润率（成本利润率）
     
@@ -148,9 +148,9 @@ const fetchData = async () => {
     }
 
     const response = await queryStats(params)
-    
-    if (response.success && response.data) {
-      rawData.value = response.data
+
+    if (response.success && response.data?.series_rows) {
+      rawData.value = response.data.series_rows
     } else {
       rawData.value = []
     }

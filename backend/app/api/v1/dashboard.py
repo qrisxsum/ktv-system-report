@@ -169,7 +169,7 @@ async def get_dashboard_summary(
             dimension="date",
             granularity="day",
         )
-        for row in yesterday_result.get("data", []):
+        for row in yesterday_result.get("series_rows", []):
             yesterday_actual += _safe_float(row.get("actual"))
         
         # 前天数据
@@ -181,7 +181,7 @@ async def get_dashboard_summary(
             dimension="date",
             granularity="day",
         )
-        for row in day_before_result.get("data", []):
+        for row in day_before_result.get("series_rows", []):
             day_before_actual += _safe_float(row.get("actual"))
         
         # 本月累计
@@ -193,7 +193,7 @@ async def get_dashboard_summary(
             dimension="date",
             granularity="day",
         )
-        for row in month_result.get("data", []):
+        for row in month_result.get("series_rows", []):
             month_actual += _safe_float(row.get("actual"))
         
         # 上月同期
@@ -205,7 +205,7 @@ async def get_dashboard_summary(
             dimension="date",
             granularity="day",
         )
-        for row in last_month_result.get("data", []):
+        for row in last_month_result.get("series_rows", []):
             last_month_actual += _safe_float(row.get("actual"))
     except Exception:
         pass
@@ -229,7 +229,7 @@ async def get_dashboard_summary(
             dimension="date",
             granularity="day",
         )
-        for row in trend_result.get("data", []):
+        for row in trend_result.get("series_rows", []):
             revenue_trend.append(TrendItem(
                 date=str(row.get("dimension_key", "")),
                 value=round(_safe_float(row.get("actual")), 2),
@@ -376,7 +376,7 @@ async def get_kpi_cards(
             dimension="date",
             granularity="day",
         )
-        for row in result.get("data", []):
+        for row in result.get("series_rows", []):
             actual_amount += _safe_float(row.get("actual"))
             sales_amount += _safe_float(row.get("sales"))
             order_count += int(_safe_float(row.get("orders")))
@@ -460,7 +460,7 @@ async def get_trend_data(
             dimension="date",
             granularity="day",
         )
-        for row in result.get("data", []):
+        for row in result.get("series_rows", []):
             data.append({
                 "date": str(row.get("dimension_key", "")),
                 "value": round(_safe_float(row.get(field)), 2),

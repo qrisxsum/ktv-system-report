@@ -75,8 +75,8 @@ const rawData = ref([])
 const staffData = computed(() => {
   const data = rawData.value.map(item => ({
     name: item.dimension_label || '未知员工',
-    booking_count: item.booking_qty || 0,
-    sales_amount: item.sales || 0,
+    booking_count: item.orders || 0,
+    sales_amount: item.sales_amount || 0,
     actual_amount: item.actual || 0,
     base_performance: item.performance || 0,
     gift_amount: item.gift_amount || 0
@@ -137,9 +137,9 @@ const fetchData = async () => {
     }
 
     const response = await queryStats(params)
-    
-    if (response.success && response.data) {
-      rawData.value = response.data
+
+    if (response.success && response.data?.series_rows) {
+      rawData.value = response.data.series_rows
       updateChart()
     } else {
       rawData.value = []
