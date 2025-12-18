@@ -3,17 +3,22 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>🍺 商品销售分析</span>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            format="YYYY-MM-DD"
-            value-format="YYYY-MM-DD"
-            @change="fetchData"
-          />
+          <span class="header-title">🍺 商品销售分析</span>
+          <div class="header-right">
+            <span class="filter-label">时间</span>
+            <el-date-picker
+              class="date-range"
+              v-model="dateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              format="MM-DD"
+              value-format="YYYY-MM-DD"
+              @change="fetchData"
+              size="default"
+            />
+          </div>
         </div>
       </template>
       
@@ -180,6 +185,40 @@ onMounted(async () => {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .header-title {
+    font-weight: 600;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+  }
+
+  .filter-label {
+    font-size: 13px;
+    color: #606266;
+    white-space: nowrap;
+  }
+
+  .date-range {
+    width: 320px;
+    max-width: 100%;
+  }
+
+  @media (max-width: 768px) {
+    .header-right {
+      width: 100%;
+    }
+
+    .date-range {
+      width: 100%;
+    }
   }
   
   .empty-hint {
