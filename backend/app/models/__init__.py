@@ -5,6 +5,9 @@
 """
 from app.core.database import Base
 
+# 用户表
+from app.models.user import User
+
 # 元数据表
 from app.models.meta import MetaFileBatch
 
@@ -28,17 +31,20 @@ from app.models.facts import (
 __all__ = [
     # 基类
     "Base",
-    
+
+    # 用户表
+    "User",
+
     # 元数据表
     "MetaFileBatch",
-    
+
     # 维度表
     "DimStore",
     "DimEmployee",
     "DimRoom",
     "DimProduct",
     "DimPaymentMethod",
-    
+
     # 事实表
     "FactBooking",
     "FactRoom",

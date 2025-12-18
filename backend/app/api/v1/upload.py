@@ -42,6 +42,7 @@ from app.schemas import (
     RowError,
 )
 from app.core.database import get_db
+from app.core.security import get_current_manager
 from app.models.meta import MetaFileBatch
 from app.services.cleaner import CleanerService
 from app.services.parser import (
@@ -337,8 +338,9 @@ async def parse_file(
 @router.post("/confirm", response_model=UploadResponse, summary="确认入库")
 async def confirm_import(
     session_id: str = Form(..., description="解析会话ID"),
-    background_tasks: BackgroundTasks = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),  # 管理员和店长都可以入库
 ):
     """
     步骤2: 确认入库
@@ -430,7 +432,7 @@ async def confirm_import(
     )
 
 
-@router.delete("/cancel/{session_id}", summary="取消上传")
+@router.delete("/cancel/{session_id}", summary="取消上传", response_model=None)
 async def cancel_upload(session_id: str):
     """
     取消上传，清理临时文件

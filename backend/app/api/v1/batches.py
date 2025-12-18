@@ -23,6 +23,7 @@ from app.schemas import (
 )
 from app.schemas.batch import BatchDeleteResponse
 from app.core.database import get_db
+from app.core.security import get_current_manager, get_current_admin
 from app.models.meta import MetaFileBatch
 from app.models.dims import DimStore
 from app.services.importer import ImporterService
@@ -84,12 +85,25 @@ async def list_batches(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     获取上传批次历史
-    
+
     参考: docs/web界面5.md (1.2 节)
     """
+    # 根据用户角色过滤store_id权限
+    if current_user["role"] == "manager":
+        # 店长只能查看自己门店的数据
+        if store_id is None:
+            store_id = current_user["store_id"]
+        elif store_id != current_user["store_id"]:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail="无权限访问其他门店数据"
+            )
+
     # 构建查询
     query = db.query(MetaFileBatch)
     
@@ -136,14 +150,22 @@ async def list_batches(
 async def get_batch_detail(
     batch_id: int,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     获取批次详情（含错误日志）
     """
     batch = db.query(MetaFileBatch).filter(MetaFileBatch.id == batch_id).first()
-    
+
     if not batch:
         raise HTTPException(status_code=404, detail="批次不存在")
+
+    # 检查用户是否有权限访问该批次
+    if current_user["role"] == "manager" and batch.store_id != current_user["store_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="无权限访问其他门店数据"
+        )
     
     # 获取门店名称
     store = db.query(DimStore).filter(DimStore.id == batch.store_id).first()
@@ -164,18 +186,30 @@ async def get_batch_detail(
 async def delete_batch(
     batch_id: int,
     db: Session = Depends(get_db),
+    # 使用 get_current_manager：管理员和店长都可以调用此接口
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     删除批次（回滚数据）
+
+    - 管理员：可以删除任意门店的批次
+    - 店长：只能删除自己门店的批次
     
     参考: docs/web界面5.md (1.2 节)
     """
     # 先检查批次是否存在
     batch = db.query(MetaFileBatch).filter(MetaFileBatch.id == batch_id).first()
-    
+
     if not batch:
         raise HTTPException(status_code=404, detail="批次不存在")
-    
+
+    # 店长只能删除自己门店的批次
+    if current_user["role"] == "manager" and batch.store_id != current_user["store_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="无权限删除其他门店的批次",
+        )
+
     batch_no = batch.batch_no
     row_count = batch.row_count or 0
     

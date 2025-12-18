@@ -8,12 +8,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core import get_db
+from app.core.security import get_current_manager
 from app.services import StatsService
 
 router = APIRouter(prefix="/api", tags=["统计"])
 
 
-@router.get("/stats/query")
+@router.get("/stats/query", response_model=None)
 def query_stats(
     table: str = Query(..., regex="^(booking|room|sales)$"),
     start_date: date = Query(..., description="开始日期 YYYY-MM-DD"),
@@ -22,10 +23,23 @@ def query_stats(
     dimension: str = Query("date"),
     granularity: str = Query("day"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     通用统计查询
     """
+    # 根据用户角色过滤store_id权限
+    if current_user["role"] == "manager":
+        # 店长只能查看自己门店的数据
+        if store_id is None:
+            store_id = current_user["store_id"]
+        elif store_id != current_user["store_id"]:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail="无权限访问其他门店数据"
+            )
+
     service = StatsService(db)
     result = service.query_stats(
         table=table,

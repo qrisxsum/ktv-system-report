@@ -64,11 +64,14 @@
           </el-breadcrumb>
         </div>
         
-        <div
-          v-if="showStoreSelector"
-          class="header-right"
-        >
-          <el-select v-model="currentStore" placeholder="选择门店" style="width: 180px">
+        <div class="header-right">
+          <!-- 门店选择器（管理员） -->
+          <el-select 
+            v-if="showStoreSelector && currentUser?.role === 'admin'"
+            v-model="currentStore" 
+            placeholder="选择门店" 
+            style="width: 180px"
+          >
             <el-option
               v-for="store in stores"
               :key="store.id"
@@ -76,6 +79,33 @@
               :value="store.id.toString()"
             />
           </el-select>
+
+          <!-- 门店名称显示（店长） -->
+          <div 
+            v-if="showStoreSelector && currentUser?.role === 'manager'"
+            class="current-store-display"
+            style="width: 180px; text-align: right; padding-right: 20px;"
+          >
+            <span class="store-label">{{ userStoreName || '我的门店' }}</span>
+          </div>
+
+          <!-- 用户信息和登出 -->
+          <el-dropdown @command="handleUserCommand" class="user-dropdown">
+            <span class="user-info">
+              <el-icon><Avatar /></el-icon>
+              <span class="username">{{ currentUser?.username || '未登录' }}</span>
+              <span class="user-role" v-if="currentUser">({{ currentUser.role === 'admin' ? '管理员' : '店长' }})</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="logout">
+                  <el-icon><SwitchButton /></el-icon>
+                  退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
 
@@ -89,13 +119,18 @@
 
 <script setup>
 import { ref, computed, provide, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { listStores } from '@/api/store'
+import { logout } from '@/api/auth'
+import { Avatar, ArrowDown, SwitchButton } from '@element-plus/icons-vue'
 
 const route = useRoute()
+const router = useRouter()
 const isCollapse = ref(false)
-const currentStore = ref('all')
+const currentStore = ref('')
 const stores = ref([])
+const currentUser = ref(null)
 
 // 提供门店状态给子组件
 provide('currentStore', currentStore)
@@ -105,24 +140,109 @@ watch(currentStore, (newValue) => {
   console.log('门店切换到:', newValue)
 })
 
+// 获取用户门店名称
+const userStoreName = computed(() => {
+  if (!currentUser.value?.store_id || !stores.value.length) {
+    return ''
+  }
+  const userStore = stores.value.find(store => store.id === currentUser.value.store_id)
+  return userStore ? userStore.name : ''
+})
+
+// 获取当前显示的门店名称
+const currentStoreDisplay = computed(() => {
+  if (currentUser.value?.role === 'admin') {
+    return '全部门店'
+  } else if (currentUser.value?.role === 'manager') {
+    return userStoreName.value || '我的门店'
+  }
+  return ''
+})
+
+// 加载当前用户信息
+const loadCurrentUser = () => {
+  try {
+    const userStr = localStorage.getItem('user')
+    if (userStr) {
+      currentUser.value = JSON.parse(userStr)
+
+      // 根据用户角色设置默认门店
+      if (currentUser.value.role === 'admin') {
+        currentStore.value = 'all' // 管理员默认查看全部门店
+      } else if (currentUser.value.role === 'manager' && currentUser.value.store_id) {
+        currentStore.value = currentUser.value.store_id.toString() // 店长默认查看自己的门店
+      }
+    }
+  } catch (error) {
+    console.error('加载用户信息失败:', error)
+  }
+}
+
+// 处理用户菜单命令
+const handleUserCommand = async (command) => {
+  switch (command) {
+    case 'logout':
+      await handleLogout()
+      break
+  }
+}
+
+// 处理登出
+const handleLogout = async () => {
+  try {
+    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+
+    // 先清除本地存储
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('user')
+    currentUser.value = null
+
+    // 调用登出API
+    try {
+      await logout()
+    } catch (error) {
+      console.warn('登出API调用失败，但本地数据已清除:', error)
+    }
+
+    ElMessage.success('已退出登录')
+
+    // 跳转到登录页
+    router.push('/login')
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('登出失败:', error)
+    }
+  }
+}
+
 // 加载门店列表
 const loadStores = async () => {
   try {
+    console.log('开始加载门店列表...')
     const response = await listStores(true) // 只加载启用的门店
     const apiStores = response.data || []
+    console.log('API返回的门店列表:', apiStores)
+
     // 在门店列表开头添加"全部门店"选项
     stores.value = [
       { id: 'all', name: '全部门店' },
       ...apiStores
     ]
+    console.log('最终门店列表:', stores.value)
   } catch (error) {
     console.error('加载门店列表失败:', error)
+    console.error('错误详情:', error.response?.data)
     // 如果API调用失败，使用默认门店选项作为后备
     stores.value = [
       { id: 'all', name: '全部门店' },
       { id: 1, name: '万象城店' },
       { id: 2, name: '青年路店' }
     ]
+    console.log('使用fallback门店列表:', stores.value)
   }
 }
 
@@ -130,9 +250,10 @@ const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => route.meta?.title || '首页')
 const showStoreSelector = computed(() => route.meta?.hideStoreSelector !== true)
 
-// 组件挂载时加载门店列表
+// 组件挂载时加载数据
 onMounted(() => {
   loadStores()
+  loadCurrentUser()
 })
 </script>
 
@@ -215,14 +336,52 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 15px;
-    
+
     .collapse-btn {
       font-size: 20px;
       cursor: pointer;
       color: #606266;
-      
+
       &:hover {
         color: #409eff;
+      }
+    }
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+
+    .user-dropdown {
+      cursor: pointer;
+
+      .user-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        transition: background-color 0.3s;
+
+        &:hover {
+          background-color: #f5f7fa;
+        }
+
+        .username {
+          font-size: 14px;
+          font-weight: 500;
+          color: #303133;
+        }
+
+        .user-role {
+          font-size: 12px;
+          color: #909399;
+        }
+
+        .el-icon {
+          color: #606266;
+        }
       }
     }
   }

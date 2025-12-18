@@ -1,10 +1,59 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+// 路由守卫：检查是否已登录
+const requireAuth = (to, from, next) => {
+  const token = localStorage.getItem('access_token')
+  const user = localStorage.getItem('user')
+
+  console.log('路由守卫检查:', {
+    to: to.path,
+    from: from.path,
+    token: !!token,
+    user: !!user,
+    tokenValue: token,
+    userValue: user
+  })
+
+  if (token && user) {
+    // 已登录，继续访问
+    console.log('已登录，继续访问')
+    next()
+  } else {
+    // 未登录，跳转到登录页
+    console.log('未登录，跳转到登录页')
+    next('/login')
+  }
+}
+
+// 路由守卫：检查是否已登录（用于登录页）
+const redirectIfAuth = (to, from, next) => {
+  const token = localStorage.getItem('access_token')
+  const user = localStorage.getItem('user')
+
+  if (token && user) {
+    // 已登录，跳转到首页
+    next('/dashboard')
+  } else {
+    // 未登录，继续访问登录页
+    next()
+  }
+}
+
 const routes = [
+  // 登录页
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/Login.vue'),
+    meta: { title: '登录' },
+    beforeEnter: redirectIfAuth
+  },
+  // 主应用页面（需要登录）
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
     redirect: '/dashboard',
+    beforeEnter: requireAuth,
     children: [
       {
         path: 'dashboard',
