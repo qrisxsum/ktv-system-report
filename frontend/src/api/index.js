@@ -117,4 +117,5 @@ export * from './stats'
 export * from './dashboard'
 export * from './batch'
 export * from './store'
+export * from './user'
 
