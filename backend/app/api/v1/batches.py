@@ -186,10 +186,14 @@ async def get_batch_detail(
 async def delete_batch(
     batch_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_admin),  # 删除批次需要管理员权限
+    # 使用 get_current_manager：管理员和店长都可以调用此接口
+    current_user: dict = Depends(get_current_manager),
 ):
     """
     删除批次（回滚数据）
+
+    - 管理员：可以删除任意门店的批次
+    - 店长：只能删除自己门店的批次
     
     参考: docs/web界面5.md (1.2 节)
     """
@@ -199,8 +203,13 @@ async def delete_batch(
     if not batch:
         raise HTTPException(status_code=404, detail="批次不存在")
 
-    # 管理员可以删除任何批次，这里不需要额外的权限检查
-    
+    # 店长只能删除自己门店的批次
+    if current_user["role"] == "manager" and batch.store_id != current_user["store_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="无权限删除其他门店的批次",
+        )
+
     batch_no = batch.batch_no
     row_count = batch.row_count or 0
     

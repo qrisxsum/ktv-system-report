@@ -35,7 +35,9 @@
 
         <div class="toolbar-item">
           <span class="toolbar-label">门店</span>
+          <!-- 管理员：显示下拉选择器 -->
           <el-select
+            v-if="currentUser?.role === 'admin'"
             v-model="queryParams.store_id"
             placeholder="全部门店"
             clearable
@@ -47,6 +49,14 @@
               :value="store.id"
             />
           </el-select>
+          <!-- 店长：显示固定门店名称 -->
+          <el-input
+            v-else
+            :model-value="managerStoreName"
+            readonly
+            placeholder="我的门店"
+            style="width: 100%"
+          />
         </div>
 
         <div class="toolbar-item">
@@ -243,6 +253,31 @@ const selectedMetric = ref('')
 const chartRef = ref(null)
 let chartInstance = null
 const storeOptions = ref([])
+const currentUser = ref(null)
+
+// 获取当前用户信息
+const loadCurrentUser = () => {
+  try {
+    const userStr = localStorage.getItem('user')
+    if (userStr) {
+      currentUser.value = JSON.parse(userStr)
+    }
+  } catch (error) {
+    console.error('加载用户信息失败:', error)
+  }
+}
+
+// 获取店长的门店名称
+const managerStoreName = computed(() => {
+  if (!currentUser.value || currentUser.value.role !== 'manager') {
+    return ''
+  }
+  if (!currentUser.value.store_id || !storeOptions.value.length) {
+    return '我的门店'
+  }
+  const userStore = storeOptions.value.find(store => store.id === currentUser.value.store_id)
+  return userStore ? userStore.name : '我的门店'
+})
 
 const chartType = computed(() => (queryParams.dimension === 'date' ? 'line' : 'bar'))
 
@@ -345,6 +380,10 @@ const fetchStoreOptions = async () => {
     const response = await listStores(true)
     if (Array.isArray(response?.data)) {
       storeOptions.value = response.data
+      // 如果是店长，自动设置门店ID
+      if (currentUser.value?.role === 'manager' && currentUser.value.store_id) {
+        queryParams.store_id = currentUser.value.store_id
+      }
     } else {
       storeOptions.value = []
     }
@@ -491,7 +530,19 @@ watch(
   { deep: true }
 )
 
+// 确保店长的门店ID固定为其所属门店
+watch(
+  () => currentUser.value?.store_id,
+  (storeId) => {
+    if (currentUser.value?.role === 'manager' && storeId) {
+      queryParams.store_id = storeId
+    }
+  },
+  { immediate: true }
+)
+
 onMounted(() => {
+  loadCurrentUser()
   fetchStoreOptions()
   nextTick(() => {
     initChart()

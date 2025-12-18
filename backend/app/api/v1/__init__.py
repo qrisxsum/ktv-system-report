@@ -11,7 +11,7 @@ from .stores import router as stores_router
 from .dashboard import router as dashboard_router
 from .auth import router as auth_router
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api")
 
 # 注册子路由
 router.include_router(auth_router, prefix="/auth", tags=["认证"])

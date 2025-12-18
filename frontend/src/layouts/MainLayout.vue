@@ -64,11 +64,29 @@
           </el-breadcrumb>
         </div>
         
-<<<<<<< HEAD
         <div class="header-right">
-          <!-- 显示当前门店名称 -->
-          <div class="current-store-display" style="width: 180px; text-align: right; padding-right: 20px;">
-            <span class="store-label">{{ currentStoreDisplay }}</span>
+          <!-- 门店选择器（管理员） -->
+          <el-select 
+            v-if="showStoreSelector && currentUser?.role === 'admin'"
+            v-model="currentStore" 
+            placeholder="选择门店" 
+            style="width: 180px"
+          >
+            <el-option
+              v-for="store in stores"
+              :key="store.id"
+              :label="store.name"
+              :value="store.id.toString()"
+            />
+          </el-select>
+
+          <!-- 门店名称显示（店长） -->
+          <div 
+            v-if="showStoreSelector && currentUser?.role === 'manager'"
+            class="current-store-display"
+            style="width: 180px; text-align: right; padding-right: 20px;"
+          >
+            <span class="store-label">{{ userStoreName || '我的门店' }}</span>
           </div>
 
           <!-- 用户信息和登出 -->
@@ -88,20 +106,6 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-=======
-        <div
-          v-if="showStoreSelector"
-          class="header-right"
-        >
-          <el-select v-model="currentStore" placeholder="选择门店" style="width: 180px">
-            <el-option
-              v-for="store in stores"
-              :key="store.id"
-              :label="store.name"
-              :value="store.id.toString()"
-            />
-          </el-select>
->>>>>>> 74df8e1d05a8a41e361c03c6e8f9d57f1ca9c1dd
         </div>
       </el-header>
 

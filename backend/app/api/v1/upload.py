@@ -42,11 +42,8 @@ from app.schemas import (
     RowError,
 )
 from app.core.database import get_db
-<<<<<<< HEAD
-from app.core.security import get_current_admin
-=======
+from app.core.security import get_current_manager
 from app.models.meta import MetaFileBatch
->>>>>>> 74df8e1d05a8a41e361c03c6e8f9d57f1ca9c1dd
 from app.services.cleaner import CleanerService
 from app.services.parser import (
     read_excel_file,
@@ -343,7 +340,7 @@ async def confirm_import(
     session_id: str = Form(..., description="解析会话ID"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_admin),  # 上传需要管理员权限
+    current_user: dict = Depends(get_current_manager),  # 管理员和店长都可以入库
 ):
     """
     步骤2: 确认入库
