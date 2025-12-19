@@ -15,14 +15,20 @@
               end-placeholder="结束日期"
               format="MM-DD"
               value-format="YYYY-MM-DD"
-              @change="fetchData"
+              @change="handleDateChange"
               size="default"
             />
           </div>
         </div>
       </template>
       
-      <el-table :data="productData" stripe border v-loading="loading">
+      <el-table
+        ref="tableRef"
+        :data="productData"
+        stripe
+        border
+        v-loading="loading"
+      >
         <el-table-column prop="product_name" label="商品名称" width="200" />
         <el-table-column prop="sales_qty" label="销售数量" width="120" align="right">
           <template #default="{ row }">
@@ -60,6 +66,20 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="table-pagination">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="pageSizeOptions"
+          :total="total"
+          :disabled="loading"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
       
       <div v-if="!productData.length && !loading" class="empty-hint">
         暂无数据，请先上传商品销售数据
@@ -69,21 +89,30 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, inject, watch } from 'vue'
+import { ref, onMounted, computed, inject, watch, reactive, nextTick } from 'vue'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
 
 const loading = ref(false)
 const dateRange = ref([])
+const tableRef = ref(null)
 
 // 注入门店选择状态
 const currentStore = inject('currentStore', ref('all'))
 
-const rawData = ref([])
+const tableRows = ref([])
+const total = ref(0)
+
+const pagination = reactive({
+  page: 1,
+  pageSize: 20
+})
+
+const pageSizeOptions = [20, 50, 100]
 
 // 处理后的商品数据
 const productData = computed(() => {
-  return rawData.value.map(item => {
+  return tableRows.value.map(item => {
     const salesAmount = item.sales_amount || 0
     const cost = item.cost ?? item.cost_total ?? 0
     const profit = item.profit || 0
@@ -144,7 +173,9 @@ const fetchData = async () => {
       start_date: startDate,
       end_date: endDate,
       dimension: 'product',
-      granularity: 'day'
+      granularity: 'day',
+      page: pagination.page,
+      page_size: pagination.pageSize
     }
 
     // 根据当前门店选择设置store_id参数
@@ -154,15 +185,20 @@ const fetchData = async () => {
 
     const response = await queryStats(params)
 
-    if (response.success && response.data?.series_rows) {
-      rawData.value = response.data.series_rows
+    if (response.success && response.data) {
+      const rows = Array.isArray(response.data.rows) ? response.data.rows : []
+      tableRows.value = rows
+      const parsedTotal = Number(response.data.total)
+      total.value = Number.isFinite(parsedTotal) ? parsedTotal : rows.length
     } else {
-      rawData.value = []
+      tableRows.value = []
+      total.value = 0
     }
   } catch (error) {
     console.error('获取商品分析数据失败:', error)
     ElMessage.error('获取商品分析数据失败')
-    rawData.value = []
+    tableRows.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }
@@ -170,8 +206,35 @@ const fetchData = async () => {
 
 // 监听门店变化，重新获取数据
 watch(currentStore, () => {
+  pagination.page = 1
   fetchData()
 })
+
+const scrollTableToTop = () => {
+  nextTick(() => {
+    if (tableRef.value?.setScrollTop) {
+      tableRef.value.setScrollTop(0)
+    }
+  })
+}
+
+const handlePageChange = async (page) => {
+  pagination.page = page
+  await fetchData()
+  scrollTableToTop()
+}
+
+const handlePageSizeChange = async (size) => {
+  pagination.pageSize = size
+  pagination.page = 1
+  await fetchData()
+  scrollTableToTop()
+}
+
+const handleDateChange = () => {
+  pagination.page = 1
+  fetchData()
+}
 
 onMounted(async () => {
   await initDateRange()
@@ -225,6 +288,12 @@ onMounted(async () => {
     text-align: center;
     padding: 40px 0;
     color: #999;
+  }
+
+  .table-pagination {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
   }
 }
 </style>

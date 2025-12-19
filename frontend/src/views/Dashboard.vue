@@ -64,7 +64,7 @@
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
-              <span>📈 营收趋势（按月显示）</span>
+              <span>📈 营收月度趋势（近12个月）</span>
               <div class="trend-toggle">
                 <el-radio-group v-model="trendMetric" size="small">
                   <el-radio-button label="revenue">营收金额</el-radio-button>
@@ -308,6 +308,37 @@ const productChartRef = ref(null)
 
 let charts = []
 let trendChartInstance = null
+const TREND_MONTH_WINDOW = 12
+
+const getTrendReferenceDate = () => {
+  if (dashboardData.value?.reference_date) {
+    const parsed = new Date(dashboardData.value.reference_date)
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed
+    }
+  }
+  if (selectedDate.value) {
+    const parsed = new Date(selectedDate.value)
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed
+    }
+  }
+  return null
+}
+
+const buildRecentMonths = (count = TREND_MONTH_WINDOW) => {
+  const referenceDate = getTrendReferenceDate()
+  if (!referenceDate) return []
+
+  const months = []
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const date = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    months.push(`${year}-${month}`)
+  }
+  return months
+}
 
 const monthKeyOf = (dateStr) => {
   if (!dateStr) return ''
@@ -317,31 +348,40 @@ const monthKeyOf = (dateStr) => {
 }
 
 const buildTrendSeries = (metric) => {
+  const months = buildRecentMonths()
   const isRevenue = metric === 'revenue'
+
+  if (!months.length) {
+    return { months: [], seriesData: [], hasData: false }
+  }
+
   const monthMap = new Map()
 
   for (const item of trendSource.value || []) {
     const key = monthKeyOf(item.date)
     if (!key) continue
-    const rawValue = Number(
-      isRevenue
-        ? item.revenue ?? item.value ?? 0
-        : item.orders ?? 0
-    )
-    if (Number.isNaN(rawValue)) continue
-    monthMap.set(key, (monthMap.get(key) || 0) + rawValue)
+
+    const revenueValue = Number(item.revenue ?? item.value ?? 0)
+    const ordersValue = Number(item.orders ?? 0)
+
+    if (!Number.isFinite(revenueValue) && !Number.isFinite(ordersValue)) continue
+
+    monthMap.set(key, {
+      revenue: Number.isFinite(revenueValue) ? revenueValue : 0,
+      orders: Number.isFinite(ordersValue) ? ordersValue : 0
+    })
   }
 
-  const months = Array.from(monthMap.keys()).filter(Boolean).sort()
-  const seriesData = months.map((m) => {
-    const raw = monthMap.get(m) || 0
-    if (isRevenue) {
-      return { value: Number((raw / 10000).toFixed(2)), raw }
-    }
-    return { value: raw, raw }
+  const seriesData = months.map((monthKey) => {
+    const entry = monthMap.get(monthKey)
+    const raw = entry ? (isRevenue ? entry.revenue : entry.orders) : 0
+    const value = isRevenue ? Number((raw / 10000).toFixed(2)) : raw
+    return { value, raw }
   })
 
-  return { months, seriesData }
+  const hasData = seriesData.some(item => Number(item.raw) > 0)
+
+  return { months, seriesData, hasData }
 }
 
 const setTrendEmptyState = () => {
@@ -349,7 +389,7 @@ const setTrendEmptyState = () => {
   trendChartInstance.clear()
   trendChartInstance.setOption({
     title: {
-      text: '暂无数据',
+      text: '暂无趋势数据',
       left: 'center',
       top: 'center',
       textStyle: {
@@ -367,9 +407,9 @@ const updateTrendChart = () => {
   if (!trendChartInstance) return
   const metric = trendMetric.value
   const isRevenue = metric === 'revenue'
-  const { months, seriesData } = buildTrendSeries(metric)
+  const { months, seriesData, hasData } = buildTrendSeries(metric)
 
-  if (!months.length) {
+  if (!months.length || !hasData) {
     setTrendEmptyState()
     return
   }
@@ -387,10 +427,12 @@ const updateTrendChart = () => {
         const data = params[0]
         const raw = data?.data?.raw ?? data?.value ?? 0
         const label = data?.name || ''
+        const numericRaw = Number(raw)
+        const rawNumber = Number.isFinite(numericRaw) ? numericRaw : 0
         if (isRevenue) {
-          return `${label}<br/>营收: ¥${Number(raw).toLocaleString()}`
+          return `${label}<br/>当月营收: ¥${rawNumber.toLocaleString()}`
         }
-        return `${label}<br/>开台: ${Number(raw).toLocaleString()} 单`
+        return `${label}<br/>当月开台: ${rawNumber.toLocaleString()} 单`
       }
     },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
@@ -399,7 +441,8 @@ const updateTrendChart = () => {
       data: months,
       axisLabel: {
         interval: 0,
-        rotate: months.length > 12 ? 45 : 0
+        rotate: months.length > 8 ? 30 : 0,
+        formatter: (value) => value
       }
     },
     yAxis: {

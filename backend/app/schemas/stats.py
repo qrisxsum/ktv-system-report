@@ -154,7 +154,7 @@ class DashboardSummary(BaseModel):
     avg_duration: float = Field(0, description="平均消费时长(分钟)")
     turnover_rate: float = Field(0, description="包厢周转率 (次/包厢)")
     
-    # 趋势数据 (近30天)
+    # 趋势数据 (近12个月)
     revenue_trend: List[TrendItem] = Field(default_factory=list, description="营收趋势")
     
     # 排行榜
