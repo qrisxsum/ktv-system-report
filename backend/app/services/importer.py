@@ -300,9 +300,18 @@ class ImporterService:
         self.db.flush()
         return new_record.id
 
-    def _get_or_create_store(self, session: Session, store_name: str) -> int:
+    def _get_or_create_store(self, session: Session, store_name: str, return_store: bool = False):
         """
-        根据门店名称获取或创建 DimStore 记录，返回 store_id。
+        根据门店名称获取或创建 DimStore 记录。
+        
+        Args:
+            session: 数据库会话
+            store_name: 门店名称
+            return_store: 是否返回 store 对象，False 时只返回 store_id
+        
+        Returns:
+            int: store_id (当 return_store=False)
+            tuple: (store_id, store) (当 return_store=True)
         """
         if not store_name:
             raise ValueError("store_name 不能为空")
@@ -317,6 +326,8 @@ class ImporterService:
             .first()
         )
         if existing:
+            if return_store:
+                return existing.id, existing
             return existing.id
 
         store_code = f"STORE-{uuid.uuid4().hex[:8].upper()}"
@@ -338,10 +349,14 @@ class ImporterService:
                 .first()
             )
             if existing:
+                if return_store:
+                    return existing.id, existing
                 return existing.id
             raise
 
         session.refresh(new_store)
+        if return_store:
+            return new_store.id, new_store
         return new_store.id
 
     def _sync_payment_methods(
