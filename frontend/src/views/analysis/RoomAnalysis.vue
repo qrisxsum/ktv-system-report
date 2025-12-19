@@ -15,7 +15,7 @@
               end-placeholder="结束日期"
               format="MM-DD"
               value-format="YYYY-MM-DD"
-              @change="fetchData"
+              @change="handleDateChange"
               size="default"
             />
           </div>
@@ -49,7 +49,14 @@
         </el-col>
       </el-row>
       
-      <el-table :data="roomData" stripe border style="margin-top: 20px" v-loading="loading">
+      <el-table
+        ref="tableRef"
+        :data="roomData"
+        stripe
+        border
+        style="margin-top: 20px"
+        v-loading="loading"
+      >
         <el-table-column prop="room_name" label="包厢名称" width="180" />
         <el-table-column prop="order_count" label="开台次数" width="120" align="right" />
         <el-table-column prop="gmv" label="GMV（应收金额）" width="140" align="right">
@@ -78,6 +85,20 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="table-pagination">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="pageSizeOptions"
+          :total="total"
+          :disabled="loading"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
       
       <div v-if="!roomData.length && !loading" class="empty-hint">
         暂无数据，请先上传包厢消费数据
@@ -87,23 +108,34 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, inject, watch } from 'vue'
+import { ref, onMounted, computed, inject, watch, reactive, nextTick } from 'vue'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
 
 const loading = ref(false)
 const dateRange = ref([])
+const tableRef = ref(null)
 
 // 注入门店选择状态
 const currentStore = inject('currentStore', ref('all'))
 
-const rawData = ref([])
+const tableRows = ref([])
+const summaryRows = ref([])
+const total = ref(0)
+
+const pagination = reactive({
+  page: 1,
+  pageSize: 20
+})
+
+const pageSizeOptions = [20, 50, 100]
 
 // 汇总统计
 const summary = computed(() => {
-  const totalOrders = rawData.value.reduce((sum, item) => sum + (item.orders || 0), 0)
-  const totalGmv = rawData.value.reduce((sum, item) => sum + (item.gmv || 0), 0)
-  const totalActual = rawData.value.reduce((sum, item) => sum + (item.actual || 0), 0)
+  const source = summaryRows.value.length ? summaryRows.value : tableRows.value
+  const totalOrders = source.reduce((sum, item) => sum + (item.orders || 0), 0)
+  const totalGmv = source.reduce((sum, item) => sum + (item.gmv || 0), 0)
+  const totalActual = source.reduce((sum, item) => sum + (item.actual || 0), 0)
   const avgActual = totalOrders > 0 ? totalActual / totalOrders : 0
   
   return {
@@ -116,7 +148,7 @@ const summary = computed(() => {
 
 // 处理后的包厢数据
 const roomData = computed(() => {
-  return rawData.value.map(item => ({
+  return tableRows.value.map(item => ({
     room_name: item.dimension_label || '未知包厢',
     order_count: item.orders || 0,
     gmv: item.gmv || 0,
@@ -169,7 +201,9 @@ const fetchData = async () => {
       start_date: startDate,
       end_date: endDate,
       dimension: 'room',
-      granularity: 'day'
+      granularity: 'day',
+      page: pagination.page,
+      page_size: pagination.pageSize
     }
 
     // 根据当前门店选择设置store_id参数
@@ -179,15 +213,24 @@ const fetchData = async () => {
 
     const response = await queryStats(params)
 
-    if (response.success && response.data?.series_rows) {
-      rawData.value = response.data.series_rows
+    if (response.success && response.data) {
+      const rows = Array.isArray(response.data.rows) ? response.data.rows : []
+      const seriesRows = Array.isArray(response.data.series_rows) ? response.data.series_rows : []
+      tableRows.value = rows
+      summaryRows.value = seriesRows
+      const parsedTotal = Number(response.data.total)
+      total.value = Number.isFinite(parsedTotal) ? parsedTotal : rows.length
     } else {
-      rawData.value = []
+      tableRows.value = []
+      summaryRows.value = []
+      total.value = 0
     }
   } catch (error) {
     console.error('获取包厢分析数据失败:', error)
     ElMessage.error('获取包厢分析数据失败')
-    rawData.value = []
+    tableRows.value = []
+    summaryRows.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }
@@ -195,8 +238,35 @@ const fetchData = async () => {
 
 // 监听门店变化，重新获取数据
 watch(currentStore, () => {
+  pagination.page = 1
   fetchData()
 })
+
+const scrollTableToTop = () => {
+  nextTick(() => {
+    if (tableRef.value?.setScrollTop) {
+      tableRef.value.setScrollTop(0)
+    }
+  })
+}
+
+const handlePageChange = async (page) => {
+  pagination.page = page
+  await fetchData()
+  scrollTableToTop()
+}
+
+const handlePageSizeChange = async (size) => {
+  pagination.pageSize = size
+  pagination.page = 1
+  await fetchData()
+  scrollTableToTop()
+}
+
+const handleDateChange = () => {
+  pagination.page = 1
+  fetchData()
+}
 
 onMounted(async () => {
   await initDateRange()
@@ -265,6 +335,12 @@ onMounted(async () => {
         font-weight: bold;
       }
     }
+  }
+
+  .table-pagination {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
   }
   
   .empty-hint {

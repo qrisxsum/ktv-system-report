@@ -14,6 +14,7 @@ Dev C 负责:
 对接: Dev A (StatsService)
 """
 
+from calendar import monthrange
 from datetime import date, datetime, timedelta
 from typing import Optional, List
 
@@ -31,6 +32,35 @@ from app.core.security import get_current_manager, check_store_access, filter_st
 from app.services.stats import StatsService
 
 router = APIRouter()
+
+
+# ============================================================
+# 日期辅助
+# ============================================================
+
+TREND_MONTH_WINDOW = 12
+
+
+def add_months(base_date: date, months: int) -> date:
+    """
+    将日期按月偏移，自动处理跨年及月份天数
+    """
+    year = base_date.year + (base_date.month - 1 + months) // 12
+    month = (base_date.month - 1 + months) % 12 + 1
+    day = min(base_date.day, monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def build_month_keys(start_month: date, count: int) -> List[str]:
+    """
+    生成指定起始月份开始的连续月份键列表（格式: YYYY-MM）
+    """
+    months = []
+    current = start_month
+    for _ in range(count):
+        months.append(current.strftime("%Y-%m"))
+        current = add_months(current, 1)
+    return months
 
 
 # ============================================================
@@ -99,7 +129,7 @@ async def get_dashboard_summary(
     - 本月实收 & 同比
     - 毛利率
     - 赠送率
-    - 近30天营收趋势
+    - 近12个月营收趋势
     - Top5 门店/员工/商品
 
     参考: docs/web界面5.md (2.2.1 节)
@@ -242,40 +272,44 @@ async def get_dashboard_summary(
     total_qty = sales_qty_total + gift_qty_total
     gift_rate = calculate_gift_rate(gift_qty_total, total_qty)
     
-    # 生成趋势数据 (近30天)
-    revenue_trend = []
+    # 生成趋势数据 (近12个月)
+    revenue_trend: List[TrendItem] = []
+    trend_window_start = add_months(yesterday.replace(day=1), -(TREND_MONTH_WINDOW - 1))
+    month_keys = build_month_keys(trend_window_start, TREND_MONTH_WINDOW)
+    month_key_set = set(month_keys)
+
     try:
-        trend_start = today - timedelta(days=30)
         trend_result = stats_service.query_stats(
             table="booking",
-            start_date=trend_start,
+            start_date=trend_window_start,
             end_date=yesterday,
             store_id=store_id,
             dimension="date",
-            granularity="day",
+            granularity="month",
         )
         for row in trend_result.get("series_rows", []):
+            dimension_key = str(row.get("dimension_key") or "")
+            if not dimension_key or dimension_key not in month_key_set:
+                continue
             actual_value = round(_safe_float(row.get("actual")), 2)
             orders_value = int(_safe_float(row.get("orders")))
             revenue_trend.append(
                 TrendItem(
-                    date=str(row.get("dimension_key", "")),
+                    date=dimension_key,
                     value=actual_value,
                     revenue=actual_value,
                     orders=orders_value,
                 )
             )
+        revenue_trend.sort(key=lambda item: item.date)
     except Exception:
-        for i in range(30, 0, -1):
-            d = today - timedelta(days=i)
-            revenue_trend.append(
-                TrendItem(
-                    date=d.strftime("%Y-%m-%d"),
-                    value=0.0,
-                    revenue=0.0,
-                    orders=0.0,
-                )
-            )
+        revenue_trend = []
+
+    if not revenue_trend:
+        revenue_trend = [
+            TrendItem(date=key, value=0.0, revenue=0.0, orders=0.0)
+            for key in month_keys
+        ]
     
     # 获取 Top 5 排行榜
     top_stores = []

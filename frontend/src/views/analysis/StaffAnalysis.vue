@@ -13,7 +13,7 @@
               end-placeholder="结束日期"
               format="YYYY-MM-DD"
               value-format="YYYY-MM-DD"
-              @change="fetchData"
+              @change="handleDateChange"
               style="margin-right: 10px"
             />
           </div>
@@ -22,7 +22,14 @@
       
       <div class="chart-container" ref="chartRef" v-loading="loading"></div>
       
-      <el-table :data="staffData" stripe border style="margin-top: 20px" v-loading="loading">
+      <el-table
+        ref="tableRef"
+        :data="staffData"
+        stripe
+        border
+        style="margin-top: 20px"
+        v-loading="loading"
+      >
         <el-table-column type="index" label="排名" width="70" align="center" />
         <el-table-column prop="name" label="姓名" width="150" />
         <el-table-column prop="booking_count" label="订台数" width="120" align="right" />
@@ -47,6 +54,20 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="table-pagination">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="pageSizeOptions"
+          :total="total"
+          :disabled="loading"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
       
       <div v-if="!staffData.length && !loading" class="empty-hint">
         暂无数据，请先上传订台数据
@@ -56,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed, inject } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, inject, reactive, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
@@ -64,25 +85,41 @@ import { ElMessage } from 'element-plus'
 const loading = ref(false)
 const dateRange = ref([])
 const chartRef = ref(null)
+const tableRef = ref(null)
 let chart = null
 
 // 注入门店选择状态
 const currentStore = inject('currentStore', ref('all'))
 
-const rawData = ref([])
+const tableRows = ref([])
+const chartRows = ref([])
+const total = ref(0)
+
+const pagination = reactive({
+  page: 1,
+  pageSize: 20
+})
+
+const pageSizeOptions = [20, 50, 100]
+
+const normalizeStaffRow = (item = {}) => ({
+  name: item.dimension_label || '未知员工',
+  booking_count: item.orders || 0,
+  sales_amount: item.sales_amount || 0,
+  actual_amount: item.actual || 0,
+  base_performance: item.performance || 0,
+  gift_amount: item.gift_amount || 0
+})
 
 // 处理后的员工数据（按实收金额排序）
 const staffData = computed(() => {
-  const data = rawData.value.map(item => ({
-    name: item.dimension_label || '未知员工',
-    booking_count: item.orders || 0,
-    sales_amount: item.sales_amount || 0,
-    actual_amount: item.actual || 0,
-    base_performance: item.performance || 0,
-    gift_amount: item.gift_amount || 0
-  }))
-  
-  // 按实收金额降序排序
+  const data = tableRows.value.map(normalizeStaffRow)
+  return data.sort((a, b) => b.actual_amount - a.actual_amount)
+})
+
+// 图表所用数据（不受分页影响）
+const chartStaffData = computed(() => {
+  const data = chartRows.value.map(normalizeStaffRow)
   return data.sort((a, b) => b.actual_amount - a.actual_amount)
 })
 
@@ -128,7 +165,9 @@ const fetchData = async () => {
       start_date: startDate,
       end_date: endDate,
       dimension: 'employee',
-      granularity: 'day'
+      granularity: 'day',
+      page: pagination.page,
+      page_size: pagination.pageSize
     }
 
     // 根据当前门店选择设置store_id参数
@@ -138,16 +177,24 @@ const fetchData = async () => {
 
     const response = await queryStats(params)
 
-    if (response.success && response.data?.series_rows) {
-      rawData.value = response.data.series_rows
-      updateChart()
+    if (response.success && response.data) {
+      const rows = Array.isArray(response.data.rows) ? response.data.rows : []
+      const seriesRows = Array.isArray(response.data.series_rows) ? response.data.series_rows : []
+      tableRows.value = rows
+      chartRows.value = seriesRows
+      const parsedTotal = Number(response.data.total)
+      total.value = Number.isFinite(parsedTotal) ? parsedTotal : rows.length
     } else {
-      rawData.value = []
+      tableRows.value = []
+      chartRows.value = []
+      total.value = 0
     }
   } catch (error) {
     console.error('获取员工分析数据失败:', error)
     ElMessage.error('获取员工分析数据失败')
-    rawData.value = []
+    tableRows.value = []
+    chartRows.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }
@@ -163,8 +210,8 @@ const initChart = () => {
 const updateChart = () => {
   if (!chart) return
   
-  // 取前10名员工数据
-  const data = staffData.value
+  // 取前10名员工数据（不受分页影响）
+  const data = chartStaffData.value
     .slice(0, 10)
     .map(item => ({ name: item.name, value: item.actual_amount }))
     .reverse() // 图表从下到上排列
@@ -211,13 +258,40 @@ const updateChart = () => {
 
 // 监听门店变化，重新获取数据
 watch(currentStore, () => {
+  pagination.page = 1
   fetchData()
 })
 
-// 监听数据变化，更新图表
-watch(staffData, () => {
+// 监听图表数据变化，更新图表
+watch(chartStaffData, () => {
   updateChart()
 })
+
+const scrollTableToTop = () => {
+  nextTick(() => {
+    if (tableRef.value?.setScrollTop) {
+      tableRef.value.setScrollTop(0)
+    }
+  })
+}
+
+const handlePageChange = async (page) => {
+  pagination.page = page
+  await fetchData()
+  scrollTableToTop()
+}
+
+const handlePageSizeChange = async (size) => {
+  pagination.pageSize = size
+  pagination.page = 1
+  await fetchData()
+  scrollTableToTop()
+}
+
+const handleDateChange = () => {
+  pagination.page = 1
+  fetchData()
+}
 
 const handleResize = () => chart?.resize()
 
@@ -244,6 +318,12 @@ onUnmounted(() => {
   
   .chart-container {
     height: 400px;
+  }
+
+  .table-pagination {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
   }
   
   .empty-hint {
