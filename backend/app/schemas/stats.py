@@ -117,7 +117,9 @@ class StatsResponse(BaseModel):
 class TrendItem(BaseModel):
     """趋势数据项"""
     date: str = Field(..., description="日期")
-    value: float = Field(..., description="数值")
+    value: float = Field(..., description="营收金额（兼容旧前端）")
+    revenue: float = Field(0, description="营收金额")
+    orders: float = Field(0, description="开台单数")
 
 
 class TopItem(BaseModel):
@@ -133,17 +135,24 @@ class DashboardSummary(BaseModel):
     
     参考: docs/web界面5.md (2.2.1 节 - 仪表盘)
     """
+    reference_date: date = Field(..., description="统计基准日期（数据参考日）")
+    period_start: date = Field(..., description="统计区间开始日期（通常为月初）")
+    
     # 核心指标卡片
-    yesterday_actual: float = Field(0, description="昨日实收")
-    yesterday_change: float = Field(0, description="昨日环比变化率")
+    yesterday_actual: float = Field(0, description="当日实收")
+    yesterday_change: float = Field(0, description="当日环比变化率")
     
     month_actual: float = Field(0, description="本月实收累计")
     month_change: float = Field(0, description="本月同比变化率")
+    month_cost: float = Field(0, description="本月成本累计")
     
     month_profit: float = Field(0, description="本月毛利累计")
     profit_rate: float = Field(0, description="毛利率")
     
     gift_rate: float = Field(0, description="赠送率")
+    total_orders: int = Field(0, description="包厢总开台数")
+    avg_duration: float = Field(0, description="平均消费时长(分钟)")
+    turnover_rate: float = Field(0, description="包厢周转率 (次/包厢)")
     
     # 趋势数据 (近30天)
     revenue_trend: List[TrendItem] = Field(default_factory=list, description="营收趋势")

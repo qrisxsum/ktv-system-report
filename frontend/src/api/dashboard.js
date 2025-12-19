@@ -11,11 +11,19 @@ import request from './index'
  * @param {number} storeId - 门店ID (可选，不传则汇总所有门店)
  * @returns {Promise} 看板数据
  */
-export function getDashboardSummary(storeId = null) {
+export function getDashboardSummary(storeId = null, targetDate = null) {
+  const params = {}
+  if (storeId) {
+    params.store_id = storeId
+  }
+  if (targetDate) {
+    params.target_date = targetDate
+  }
+
   return request({
     url: '/dashboard/summary',
     method: 'GET',
-    params: storeId ? { store_id: storeId } : {},
+    params,
   })
 }
 
