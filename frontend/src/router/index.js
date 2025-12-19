@@ -109,7 +109,7 @@ const routes = [
         path: 'users',
         name: 'UserManagement',
         component: () => import('@/views/UserManagement.vue'),
-        meta: { title: '账号管理', icon: 'User' }
+        meta: { title: '账号管理', icon: 'User', hideStoreSelector: true }
       }
     ]
   },
