@@ -31,9 +31,12 @@ class UserInfo(BaseModel):
 async def login(request: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """用户登录"""
     from app.services.user_service import UserService
+    from app.core.security import verify_password, create_access_token
+    from datetime import datetime
+    
     user_service = UserService(db)
     
-    # 先检查用户是否存在
+    # 查询用户（只查询一次）
     user = user_service.get_user_by_username(request.username)
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -42,23 +45,22 @@ async def login(request: LoginRequest, response: Response, db: Session = Depends
     if not user.is_active:
         raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
     
-    # 验证密码
-    from app.core.security import authenticate_user_db
-    user_info = authenticate_user_db(request.username, request.password, db)
-    if not user_info:
+    # 验证密码（复用已查询的user对象）
+    if not verify_password(request.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    # 获取完整的用户对象来更新token
-    from app.services.user_service import UserService
-    user_service = UserService(db)
-    user = user_service.get_user_by_username(request.username)
+    # 更新最后登录时间
+    user.last_login_at = datetime.utcnow()
+    db.commit()
 
     # 创建 Token
-    from app.core.security import create_access_token
     token = create_access_token(data={"sub": user.username})
 
     # 更新用户的token信息到数据库
     user_service.update_user_token(user.id, token)
+    
+    # 获取用户信息用于返回
+    user_info = user.to_user_info()
 
     # 设置 Cookie
     response.set_cookie(
