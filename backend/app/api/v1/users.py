@@ -65,8 +65,10 @@ async def create_manager(
     1. 通过 store_id 指定已有门店
     2. 通过 store_name 指定门店名称，如果门店不存在则自动创建
     """
-    import uuid
+    from app.services.importer import ImporterService
+    
     user_service = UserService(db)
+    importer_service = ImporterService(db)
     
     # 0. 验证门店参数：必须提供 store_id 或 store_name 之一，但不能同时提供
     if not request.store_id and not request.store_name:
@@ -92,42 +94,27 @@ async def create_manager(
             raise HTTPException(status_code=400, detail=f"门店 '{store.store_name}' 未启用，无法关联")
         store_id = request.store_id
     elif request.store_name:
-        # 方式2：通过门店名称，自动创建或获取
+        # 方式2：通过门店名称，自动创建或获取（使用 ImporterService 统一方法）
         store_name = request.store_name.strip()
         if not store_name:
             raise HTTPException(status_code=400, detail="门店名称不能为空")
         
-        # 先查找是否已存在
-        store = db.query(DimStore).filter(DimStore.store_name == store_name).first()
-        
-        if store:
-            # 门店已存在
+        try:
+            # 使用 ImporterService 的方法，返回 store 对象以便检查状态
+            store_id, store = importer_service._get_or_create_store(db, store_name, return_store=True)
+            
+            # 检查门店状态（如果门店已存在但未启用，则不允许关联）
             if not store.is_active:
-                raise HTTPException(status_code=400, detail=f"门店 '{store.store_name}' 未启用，无法关联")
-            store_id = store.id
-        else:
-            # 门店不存在，自动创建
-            store_code = f"STORE-{uuid.uuid4().hex[:8].upper()}"
-            new_store = DimStore(
-                store_name=store_name,
-                original_name=store_name,
-                store_code=store_code,
-                is_active=True,
-            )
-            try:
-                db.add(new_store)
-                db.commit()
-                db.refresh(new_store)
-                store = new_store
-                store_id = new_store.id
-            except Exception as e:
-                db.rollback()
-                # 如果创建失败，可能是并发创建导致，再次查询
-                store = db.query(DimStore).filter(DimStore.store_name == store_name).first()
-                if store:
-                    store_id = store.id
-                else:
-                    raise HTTPException(status_code=500, detail=f"创建门店失败: {str(e)}")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"门店 '{store.store_name}' 未启用，无法关联"
+                )
+        except ValueError as e:
+            # 参数验证错误
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            # 其他错误（如数据库错误）
+            raise HTTPException(status_code=500, detail=f"处理门店失败: {str(e)}")
     
     if not store_id:
         raise HTTPException(status_code=400, detail="必须提供门店ID或门店名称")
