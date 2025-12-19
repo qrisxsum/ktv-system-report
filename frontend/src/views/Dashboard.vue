@@ -1,24 +1,62 @@
 <template>
   <div class="dashboard" v-loading="loading">
+    <div class="dashboard-header">
+      <div class="dashboard-title">经营数据看板</div>
+      <el-date-picker
+        v-model="selectedDate"
+        type="date"
+        placeholder="选择基准日期"
+        format="YYYY-MM-DD"
+        value-format="YYYY-MM-DD"
+        clearable
+        :disabled="loading"
+      />
+    </div>
+
     <!-- KPI 卡片 -->
-    <el-row :gutter="20" class="kpi-cards">
-      <el-col :span="6" v-for="kpi in kpiList" :key="kpi.title">
-        <el-card class="kpi-card" :body-style="{ padding: '20px' }">
-          <div class="kpi-icon" :style="{ background: kpi.color }">
-            <el-icon size="24"><component :is="kpi.icon" /></el-icon>
-          </div>
-          <div class="kpi-content">
-            <div class="kpi-title">{{ kpi.title }}</div>
-            <div class="kpi-value">{{ kpi.value }}</div>
-            <div class="kpi-change" :class="kpi.trend">
-              <el-icon v-if="kpi.trend === 'up'"><Top /></el-icon>
-              <el-icon v-else><Bottom /></el-icon>
-              {{ kpi.change }}
+    <section class="kpi-section">
+      <div class="kpi-section-title">财务概览</div>
+      <el-row :gutter="20" class="kpi-cards">
+        <el-col :span="financialColSpan" v-for="kpi in financialKpis" :key="`fin-${kpi.title}`">
+          <el-card class="kpi-card" :body-style="{ padding: '20px' }">
+            <div class="kpi-icon" :style="{ background: kpi.color }">
+              <el-icon size="24"><component :is="kpi.icon" /></el-icon>
             </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+            <div class="kpi-content">
+              <div class="kpi-title">{{ kpi.title }}</div>
+              <div class="kpi-value" :style="{ color: kpi.valueColor || '#303133' }">{{ kpi.value }}</div>
+              <div class="kpi-change" :class="kpi.trend">
+                <el-icon v-if="kpi.trend === 'up'"><Top /></el-icon>
+                <el-icon v-else><Bottom /></el-icon>
+                {{ kpi.change }}
+              </div>
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
+    </section>
+
+    <section class="kpi-section">
+      <div class="kpi-section-title">经营效能</div>
+      <el-row :gutter="20" class="kpi-cards efficiency">
+        <el-col :span="efficiencyColSpan" v-for="kpi in efficiencyKpis" :key="`eff-${kpi.title}`">
+          <el-card class="kpi-card" :body-style="{ padding: '20px' }">
+            <div class="kpi-icon" :style="{ background: kpi.color }">
+              <el-icon size="24"><component :is="kpi.icon" /></el-icon>
+            </div>
+            <div class="kpi-content">
+              <div class="kpi-title">{{ kpi.title }}</div>
+              <div class="kpi-value" :style="{ color: kpi.valueColor || '#303133' }">{{ kpi.value }}</div>
+              <div class="kpi-change" :class="kpi.trend">
+                <el-icon v-if="kpi.trend === 'up'"><Top /></el-icon>
+                <el-icon v-else><Bottom /></el-icon>
+                {{ kpi.change }}
+              </div>
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
+    </section>
 
     <!-- 图表区域 -->
     <el-row :gutter="20" class="charts">
@@ -27,6 +65,12 @@
           <template #header>
             <div class="card-header">
               <span>📈 营收趋势（按月显示）</span>
+              <div class="trend-toggle">
+                <el-radio-group v-model="trendMetric" size="small">
+                  <el-radio-button label="revenue">营收金额</el-radio-button>
+                  <el-radio-button label="orders">开台单数</el-radio-button>
+                </el-radio-group>
+              </div>
             </div>
           </template>
           <div class="chart-container" ref="trendChartRef"></div>
@@ -73,64 +117,125 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, inject, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, inject, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { getDashboardSummary } from '@/api/dashboard'
 
 // 状态
 const loading = ref(false)
 const dashboardData = ref(null)
+const selectedDate = ref('')
+
+const periodRangeLabel = computed(() => {
+  const data = dashboardData.value
+  if (!data) return '-'
+  return formatPeriodRange(data.period_start, data.reference_date)
+})
 
 // 注入门店选择状态
 const currentStore = inject('currentStore', ref(''))
 
 // KPI 数据 (从 API 响应计算)
-const kpiList = computed(() => {
+const financialKpis = computed(() => {
   const data = dashboardData.value
   if (!data) {
     return [
-      { title: '昨日实收', value: '-', change: '-', trend: 'up', icon: 'Money', color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
-      { title: '本月实收', value: '-', change: '-', trend: 'up', icon: 'TrendCharts', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
-      { title: '毛利率', value: '-', change: '-', trend: 'up', icon: 'PieChart', color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
-      { title: '赠送率', value: '-', change: '-', trend: 'down', icon: 'Present', color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' }
+      { title: '当日实收', value: '-', change: '-', trend: 'up', icon: 'Money', color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', valueColor: '#303133' },
+      { title: '本月实收', value: '-', change: '-', trend: 'up', icon: 'TrendCharts', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', valueColor: '#303133' },
+      { title: '本月成本', value: '-', change: '-', trend: 'down', icon: 'WalletFilled', color: 'linear-gradient(135deg, #ffd86f 0%, #fc6262 100%)', valueColor: '#303133' },
+      { title: '毛利率', value: '-', change: '-', trend: 'up', icon: 'PieChart', color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', valueColor: '#303133' },
     ]
   }
-  
+
   return [
     { 
-      title: '昨日实收', 
+      title: '当日实收', 
       value: formatCurrency(data.yesterday_actual), 
       change: formatPercent(data.yesterday_change), 
       trend: data.yesterday_change >= 0 ? 'up' : 'down',
       icon: 'Money', 
-      color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+      color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      valueColor: '#303133'
     },
     { 
       title: '本月实收', 
       value: formatCurrency(data.month_actual), 
-      change: formatPercent(data.month_change), 
+      change: buildRangeWrappedText(`同比 ${formatPercent(data.month_change)}`), 
       trend: data.month_change >= 0 ? 'up' : 'down',
       icon: 'TrendCharts', 
-      color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' 
+      color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+      valueColor: '#303133'
+    },
+    { 
+      title: '本月成本',
+      value: formatCurrency(data.month_cost),
+      change: buildRangeWrappedText('累计成本'),
+      trend: 'down',
+      icon: 'WalletFilled',
+      color: 'linear-gradient(135deg, #ffd86f 0%, #fc6262 100%)',
+      valueColor: '#303133'
     },
     { 
       title: '毛利率', 
       value: formatPercent(data.profit_rate), 
-      change: `毛利 ${formatCurrency(data.month_profit)}`, 
+      change: buildRangeWrappedText(`毛利 ${formatCurrency(data.month_profit)}`), 
       trend: 'up',
       icon: 'PieChart', 
-      color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' 
+      color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+      valueColor: data.profit_rate < 0.35 ? '#f56c6c' : '#303133'
+    },
+  ]
+})
+
+const efficiencyKpis = computed(() => {
+  const data = dashboardData.value
+  if (!data) {
+    return [
+      { title: '包厢周转率', value: '-', change: '-', trend: 'up', icon: 'Histogram', color: 'linear-gradient(135deg, #7f7fd5 0%, #86a8e7 50%, #91eae4 100%)', valueColor: '#303133' },
+      { title: '平均消费时长', value: '-', change: '-', trend: 'up', icon: 'Timer', color: 'linear-gradient(135deg, #43cea2 0%, #185a9d 100%)', valueColor: '#303133' },
+      { title: '赠送率', value: '-', change: '-', trend: 'down', icon: 'Present', color: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', valueColor: '#303133' },
+    ]
+  }
+
+  return [
+    { 
+      title: '包厢周转率',
+      value: formatTurnoverPercent(data.turnover_rate),
+      change: buildRangeWrappedText(`开台 ${Number(data.total_orders || 0).toLocaleString('zh-CN')} 单`),
+      trend: data.turnover_rate >= 1 ? 'up' : 'down',
+      icon: 'Histogram',
+      color: 'linear-gradient(135deg, #7f7fd5 0%, #86a8e7 50%, #91eae4 100%)',
+      valueColor: '#303133'
+    },
+    { 
+      title: '平均消费时长',
+      value: formatDuration(data.avg_duration),
+      change: buildRangeWrappedText('按月累计'),
+      trend: 'up',
+      icon: 'Timer',
+      color: 'linear-gradient(135deg, #43cea2 0%, #185a9d 100%)',
+      valueColor: '#303133'
     },
     { 
       title: '赠送率', 
       value: formatPercent(data.gift_rate), 
-      change: '本月赠送', 
+      change: buildRangeWrappedText('本月赠送'), 
       trend: 'down',
       icon: 'Present', 
-      color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' 
-    }
+      color: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+      valueColor: '#303133'
+    },
   ]
 })
+
+const calcColSpan = (count) => {
+  if (!count) return 6
+  const span = Math.floor(24 / count)
+  return span > 0 ? span : 6
+}
+
+const financialColSpan = computed(() => calcColSpan(financialKpis.value.length))
+const efficiencyColSpan = computed(() => calcColSpan(efficiencyKpis.value.length))
 
 // 格式化函数
 const formatCurrency = (value) => {
@@ -144,78 +249,148 @@ const formatPercent = (value) => {
   return `${sign}${(value * 100).toFixed(1)}%`
 }
 
+const extractDateParts = (value) => {
+  if (!value) return null
+  const normalized = String(value).slice(0, 10)
+  const [year, month, day] = normalized.split('-')
+  if (!year || !month || !day) return null
+  return {
+    month: month.padStart(2, '0'),
+    day: day.padStart(2, '0')
+  }
+}
+
+const formatPeriodRange = (start, end) => {
+  const startParts = extractDateParts(start)
+  const endParts = extractDateParts(end)
+  if (!startParts || !endParts) return '-'
+  return `${startParts.month}.${startParts.day} ~ ${endParts.month}.${endParts.day}`
+}
+
+const getPeriodRangePrefix = () => {
+  const range = periodRangeLabel.value
+  return range && range !== '-' ? `${range} ` : ''
+}
+
+const buildRangeWrappedText = (text) => {
+  const prefix = getPeriodRangePrefix()
+  if (!text) return prefix.trim() || '-'
+  return prefix ? `${prefix}${text}` : text
+}
+
+const formatDuration = (value) => {
+  if (value === null || value === undefined) return '-'
+  const minutes = Number(value)
+  if (Number.isNaN(minutes)) return '-'
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60)
+    const mins = Math.round(minutes % 60)
+    if (mins === 0) {
+      return `${hours}小时`
+    }
+    return `${hours}小时${mins}分`
+  }
+  return `${minutes.toFixed(0)}分钟`
+}
+
+const formatTurnoverPercent = (value) => {
+  if (value === null || value === undefined) return '-'
+  return `${(Number(value) * 100).toFixed(0)}%`
+}
+
 // 图表 ref
+const trendMetric = ref('revenue')
+const trendSource = ref([])
 const trendChartRef = ref(null)
 const storeChartRef = ref(null)
 const staffChartRef = ref(null)
 const productChartRef = ref(null)
 
 let charts = []
+let trendChartInstance = null
 
-// 初始化趋势图
-const initTrendChart = (trendData) => {
-  if (!trendChartRef.value) return
+const monthKeyOf = (dateStr) => {
+  if (!dateStr) return ''
+  const s = String(dateStr)
+  if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7)
+  return s
+}
 
-  // 清理之前的图表实例
-  const existingChart = echarts.getInstanceByDom(trendChartRef.value)
-  if (existingChart) {
-    existingChart.dispose()
-    const index = charts.indexOf(existingChart)
-    if (index > -1) {
-      charts.splice(index, 1)
-    }
-  }
-
-  const chart = echarts.init(trendChartRef.value)
-  charts.push(chart)
-
-  if (!trendData || trendData.length === 0) {
-    chart.setOption({
-      title: {
-        text: '暂无数据',
-        left: 'center',
-        top: 'center',
-        textStyle: {
-          color: '#999',
-          fontSize: 14
-        }
-      },
-      xAxis: { show: false },
-      yAxis: { show: false },
-      series: []
-    })
-    return
-  }
-
-  // 按月聚合（兼容后端返回日粒度或月粒度：YYYY-MM-DD / YYYY-MM）
-  const monthKeyOf = (dateStr) => {
-    if (!dateStr) return ''
-    const s = String(dateStr)
-    // e.g. 2025-12-01 -> 2025-12
-    if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7)
-    return s
-  }
-
+const buildTrendSeries = (metric) => {
+  const isRevenue = metric === 'revenue'
   const monthMap = new Map()
-  for (const item of trendData) {
+
+  for (const item of trendSource.value || []) {
     const key = monthKeyOf(item.date)
-    const v = Number(item.value || 0)
-    monthMap.set(key, (monthMap.get(key) || 0) + v)
+    if (!key) continue
+    const rawValue = Number(
+      isRevenue
+        ? item.revenue ?? item.value ?? 0
+        : item.orders ?? 0
+    )
+    if (Number.isNaN(rawValue)) continue
+    monthMap.set(key, (monthMap.get(key) || 0) + rawValue)
   }
 
   const months = Array.from(monthMap.keys()).filter(Boolean).sort()
   const seriesData = months.map((m) => {
     const raw = monthMap.get(m) || 0
-    return { value: Number((raw / 10000).toFixed(2)), raw }
+    if (isRevenue) {
+      return { value: Number((raw / 10000).toFixed(2)), raw }
+    }
+    return { value: raw, raw }
   })
 
-  chart.setOption({
+  return { months, seriesData }
+}
+
+const setTrendEmptyState = () => {
+  if (!trendChartInstance) return
+  trendChartInstance.clear()
+  trendChartInstance.setOption({
+    title: {
+      text: '暂无数据',
+      left: 'center',
+      top: 'center',
+      textStyle: {
+        color: '#999',
+        fontSize: 14
+      }
+    },
+    xAxis: { show: false },
+    yAxis: { show: false },
+    series: []
+  }, true)
+}
+
+const updateTrendChart = () => {
+  if (!trendChartInstance) return
+  const metric = trendMetric.value
+  const isRevenue = metric === 'revenue'
+  const { months, seriesData } = buildTrendSeries(metric)
+
+  if (!months.length) {
+    setTrendEmptyState()
+    return
+  }
+
+  const gradient = new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: isRevenue ? 'rgba(102, 126, 234, 0.5)' : 'rgba(67, 206, 162, 0.35)' },
+    { offset: 1, color: isRevenue ? 'rgba(102, 126, 234, 0.05)' : 'rgba(24, 90, 157, 0.05)' }
+  ])
+
+  trendChartInstance.setOption({
+    title: { show: false },
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
         const data = params[0]
-        const raw = data?.data?.raw ?? data?.value * 10000
-        return `${data.name}<br/>营收: ¥${Number(raw).toLocaleString()}`
+        const raw = data?.data?.raw ?? data?.value ?? 0
+        const label = data?.name || ''
+        if (isRevenue) {
+          return `${label}<br/>营收: ¥${Number(raw).toLocaleString()}`
+        }
+        return `${label}<br/>开台: ${Number(raw).toLocaleString()} 单`
       }
     },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
@@ -227,21 +402,30 @@ const initTrendChart = (trendData) => {
         rotate: months.length > 12 ? 45 : 0
       }
     },
-    yAxis: { type: 'value', name: '金额（万元）' },
+    yAxis: {
+      type: 'value',
+      name: isRevenue ? '金额（万元）' : '开台数（单）'
+    },
     series: [{
-      name: '营收',
+      name: isRevenue ? '营收' : '开台数',
       type: 'line',
       smooth: true,
       data: seriesData,
-      areaStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(102, 126, 234, 0.5)' },
-          { offset: 1, color: 'rgba(102, 126, 234, 0.05)' }
-        ])
-      },
-      lineStyle: { color: '#667eea', width: 3 }
+      areaStyle: isRevenue ? { color: gradient } : undefined,
+      lineStyle: { color: isRevenue ? '#667eea' : '#43cea2', width: 3 }
     }]
-  })
+  }, true)
+}
+
+const initTrendChart = () => {
+  if (!trendChartRef.value) return
+
+  if (!trendChartInstance) {
+    trendChartInstance = echarts.init(trendChartRef.value)
+    charts.push(trendChartInstance)
+  }
+
+  updateTrendChart()
 }
 
 // 初始化门店排行
@@ -437,17 +621,30 @@ const initProductChart = (topProducts) => {
 }
 
 // 加载数据
-const loadDashboardData = async (storeId = null) => {
+let suppressSelectedDateWatch = false
+
+const loadDashboardData = async (storeId = null, options = {}) => {
   loading.value = true
 
   try {
     // 转换门店ID：'all'表示全部门店，'1'表示万象城店，'2'表示青年路店
-    const storeIdParam = storeId === 'all' ? null : (storeId ? parseInt(storeId) : null)
-    const data = await getDashboardSummary(storeIdParam)
+    const storeIdParam = storeId === 'all' ? null : (storeId ? parseInt(storeId, 10) : null)
+    const hasTargetOverride = Object.prototype.hasOwnProperty.call(options, 'targetDate')
+    const targetDateParam = hasTargetOverride ? options.targetDate : selectedDate.value
+    const normalizedTargetDate = targetDateParam || null
+
+    const data = await getDashboardSummary(storeIdParam, normalizedTargetDate)
     dashboardData.value = data
+    trendSource.value = data.revenue_trend || []
+
+    if ((!selectedDate.value || selectedDate.value === '') && data.reference_date) {
+      suppressSelectedDateWatch = true
+      selectedDate.value = data.reference_date
+    }
     
     // 初始化图表 (无论是否有数据都要初始化，确保清空之前的图表)
-    initTrendChart(data.revenue_trend || [])
+    await nextTick()
+    initTrendChart()
     initStoreChart(data.top_stores || [])
     initStaffChart(data.top_employees || [])
     initProductChart(data.top_products || [])
@@ -462,6 +659,23 @@ const loadDashboardData = async (storeId = null) => {
 const handleResize = () => {
   charts.forEach(chart => chart.resize())
 }
+
+watch(trendMetric, () => {
+  updateTrendChart()
+})
+
+watch(trendSource, () => {
+  updateTrendChart()
+})
+
+watch(selectedDate, (newDate, oldDate) => {
+  if (newDate === oldDate) return
+  if (suppressSelectedDateWatch) {
+    suppressSelectedDateWatch = false
+    return
+  }
+  loadDashboardData(currentStore.value, { targetDate: newDate || null })
+})
 
 // 监听门店选择变化
 watch(currentStore, (newStoreId) => {
@@ -482,8 +696,52 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .dashboard {
-  .kpi-cards {
+  .dashboard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
     margin-bottom: 20px;
+
+    .dashboard-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: #303133;
+    }
+
+    :deep(.el-date-editor) {
+      flex: 1 0 200px;
+      min-width: 200px;
+      max-width: 320px;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .dashboard-header {
+      flex-direction: column;
+      align-items: flex-start;
+
+      :deep(.el-date-editor) {
+        width: 100%;
+        max-width: 100%;
+      }
+    }
+  }
+
+  .kpi-section {
+    margin-bottom: 20px;
+
+    .kpi-section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #606266;
+      margin-bottom: 12px;
+    }
+  }
+
+  .kpi-cards {
+    margin-bottom: 10px;
   }
   
   .kpi-card {
@@ -535,6 +793,12 @@ onUnmounted(() => {
       }
     }
   }
+
+  .kpi-cards.efficiency {
+    .kpi-card .kpi-title {
+      color: #606edc;
+    }
+  }
   
   .charts, .rankings {
     margin-bottom: 20px;
@@ -543,6 +807,16 @@ onUnmounted(() => {
   .chart-card, .ranking-card {
     .card-header {
       font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+
+      .trend-toggle {
+        display: flex;
+        align-items: center;
+      }
     }
     
     .chart-container {

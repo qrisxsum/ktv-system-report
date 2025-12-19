@@ -87,6 +87,7 @@ def _safe_float(value, default: float = 0.0) -> float:
 @router.get("/summary", response_model=DashboardSummary, summary="首页看板汇总数据")
 async def get_dashboard_summary(
     store_id: Optional[int] = Query(None, description="门店ID (不传则汇总所有门店)"),
+    target_date: Optional[date] = Query(None, description="统计基准日 (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_manager),
 ):
@@ -94,7 +95,7 @@ async def get_dashboard_summary(
     获取首页看板汇总数据
 
     包含:
-    - 昨日实收 & 环比
+    - 当日实收 & 环比
     - 本月实收 & 同比
     - 毛利率
     - 赠送率
@@ -117,23 +118,11 @@ async def get_dashboard_summary(
 
     stats_service = StatsService(db)
 
-    # 以 booking 最新数据日期作为看板“参考日”（避免导入的是历史月份导致本月统计/排行全为空）
-    reference_end = None
-    try:
-        reference_end = db.query(func.max(stats_service.TABLE_MAP["booking"].biz_date)).filter(
-            stats_service.TABLE_MAP["booking"].store_id == store_id
-        ).scalar() if store_id is not None else db.query(
-            func.max(stats_service.TABLE_MAP["booking"].biz_date)
-        ).scalar()
-    except Exception:
-        reference_end = None
+    # 以 target_date 为看板“参考日”，否则回退到昨天
+    reference_end = target_date or (date.today() - timedelta(days=1))
 
-    if reference_end is None:
-        today = date.today()
-        yesterday = today - timedelta(days=1)
-    else:
-        yesterday = reference_end
-        today = reference_end + timedelta(days=1)
+    yesterday = reference_end
+    today = reference_end + timedelta(days=1)
 
     day_before_yesterday = yesterday - timedelta(days=1)
     month_start = yesterday.replace(day=1)
@@ -155,12 +144,17 @@ async def get_dashboard_summary(
     month_actual = 0.0
     last_month_actual = 0.0
     month_cost = 0.0
-    gift_qty = 0
-    total_qty = 0
+    sales_qty_total = 0
+    gift_qty_total = 0
+    room_efficiency = {
+        "total_orders": 0,
+        "avg_duration": 0.0,
+        "turnover_rate": 0.0,
+    }
     
     # 查询数据
     try:
-        # 昨日数据
+        # 基准日数据
         yesterday_result = stats_service.query_stats(
             table="booking",
             start_date=yesterday,
@@ -209,13 +203,44 @@ async def get_dashboard_summary(
             last_month_actual += _safe_float(row.get("actual"))
     except Exception:
         pass
+
+    # 包厢效率指标
+    try:
+        efficiency_result = stats_service.get_room_efficiency_stats(
+            store_id=store_id,
+            start_date=month_start,
+            end_date=yesterday,
+        ) or {}
+        room_efficiency["total_orders"] = int(_safe_float(efficiency_result.get("total_orders")))
+        room_efficiency["avg_duration"] = _safe_float(efficiency_result.get("avg_duration"))
+        room_efficiency["turnover_rate"] = _safe_float(efficiency_result.get("turnover_rate"))
+    except Exception:
+        pass
+
+    # 本月销售/成本聚合（sales 表）
+    try:
+        sales_month_result = stats_service.query_stats(
+            table="sales",
+            start_date=month_start,
+            end_date=yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in sales_month_result.get("series_rows", []):
+            month_cost += _safe_float(row.get("cost_total"))
+            sales_qty_total += int(_safe_float(row.get("sales_qty")))
+            gift_qty_total += int(_safe_float(row.get("gift_qty")))
+    except Exception:
+        pass
     
     # 计算衍生指标
     yesterday_change = calculate_change_rate(yesterday_actual, day_before_actual)
     month_change = calculate_change_rate(month_actual, last_month_actual)
-    month_profit = month_actual * 0.4  # 估算毛利 40%
-    profit_rate = 0.4 if month_actual > 0 else 0.0
-    gift_rate = calculate_gift_rate(gift_qty, total_qty)
+    month_profit = month_actual - month_cost
+    profit_rate = calculate_gross_margin(month_profit, month_actual)
+    total_qty = sales_qty_total + gift_qty_total
+    gift_rate = calculate_gift_rate(gift_qty_total, total_qty)
     
     # 生成趋势数据 (近30天)
     revenue_trend = []
@@ -230,33 +255,32 @@ async def get_dashboard_summary(
             granularity="day",
         )
         for row in trend_result.get("series_rows", []):
-            revenue_trend.append(TrendItem(
-                date=str(row.get("dimension_key", "")),
-                value=round(_safe_float(row.get("actual")), 2),
-            ))
+            actual_value = round(_safe_float(row.get("actual")), 2)
+            orders_value = int(_safe_float(row.get("orders")))
+            revenue_trend.append(
+                TrendItem(
+                    date=str(row.get("dimension_key", "")),
+                    value=actual_value,
+                    revenue=actual_value,
+                    orders=orders_value,
+                )
+            )
     except Exception:
         for i in range(30, 0, -1):
             d = today - timedelta(days=i)
-            revenue_trend.append(TrendItem(
-                date=d.strftime("%Y-%m-%d"),
-                value=0.0,
-            ))
+            revenue_trend.append(
+                TrendItem(
+                    date=d.strftime("%Y-%m-%d"),
+                    value=0.0,
+                    revenue=0.0,
+                    orders=0.0,
+                )
+            )
     
     # 获取 Top 5 排行榜
     top_stores = []
     top_employees = []
     top_products = []
-
-    # 商品排行使用 sales 的最新数据月份（避免 booking 与 sales 数据月份不一致导致商品排行为空）
-    sales_month_start = month_start
-    sales_end = yesterday
-    try:
-        sales_end_db = db.query(func.max(stats_service.TABLE_MAP["sales"].biz_date)).scalar()
-        if sales_end_db is not None:
-            sales_end = sales_end_db
-            sales_month_start = sales_end.replace(day=1)
-    except Exception:
-        pass
 
     try:
         # 门店排行
@@ -303,8 +327,8 @@ async def get_dashboard_summary(
             metric="sales",
             dimension="product",
             limit=5,
-            start_date=sales_month_start,
-            end_date=sales_end,
+            start_date=month_start,
+            end_date=yesterday,
             store_id=store_id,  # 支持按门店筛选商品排行
         )
         top_products = [
@@ -316,13 +340,19 @@ async def get_dashboard_summary(
         logging.warning(f"Failed to get top products: {e}")
     
     return DashboardSummary(
+        reference_date=yesterday,
+        period_start=month_start,
         yesterday_actual=round(yesterday_actual, 2),
         yesterday_change=yesterday_change,
         month_actual=round(month_actual, 2),
         month_change=month_change,
+        month_cost=round(month_cost, 2),
         month_profit=round(month_profit, 2),
         profit_rate=profit_rate,
         gift_rate=gift_rate,
+        total_orders=room_efficiency["total_orders"],
+        avg_duration=room_efficiency["avg_duration"],
+        turnover_rate=room_efficiency["turnover_rate"],
         revenue_trend=revenue_trend,
         top_stores=top_stores,
         top_employees=top_employees,

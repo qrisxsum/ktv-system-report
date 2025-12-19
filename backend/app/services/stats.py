@@ -85,7 +85,7 @@ class StatsService:
                 ("room_discount", self._safe_sum(model.room_discount)),
                 ("beverage_discount", self._safe_sum(model.beverage_discount)),
                 ("duration", self._safe_sum(model.duration_min)),
-                ("orders", func.count()),
+                ("orders", func.count(model.id)),
             ]
         if model is FactSales:
             return [
@@ -585,3 +585,58 @@ class StatsService:
             )
 
         return result
+
+    def get_room_efficiency_stats(
+        self,
+        store_id: Optional[int],
+        start_date: date,
+        end_date: date,
+    ) -> Dict[str, float]:
+        """
+        计算包厢利用率与平均消费时长
+
+        Args:
+            store_id: 门店 ID (None 表示全门店汇总)
+            start_date: 开始日期
+            end_date: 结束日期
+
+        Returns:
+            {
+                "total_orders": int,
+                "avg_duration": float,
+                "turnover_rate": float,
+            }
+        """
+
+        total_orders = 0
+        total_duration = 0.0
+        room_count = 0
+
+        # 聚合 FactRoom 的开台次数与总时长
+        room_stmt = self.db.query(
+            func.count(FactRoom.id).label("total_orders"),
+            self._safe_sum(FactRoom.duration_min).label("total_duration"),
+        ).filter(FactRoom.biz_date.between(start_date, end_date))
+        if store_id is not None:
+            room_stmt = room_stmt.filter(FactRoom.store_id == store_id)
+
+        row = room_stmt.one_or_none()
+        if row:
+            total_orders = int(row.total_orders or 0)
+            total_duration = float(row.total_duration or 0.0)
+
+        # 统计包厢数量 (DimRoom)
+        room_count_stmt = self.db.query(func.count(DimRoom.id))
+        if store_id is not None:
+            room_count_stmt = room_count_stmt.filter(DimRoom.store_id == store_id)
+        room_count_stmt = room_count_stmt.filter(DimRoom.is_active.is_(True))
+        room_count = int(room_count_stmt.scalar() or 0)
+
+        avg_duration = total_duration / total_orders if total_orders > 0 else 0.0
+        turnover_rate = total_orders / room_count if room_count > 0 else 0.0
+
+        return {
+            "total_orders": total_orders,
+            "avg_duration": round(avg_duration, 2),
+            "turnover_rate": round(turnover_rate, 4),
+        }
