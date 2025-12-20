@@ -83,6 +83,7 @@ BOOKING_MAPPING: Dict[str, str] = {
     "支付方式_三倍充值活动": "pay_triple_recharge",
     "支付方式_往来款": "pay_inter_account",
     "支付方式_高德": "pay_gaode",
+    "支付方式_人员打折": "pay_staff_discount",
     # 酒水类别字段
     "酒水类别金额_过期取酒": "beverage_expired_wine",
     "酒水类别金额_小计": "beverage_subtotal",
@@ -168,6 +169,19 @@ ROOM_MAPPING: Dict[str, str] = {
     "支付方式_店长签单": "pay_manager_sign",
     "支付方式_美团": "pay_meituan",
     "支付方式_抖音": "pay_douyin",
+    "支付方式_pos银行卡": "pay_pos_card",
+    "支付方式_员工信用扣款": "pay_employee_credit",
+    "支付方式_团购": "pay_groupon",
+    "支付方式_演绎提成": "pay_performance_commission",
+    "支付方式_POS机": "pay_pos",
+    "支付方式_营销提成": "pay_marketing_commission",
+    "支付方式_过期取酒": "pay_expired_wine",
+    "支付方式_招待": "pay_entertainment",
+    "支付方式_会员停用": "pay_member_disabled",
+    "支付方式_三倍充值活动": "pay_triple_recharge",
+    "支付方式_往来款": "pay_inter_account",
+    "支付方式_高德": "pay_gaode",
+    "支付方式_人员打折": "pay_staff_discount",
 }
 
 # 关键数值字段（缺失时需自动补 0）
@@ -204,6 +218,8 @@ COST_PAYMENT_FIELDS: Set[str] = {
     "pay_expired_wine",  # 过期取酒
     "pay_entertainment",  # 招待
     "pay_member_disabled",  # 会员停用
+    "pay_staff_discount",  # 人员打折
+    "pay_triple_recharge",  # 三倍充值活动
 }
 
 # 会员相关支付方式（需与本金/赠送互斥计算）
@@ -238,6 +254,7 @@ PAYMENT_DISPLAY_NAME_MAP: Dict[str, str] = {
     "entertainment": "招待",
     "triple_recharge": "三倍充值活动",
     "inter_account": "往来款",
+    "staff_discount": "人员打折",
 }
 
 # 支付方式排序（code -> sort 值）
@@ -265,6 +282,7 @@ PAYMENT_SORT_ORDER_MAP: Dict[str, int] = {
     "entertainment": 220,
     "triple_recharge": 230,
     "inter_account": 240,
+    "staff_discount": 250,
 }
 
 
@@ -655,7 +673,11 @@ class CleanerService:
         )
 
     def clean_data(
-        self, df: pd.DataFrame, report_type: str, filename: str = ""
+        self,
+        df: pd.DataFrame,
+        report_type: str,
+        filename: str = "",
+        detected_date: Optional[str] = None,
     ) -> Tuple[List[Dict], ValidationResult]:
         """
         主入口函数：清洗数据并校验
@@ -669,6 +691,7 @@ class CleanerService:
             df: 原始 DataFrame (Parser 输出)
             report_type: 报表类型 ('booking' | 'sales' | 'room')
             filename: 原始文件名，用于缺失时推断 biz_date
+            detected_date: 从文件标题行检测到的日期（Parser 提供）
 
         Returns:
             Tuple[List[Dict], ValidationResult]: (清洗后的数据列表, 校验报告)
@@ -711,9 +734,22 @@ class CleanerService:
 
         # 4.1 营业日自动补全（字段映射后、类型转换前）
         if "biz_date" not in df_clean.columns:
-            extracted_date = self._extract_date_from_filename(filename)
-            if extracted_date:
-                df_clean["biz_date"] = extracted_date
+            extracted_filename_date = self._extract_date_from_filename(filename)
+            if extracted_filename_date:
+                df_clean["biz_date"] = extracted_filename_date
+            elif detected_date:
+                # 使用 Parser 从标题行检测到的日期
+                df_clean["biz_date"] = detected_date
+                self._warnings.append(
+                    RowError(
+                        row_index=-1,
+                        column="biz_date",
+                        message=f"文件名无日期，使用从标题行解析的日期: {detected_date}",
+                        error_type=ETLErrorType.WARNING,
+                        severity="warning",
+                        raw_data={"detected_date": detected_date},
+                    )
+                )
             else:
                 self._errors.append(
                     RowError(
@@ -721,7 +757,7 @@ class CleanerService:
                         column="biz_date",
                         message=(
                             "无法获取营业日期：文件内容缺少 'biz_date' 列，"
-                            f"且文件名 '{filename}' 中未发现有效日期"
+                            f"且文件名 '{filename}' 及标题行中均未发现有效日期"
                         ),
                         error_type=ETLErrorType.HEADER_ERROR,
                         severity="error",
@@ -1435,13 +1471,12 @@ class CleanerService:
             extra_info = row.get("extra_info", {})
             if isinstance(extra_info, dict):
                 for key, value in extra_info.items():
-                    # 判断是否属于权益类（简单规则：包含 member、sign、commission 等关键词）
-                    if any(
-                        kw in key.lower()
-                        for kw in ["member", "sign", "commission", "entertainment"]
-                    ):
-                        cost_payment_sum += _clean_numeric_value(value)
-                        cost_payment_details[key] = _clean_numeric_value(value)
+                    # 调用统一分类方法，判断是否属于权益类 (equity)
+                    if self._classify_payment_category(key) == "equity":
+                        val = _clean_numeric_value(value)
+                        if val != 0:
+                            cost_payment_sum += val
+                            cost_payment_details[key] = val
 
             # 计算预期实收金额
             expected_actual = bill_total - total_deduction - cost_payment_sum
@@ -1608,7 +1643,11 @@ class CleanerService:
 
 
 def clean_and_validate(
-    df: pd.DataFrame, report_type: str, tolerance: float = 1.0, filename: str = ""
+    df: pd.DataFrame,
+    report_type: str,
+    tolerance: float = 1.0,
+    filename: str = "",
+    detected_date: Optional[str] = None,
 ) -> Tuple[List[Dict], ValidationResult]:
     """
     便捷函数：清洗数据并校验
@@ -1618,12 +1657,15 @@ def clean_and_validate(
         report_type: 报表类型 ('booking' | 'sales' | 'room')
         tolerance: 平衡性校验误差容忍度（元）
         filename: 原始文件名，用于缺失时推断 biz_date
+        detected_date: 从文件标题行检测到的日期
 
     Returns:
         Tuple[List[Dict], ValidationResult]: (清洗后的数据, 校验结果)
     """
     service = CleanerService(tolerance=tolerance)
-    return service.clean_data(df, report_type, filename=filename)
+    return service.clean_data(
+        df, report_type, filename=filename, detected_date=detected_date
+    )
 
 
 def _demo_payment_meta_extraction() -> None:
