@@ -278,7 +278,7 @@ async def parse_file(
         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
 
     try:
-        df = read_excel_file(contents, file.filename)
+        df, detected_date = read_excel_file(contents, file.filename)
     except ParserError as exc:
         raise HTTPException(status_code=400, detail=f"文件解析失败: {exc}")
 
@@ -287,7 +287,7 @@ async def parse_file(
     cleaner = CleanerService()
     try:
         cleaned_data, cleaner_validation = cleaner.clean_data(
-            df, table_type.value, filename=file.filename
+            df, table_type.value, filename=file.filename, detected_date=detected_date
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"数据清洗失败: {exc}")

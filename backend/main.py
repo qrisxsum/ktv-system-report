@@ -201,7 +201,7 @@ def process_file_full(file_path: str) -> bool:
         print("-" * 40)
 
         cleaned_data, validation_result = cleaner.clean_and_validate(
-            df, report_type, filename=filename
+            df, report_type, filename=filename, detected_date=meta.get("detected_date")
         )
 
         # 计算耗时
@@ -379,7 +379,10 @@ def process_file_stream(file_path: str, chunk_size: int = DEFAULT_CHUNK_SIZE) ->
 
             # 调用 Cleaner 清洗当前 Chunk
             cleaned_data, validation_result = cleaner_service.clean_data(
-                df_chunk, meta["report_type"], filename=filename
+                df_chunk,
+                meta["report_type"],
+                filename=filename,
+                detected_date=meta.get("detected_date"),
             )
 
             chunk_elapsed = time.time() - chunk_start_time

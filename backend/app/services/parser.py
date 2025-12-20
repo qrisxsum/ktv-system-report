@@ -48,15 +48,52 @@ def _normalize_text_for_match(text: str) -> str:
     return re.sub(r"[\s\W_]+", "", str(text).lower())
 
 
-def find_header_row(file_content: bytes, filename: str, max_rows: int = 20) -> int:
+def _extract_date_from_preview_df(preview_df: pd.DataFrame) -> Optional[str]:
     """
-    智能定位标题行索引（基于关键词密度评分机制）
+    从预览数据（前 N 行）中提取日期
+    """
+    # 匹配 2025-12-20, 2025.12.20, 2025/12/20 等
+    # 以及 20251220
+    patterns = [
+        r"(20\d{2}[-./]\d{1,2}[-./]\d{1,2})",
+        r"(20\d{2}年\d{1,2}月\d{1,2}日)",
+    ]
+
+    for row_idx in range(len(preview_df)):
+        row_values = preview_df.iloc[row_idx].astype(str).tolist()
+        row_text = " ".join(row_values)
+
+        for pattern in patterns:
+            match = re.search(pattern, row_text)
+            if match:
+                date_str = match.group(1)
+                # 标准化处理
+                date_str = (
+                    date_str.replace("年", "-")
+                    .replace("月", "-")
+                    .replace("日", "")
+                    .replace(".", "-")
+                    .replace("/", "-")
+                )
+                try:
+                    parts = date_str.split("-")
+                    if len(parts) == 3:
+                        return f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+                except:
+                    continue
+    return None
+
+
+def find_header_row(file_content: bytes, filename: str, max_rows: int = 20) -> Tuple[int, Optional[str]]:
+    """
+    智能定位标题行索引（基于关键词密度评分机制）并提取潜在日期
 
     算法：
     1. 遍历前 N 行，对每一行计算包含 HEADER_KEYWORDS 的关键词数量（Match Count）
     2. 选择匹配关键词数量最多的行作为 Header Row
     3. 如果有多行得分相同且最高，选择行号最小的那个
-    4. 如果最高分为 0，抛出 ParserError
+    4. 在前 N 行中搜索日期信息
+    5. 如果最高分为 0，抛出 ParserError
 
     Args:
         file_content: 文件二进制内容
@@ -64,7 +101,7 @@ def find_header_row(file_content: bytes, filename: str, max_rows: int = 20) -> i
         max_rows: 搜索的最大行数（默认 20 行）
 
     Returns:
-        int: 标题行索引（0-based）
+        Tuple[int, Optional[str]]: (标题行索引, 检测到的日期)
 
     Raises:
         ParserError: 无法识别表头
@@ -102,6 +139,9 @@ def find_header_row(file_content: bytes, filename: str, max_rows: int = 20) -> i
         except (ValueError, BadZipFile, OSError) as exc:
             raise ParserError(f"无法读取 Excel 文件: {exc}") from exc
 
+    # 提取日期
+    detected_date = _extract_date_from_preview_df(preview_df)
+
     # 预先标准化关键词，避免重复处理
     normalized_keywords = [_normalize_text_for_match(k) for k in HEADER_KEYWORDS]
 
@@ -136,10 +176,10 @@ def find_header_row(file_content: bytes, filename: str, max_rows: int = 20) -> i
     # 选择得分最高的行（如果有多个同分，选行号最小的）
     for row_idx, score in row_scores:
         if score == max_score:
-            return row_idx
+            return row_idx, detected_date
 
     # 理论上不会走到这里
-    raise ParserError(f"无法识别表头，未找到关键词: {HEADER_KEYWORDS}")
+    return 0, detected_date
 
 
 def optimize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -440,7 +480,7 @@ def _detect_csv_encoding(file_content: bytes) -> str:
 
 def read_excel_file(
     contents: bytes, filename: str, filter_summary: bool = True
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, Optional[str]]:
     """
     读取 Excel 或 CSV 文件流，自动识别多级表头并扁平化
 
@@ -450,14 +490,14 @@ def read_excel_file(
         filter_summary: 是否过滤合计行（默认 True）
 
     Returns:
-        pd.DataFrame: 清洗后的 DataFrame (单级列名，无空行，内存优化)
+        Tuple[pd.DataFrame, Optional[str]]: (清洗后的 DataFrame, 检测到的日期)
 
     Raises:
         ParserError: 无法识别表头或文件格式错误
     """
     try:
         # Step A: 智能定位标题行
-        header_row_index = find_header_row(contents, filename)
+        header_row_index, detected_date = find_header_row(contents, filename)
 
         # Step B: 检测是否为多级表头
         is_multi_level = _detect_multi_level_header(
@@ -520,7 +560,7 @@ def read_excel_file(
     # Step D: 内存优化
     df = optimize_dataframe(df)
 
-    return df
+    return df, detected_date
 
 
 def detect_report_type(df: pd.DataFrame, filename: str = "") -> str:
@@ -591,7 +631,7 @@ def parse_csv_stream(
     encoding = _detect_csv_encoding(contents)
 
     # Step 2: 定位表头位置
-    header_row_index = find_header_row(contents, filename)
+    header_row_index, detected_date = find_header_row(contents, filename)
 
     # Step 3: 检测是否为多级表头
     is_multi_level = _detect_multi_level_header(contents, filename, header_row_index)
@@ -644,6 +684,7 @@ def parse_csv_stream(
             "chunk_index": chunk_index,
             "chunk_rows": len(df_chunk),
             "columns": list(df_chunk.columns),
+            "detected_date": detected_date,
         }
 
         yield df_chunk, meta_info
@@ -669,7 +710,7 @@ def parse_and_validate(
             - dict: 解析元信息
     """
     # 解析文件
-    df = read_excel_file(contents, filename)
+    df, detected_date = read_excel_file(contents, filename)
 
     # 检测类型
     report_type = detect_report_type(df, filename)
@@ -681,6 +722,7 @@ def parse_and_validate(
         "row_count": len(df),
         "column_count": len(df.columns),
         "columns": list(df.columns),
+        "detected_date": detected_date,
     }
 
     return df, report_type, meta
@@ -730,6 +772,7 @@ if __name__ == "__main__":
             print(f"文件: {filename}")
             print(f"模式: 全量处理")
             print(f"报表类型: {report_type}")
+            print(f"检测到日期: {meta.get('detected_date', '未找到')}")
             print(f"行数: {meta['row_count']}")
             print(f"列数: {meta['column_count']}")
             print(f"内存占用: {df.memory_usage(deep=True).sum() / 1024:.2f} KB")

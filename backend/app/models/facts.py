@@ -130,7 +130,7 @@ class FactRoom(Base):
     
     __table_args__ = (
         Index("idx_date_store", "biz_date", "store_id"),
-        Index("idx_order_no", "order_no", unique=True),
+        Index("idx_order_no", "store_id", "order_no", unique=True),
         Index("idx_batch", "batch_id"),
         Index("idx_room", "room_id"),
         Index("idx_date_store_room", "biz_date", "store_id", "room_id"),
