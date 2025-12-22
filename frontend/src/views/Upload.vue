@@ -317,8 +317,11 @@ const refreshHistory = async () => {
     const params = { page: 1, page_size: 10 }
 
     // 转换门店ID：'all'表示全部门店，数字表示具体门店
-    if (currentStore.value !== 'all') {
-      params.store_id = parseInt(currentStore.value)
+    if (currentStore.value && currentStore.value !== 'all') {
+      const parsedStoreId = parseInt(currentStore.value)
+      if (!isNaN(parsedStoreId)) {
+        params.store_id = parsedStoreId
+      }
     }
 
     const response = await listBatches(params)
