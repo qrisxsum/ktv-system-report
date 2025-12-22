@@ -111,10 +111,12 @@
 import { ref, onMounted, computed, inject, watch, reactive, nextTick } from 'vue'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
+import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
 
 const loading = ref(false)
 const dateRange = ref([])
 const tableRef = ref(null)
+const dateRangeStorageKey = 'viewState:RoomAnalysis:dateRange'
 
 // 注入门店选择状态
 const currentStore = inject('currentStore', ref('all'))
@@ -207,8 +209,11 @@ const fetchData = async () => {
     }
 
     // 根据当前门店选择设置store_id参数
-    if (currentStore.value !== 'all') {
-      params.store_id = parseInt(currentStore.value)
+    if (currentStore.value && currentStore.value !== 'all') {
+      const parsedStoreId = parseInt(currentStore.value, 10)
+      if (Number.isFinite(parsedStoreId)) {
+        params.store_id = parsedStoreId
+      }
     }
 
     const response = await queryStats(params)
@@ -265,11 +270,22 @@ const handlePageSizeChange = async (size) => {
 
 const handleDateChange = () => {
   pagination.page = 1
+  if (isValidDateRange(dateRange.value)) {
+    writeSessionJSON(dateRangeStorageKey, dateRange.value)
+  }
   fetchData()
 }
 
 onMounted(async () => {
-  await initDateRange()
+  const saved = readSessionJSON(dateRangeStorageKey, null)
+  if (isValidDateRange(saved)) {
+    dateRange.value = saved
+  } else {
+    await initDateRange()
+    if (isValidDateRange(dateRange.value)) {
+      writeSessionJSON(dateRangeStorageKey, dateRange.value)
+    }
+  }
   await fetchData()
 })
 </script>
