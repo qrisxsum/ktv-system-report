@@ -208,7 +208,7 @@ const STATUS_MAP = {
 }
 
 const TABLE_TYPE_MAP = {
-  booking: { name: '预订汇总', tag: '' },
+  booking: { name: '预订汇总', tag: 'info' },
   room: { name: '包厢开台', tag: 'success' },
   sales: { name: '酒水销售', tag: 'warning' },
 }
@@ -216,7 +216,7 @@ const TABLE_TYPE_MAP = {
 const getStatusType = (status) => STATUS_MAP[status]?.type || 'info'
 const getStatusText = (status) => STATUS_MAP[status]?.text || status
 const getTableTypeName = (type) => TABLE_TYPE_MAP[type]?.name || type
-const getTableTypeTag = (type) => TABLE_TYPE_MAP[type]?.tag || ''
+const getTableTypeTag = (type) => TABLE_TYPE_MAP[type]?.tag || 'info'
 
 // 获取当前门店名称
 const getCurrentStoreName = () => {
@@ -255,8 +255,11 @@ const loadBatches = async () => {
     }
 
     // 根据当前门店选择设置store_id参数
-    if (currentStore.value !== 'all') {
-      params.store_id = parseInt(currentStore.value)
+    if (currentStore.value && currentStore.value !== 'all') {
+      const parsedStoreId = parseInt(currentStore.value, 10)
+      if (Number.isFinite(parsedStoreId)) {
+        params.store_id = parsedStoreId
+      }
     }
 
     // 移除空值

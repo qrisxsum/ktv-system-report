@@ -86,9 +86,7 @@
           </el-select>
         </div>
 
-        <div class="toolbar-item toolbar-action">
-          <el-button type="primary" @click="handleQuery">查询</el-button>
-        </div>
+        <!-- 自动查询：选满条件后自动触发，无需手动“查询”按钮 -->
       </div>
 
       <div class="chart-section">
@@ -196,6 +194,7 @@ import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { queryStats } from '@/api/stats'
 import { listStores } from '@/api/store'
+import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
 
 const EMPTY_DATASET = Object.freeze([])
 const PAGINATION_CONFIG = Object.freeze({
@@ -212,6 +211,9 @@ const queryParams = reactive({
   granularity: 'day',
   store_id: null
 })
+const generalAnalysisStateKey = 'viewState:GeneralAnalysis:state'
+// 兼容旧版本仅保存 dateRange 的 key
+const legacyDateRangeStorageKey = 'viewState:GeneralAnalysis:dateRange'
 
 const pagination = reactive({
   page: PAGINATION_CONFIG.defaultPage,
@@ -347,6 +349,31 @@ const snapshotCurrentQuery = () => ({
   store_id: queryParams.store_id ?? null,
   dateRange: Array.isArray(queryParams.dateRange) ? [...queryParams.dateRange] : []
 })
+
+const buildViewState = () => ({
+  query: snapshotCurrentQuery(),
+  selectedMetric: selectedMetric.value || '',
+  pageSize: pagination.pageSize
+})
+
+const applyViewState = (state) => {
+  const query = state?.query
+  if (!query) return
+  if (query.table) queryParams.table = query.table
+  if (query.dimension) queryParams.dimension = query.dimension
+  if (query.granularity) queryParams.granularity = query.granularity
+  queryParams.store_id = query.store_id ?? null
+  queryParams.dateRange = Array.isArray(query.dateRange) ? [...query.dateRange] : []
+
+  const size = Number(state?.pageSize)
+  if (Number.isFinite(size) && size > 0) {
+    pagination.pageSize = size
+  }
+  const metric = state?.selectedMetric
+  if (typeof metric === 'string') {
+    selectedMetric.value = metric
+  }
+}
 
 const normalizeRangeKey = (range) =>
   Array.isArray(range) && range.length === 2 ? range.join('|') : ''
@@ -568,10 +595,6 @@ const performQuery = async ({ resetPage = false, source = 'query', paramsSnapsho
       loading.value = false
     }
   }
-}
-
-const handleQuery = () => {
-  performQuery({ resetPage: true, source: 'query' })
 }
 
 const handlePageChange = (page) => {
@@ -906,7 +929,52 @@ watch(
   { immediate: true }
 )
 
+const suppressAutoQuery = ref(false)
+let autoQueryTimer = null
+
+const canAutoQuery = () => {
+  if (!queryParams.table) return false
+  if (!queryParams.dimension) return false
+  if (queryParams.dimension === 'date' && !queryParams.granularity) return false
+  return isValidDateRange(queryParams.dateRange)
+}
+
+const scheduleAutoQuery = ({ resetPage = true, source = 'auto' } = {}) => {
+  if (suppressAutoQuery.value) return
+  if (!canAutoQuery()) return
+
+  if (autoQueryTimer) {
+    clearTimeout(autoQueryTimer)
+  }
+
+  autoQueryTimer = setTimeout(() => {
+    autoQueryTimer = null
+    if (resetPage) {
+      pagination.page = PAGINATION_CONFIG.defaultPage
+    }
+    performQuery({
+      resetPage: false,
+      source,
+      paramsSnapshot: snapshotCurrentQuery()
+    })
+  }, 250)
+}
+
 onMounted(() => {
+  const savedState = readSessionJSON(generalAnalysisStateKey, null)
+  if (savedState?.query) {
+    suppressAutoQuery.value = true
+    applyViewState(savedState)
+    nextTick(() => {
+      suppressAutoQuery.value = false
+      scheduleAutoQuery({ resetPage: true, source: 'restore' })
+    })
+  } else {
+    const legacyRange = readSessionJSON(legacyDateRangeStorageKey, null)
+    if (isValidDateRange(legacyRange)) {
+      queryParams.dateRange = legacyRange
+    }
+  }
   loadCurrentUser()
   fetchStoreOptions()
   nextTick(() => {
@@ -914,8 +982,29 @@ onMounted(() => {
   })
 })
 
+watch(
+  () => [queryParams.table, queryParams.dimension, queryParams.granularity, queryParams.store_id, queryParams.dateRange],
+  () => {
+    writeSessionJSON(generalAnalysisStateKey, buildViewState())
+    // 选项选满自动查询
+    scheduleAutoQuery({ resetPage: true, source: 'auto' })
+  },
+  { deep: true }
+)
+
+watch(
+  () => selectedMetric.value,
+  () => {
+    writeSessionJSON(generalAnalysisStateKey, buildViewState())
+  }
+)
+
 onBeforeUnmount(() => {
   cancelActiveQuery()
+  if (autoQueryTimer) {
+    clearTimeout(autoQueryTimer)
+    autoQueryTimer = null
+  }
   window.removeEventListener('resize', handleResize)
   if (chartInstance) {
     chartInstance.dispose()
@@ -951,12 +1040,7 @@ onBeforeUnmount(() => {
       }
     }
 
-    .toolbar-action {
-      justify-content: flex-end;
-      min-width: auto;
-      align-items: flex-end;
-      display: flex;
-    }
+    // toolbar-action 已移除：改为自动查询
   }
 
   .chart-section {

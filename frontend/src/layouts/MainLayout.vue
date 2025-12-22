@@ -136,7 +136,7 @@ import { Avatar, ArrowDown, SwitchButton } from '@element-plus/icons-vue'
 const route = useRoute()
 const router = useRouter()
 const isCollapse = ref(false)
-const currentStore = ref('')
+const currentStore = ref('all')
 const stores = ref([])
 const currentUser = ref(null)
 
@@ -219,6 +219,9 @@ const loadCurrentUser = () => {
   }
 }
 
+// setup 阶段就初始化用户与门店（避免子页面首次挂载时拿到空门店导致请求报错）
+loadCurrentUser()
+
 // 处理用户菜单命令
 const handleUserCommand = async (command) => {
   switch (command) {
@@ -294,7 +297,6 @@ const showStoreSelector = computed(() => route.meta?.hideStoreSelector !== true)
 // 组件挂载时加载数据
 onMounted(() => {
   loadStores()
-  loadCurrentUser()
 })
 </script>
 

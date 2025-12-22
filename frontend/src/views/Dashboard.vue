@@ -120,11 +120,13 @@
 import { ref, onMounted, onUnmounted, computed, inject, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { getDashboardSummary } from '@/api/dashboard'
+import { readSessionJSON, writeSessionJSON, isValidYmdDate } from '@/utils/viewState'
 
 // 状态
 const loading = ref(false)
 const dashboardData = ref(null)
 const selectedDate = ref('')
+const selectedDateStorageKey = 'viewState:Dashboard:selectedDate'
 
 const periodRangeLabel = computed(() => {
   const data = dashboardData.value
@@ -683,6 +685,9 @@ const loadDashboardData = async (storeId = null, options = {}) => {
     if ((!selectedDate.value || selectedDate.value === '') && data.reference_date) {
       suppressSelectedDateWatch = true
       selectedDate.value = data.reference_date
+      if (isValidYmdDate(selectedDate.value)) {
+        writeSessionJSON(selectedDateStorageKey, selectedDate.value)
+      }
     }
     
     // 初始化图表 (无论是否有数据都要初始化，确保清空之前的图表)
@@ -717,6 +722,11 @@ watch(selectedDate, (newDate, oldDate) => {
     suppressSelectedDateWatch = false
     return
   }
+  if (isValidYmdDate(newDate)) {
+    writeSessionJSON(selectedDateStorageKey, newDate)
+  } else if (!newDate) {
+    writeSessionJSON(selectedDateStorageKey, '')
+  }
   loadDashboardData(currentStore.value, { targetDate: newDate || null })
 })
 
@@ -727,6 +737,10 @@ watch(currentStore, (newStoreId) => {
 })
 
 onMounted(() => {
+  const saved = readSessionJSON(selectedDateStorageKey, '')
+  if (isValidYmdDate(saved)) {
+    selectedDate.value = saved
+  }
   loadDashboardData(currentStore.value)
   window.addEventListener('resize', handleResize)
 })
