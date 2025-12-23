@@ -29,6 +29,11 @@
           <template #title>批次管理</template>
         </el-menu-item>
 
+        <el-menu-item index="/data-health">
+          <el-icon><Monitor /></el-icon>
+          <template #title>数据健康度</template>
+        </el-menu-item>
+
         <el-menu-item index="/general-analysis">
           <el-icon><DataLine /></el-icon>
           <template #title>通用分析</template>

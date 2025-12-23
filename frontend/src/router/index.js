@@ -74,6 +74,12 @@ const routes = [
         meta: { title: '批次管理', icon: 'List' }
       },
       {
+        path: 'data-health',
+        name: 'DataHealth',
+        component: () => import('@/views/DataHealth.vue'),
+        meta: { title: '数据健康度', icon: 'DataBoard' }
+      },
+      {
         path: 'general-analysis',
         name: 'GeneralAnalysis',
         component: () => import('@/views/analysis/GeneralAnalysis.vue'),
