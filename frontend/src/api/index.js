@@ -118,4 +118,5 @@ export * from './dashboard'
 export * from './batch'
 export * from './store'
 export * from './user'
+export * from './health'
 
