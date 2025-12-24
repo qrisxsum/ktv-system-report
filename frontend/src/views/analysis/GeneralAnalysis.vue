@@ -173,13 +173,13 @@
       <div class="table-pagination">
         <el-pagination
           background
-          :layout="isSmallScreen ? 'sizes, prev, pager, next' : (isMobile ? 'total, sizes, prev, pager, next' : 'total, sizes, prev, pager, next, jumper')"
+          :layout="paginationLayout"
           :current-page="pagination.page"
           :page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
           :total="renderedTableTotal"
           :disabled="paginationDisabled"
-          :pager-count="isSmallScreen ? 3 : (isMobile ? 5 : 7)"
+          :pager-count="pagerCount"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
@@ -196,6 +196,7 @@ import { ElMessage } from 'element-plus'
 import { queryStats } from '@/api/stats'
 import { listStores } from '@/api/store'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
+import { usePagination } from '@/composables/usePagination'
 
 const EMPTY_DATASET = Object.freeze([])
 const PAGINATION_CONFIG = Object.freeze({
@@ -297,17 +298,10 @@ const showGranularity = computed(() => queryParams.dimension === 'date')
 
 const granularityOptions = GRANULARITY_OPTIONS
 
-// 根据屏幕宽度动态设置分页选项
-const isMobile = ref(false)
-const isSmallScreen = ref(false)
-const checkMobile = () => {
-  isMobile.value = window.innerWidth <= 768
-  isSmallScreen.value = window.innerWidth <= 480
-}
-
-const pageSizeOptions = computed(() => {
-  // 移动端只显示较少的选项，避免超出屏幕
-  return isMobile.value ? [20, 50] : PAGINATION_CONFIG.pageSizeOptions
+// 使用分页优化 Composable
+const { pageSizeOptions, paginationLayout, pagerCount, checkDevice } = usePagination({
+  desktopPageSizes: PAGINATION_CONFIG.pageSizeOptions,
+  mobilePageSizes: [20, 50]
 })
 
 const metricOptions = computed(() => COLUMN_CONFIG[queryParams.table] || [])
@@ -645,7 +639,7 @@ const fetchStoreOptions = async () => {
 }
 
 const handleResize = () => {
-  checkMobile()
+  checkDevice()
   if (chartInstance) {
     chartInstance.resize()
   }
@@ -974,7 +968,6 @@ const scheduleAutoQuery = ({ resetPage = true, source = 'auto' } = {}) => {
 }
 
 onMounted(() => {
-  checkMobile()
   const savedState = readSessionJSON(generalAnalysisStateKey, null)
   if (savedState?.query) {
     suppressAutoQuery.value = true

@@ -1,26 +1,13 @@
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+
 /**
  * 分页组件移动端优化 Composable
  * 
- * 使用示例：
- * 
- * import { usePagination } from '@/composables/usePagination'
- * 
- * const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
- *   desktopPageSizes: [20, 50, 100],
- *   mobilePageSizes: [20, 50]
- * })
- * 
- * 在模板中使用：
- * <el-pagination
- *   :layout="paginationLayout"
- *   :page-sizes="pageSizeOptions"
- *   :pager-count="pagerCount"
- *   ...
- * />
+ * @param {Object} options - 配置选项
+ * @param {Array<number>} options.desktopPageSizes - 桌面端每页条数选项，默认 [20, 50, 100]
+ * @param {Array<number>} options.mobilePageSizes - 移动端每页条数选项，默认 [20, 50]
+ * @returns {Object} 返回分页相关的响应式状态和配置
  */
-
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-
 export function usePagination(options = {}) {
   const {
     desktopPageSizes = [20, 50, 100],
@@ -76,11 +63,11 @@ export function usePagination(options = {}) {
   })
 
   return {
-    // 响应式状态（如果需要访问设备类型）
+    // 响应式状态
     isMobile,
     isSmallScreen,
     
-    // 计算属性（直接用于 el-pagination）
+    // 计算属性
     pageSizeOptions,
     paginationLayout,
     pagerCount,
@@ -89,4 +76,3 @@ export function usePagination(options = {}) {
     checkDevice
   }
 }
-
