@@ -29,38 +29,38 @@
         border
         v-loading="loading"
       >
-        <el-table-column prop="product_name" label="商品名称" width="200" />
-        <el-table-column prop="sales_qty" label="销售数量" width="120" align="right">
+        <el-table-column prop="product_name" label="商品名称" min-width="150" />
+        <el-table-column prop="sales_qty" label="销售数量" min-width="100" align="right">
           <template #default="{ row }">
             {{ row.sales_qty || 0 }}
           </template>
         </el-table-column>
-        <el-table-column prop="sales_amount" label="销售金额" width="140" align="right">
+        <el-table-column prop="sales_amount" label="销售金额" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.sales_amount || 0).toFixed(2) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_qty" label="赠送数量" width="120" align="right">
+        <el-table-column prop="gift_qty" label="赠送数量" min-width="100" align="right">
           <template #default="{ row }">
             {{ row.gift_qty || 0 }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_amount" label="赠送金额" width="140" align="right">
+        <el-table-column prop="gift_amount" label="赠送金额" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.gift_amount || 0).toFixed(2) }}
           </template>
         </el-table-column>
-        <el-table-column prop="cost" label="成本" width="140" align="right">
+        <el-table-column prop="cost" label="成本" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.cost || 0).toFixed(2) }}
           </template>
         </el-table-column>
-        <el-table-column prop="profit" label="利润" width="140" align="right">
+        <el-table-column prop="profit" label="利润" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.profit || 0).toFixed(2) }}
           </template>
         </el-table-column>
-        <el-table-column prop="profit_rate" label="利润率" align="right">
+        <el-table-column prop="profit_rate" label="利润率" min-width="100" align="right">
           <template #default="{ row }">
             {{ row.profit_rate ? row.profit_rate.toFixed(2) : '0.00' }}%
           </template>
@@ -70,12 +70,13 @@
       <div class="table-pagination">
         <el-pagination
           background
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="isSmallScreen ? 'sizes, prev, pager, next' : (isMobile ? 'total, sizes, prev, pager, next' : 'total, sizes, prev, pager, next, jumper')"
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
           :total="total"
           :disabled="loading"
+          :pager-count="isSmallScreen ? 3 : (isMobile ? 5 : 7)"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
@@ -89,7 +90,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, inject, watch, reactive, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, inject, watch, reactive, nextTick } from 'vue'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
@@ -110,7 +111,18 @@ const pagination = reactive({
   pageSize: 20
 })
 
-const pageSizeOptions = [20, 50, 100]
+// 根据屏幕宽度动态设置分页选项
+const isMobile = ref(false)
+const isSmallScreen = ref(false)
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+  isSmallScreen.value = window.innerWidth <= 480
+}
+
+const pageSizeOptions = computed(() => {
+  // 移动端只显示较少的选项，避免超出屏幕
+  return isMobile.value ? [20, 50] : [20, 50, 100]
+})
 
 // 处理后的商品数据
 const productData = computed(() => {
@@ -245,6 +257,9 @@ const handleDateChange = () => {
 }
 
 onMounted(async () => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+  
   const saved = readSessionJSON(dateRangeStorageKey, null)
   if (isValidDateRange(saved)) {
     dateRange.value = saved
@@ -255,6 +270,10 @@ onMounted(async () => {
     }
   }
   await fetchData()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', checkMobile)
 })
 </script>
 
@@ -298,6 +317,172 @@ onMounted(async () => {
     .date-range {
       width: 100%;
     }
+
+    :deep(.el-table) {
+      font-size: 12px;
+
+      .el-table__header th,
+      .el-table__body td {
+        padding: 8px 5px;
+      }
+    }
+
+    .table-pagination {
+      justify-content: center !important;
+      margin-top: 10px;
+      overflow-x: auto; // 允许横向滚动作为后备方案
+      -webkit-overflow-scrolling: touch;
+
+      :deep(.el-pagination) {
+        flex-wrap: wrap; // 允许换行
+        justify-content: center;
+        font-size: 12px;
+
+        .el-pagination__total,
+        .el-pagination__sizes,
+        .el-pagination__jump {
+          margin-right: 8px;
+          font-size: 12px;
+        }
+
+        .btn-prev,
+        .btn-next {
+          min-width: 26px;
+          height: 26px;
+          line-height: 26px;
+          padding: 0 6px;
+        }
+
+        .el-pager {
+          li {
+            min-width: 26px;
+            height: 26px;
+            line-height: 26px;
+            font-size: 12px;
+            margin: 0 2px;
+          }
+        }
+
+        // 每页条数选择器优化
+        .el-pagination__sizes {
+          .el-select {
+            .el-input {
+              .el-input__inner {
+                height: 26px;
+                line-height: 26px;
+                font-size: 12px;
+                padding: 0 20px 0 8px;
+              }
+            }
+          }
+        }
+
+        // 跳转输入框优化
+        .el-pagination__jump {
+          .el-input {
+            .el-input__inner {
+              height: 26px;
+              line-height: 26px;
+              font-size: 12px;
+              width: 40px;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    :deep(.el-card__header) {
+      padding: 12px 15px;
+    }
+
+    :deep(.el-card__body) {
+      padding: 12px;
+    }
+
+    .card-header {
+      font-size: 14px;
+
+      .header-right {
+        margin-top: 10px;
+      }
+    }
+
+    :deep(.el-table) {
+      font-size: 11px;
+
+      .el-table__header th,
+      .el-table__body td {
+        padding: 6px 3px;
+      }
+    }
+
+    .table-pagination {
+      margin-top: 8px;
+
+      :deep(.el-pagination) {
+        font-size: 11px;
+        gap: 4px; // 元素间距更小
+
+        .el-pagination__total {
+          font-size: 11px;
+          margin-right: 4px;
+        }
+
+        .el-pagination__sizes {
+          margin-right: 4px;
+          
+          .el-select {
+            .el-input {
+              .el-input__inner {
+                height: 24px;
+                line-height: 24px;
+                font-size: 11px;
+                padding: 0 18px 0 6px;
+              }
+            }
+          }
+        }
+
+        .btn-prev,
+        .btn-next {
+          min-width: 24px;
+          height: 24px;
+          line-height: 24px;
+          padding: 0 4px;
+        }
+
+        .el-pager {
+          li {
+            min-width: 24px;
+            height: 24px;
+            line-height: 24px;
+            font-size: 11px;
+            margin: 0 1px;
+          }
+        }
+
+        .el-pagination__jump {
+          margin-left: 4px;
+          font-size: 11px;
+          
+          .el-input {
+            .el-input__inner {
+              height: 24px;
+              line-height: 24px;
+              font-size: 11px;
+              width: 35px;
+            }
+          }
+        }
+      }
+    }
+
+    .empty-hint {
+      padding: 30px 0;
+      font-size: 14px;
+    }
   }
   
   .empty-hint {
@@ -310,6 +495,7 @@ onMounted(async () => {
     display: flex;
     justify-content: flex-end;
     margin-top: 12px;
+    width: 100%;
   }
 }
 </style>

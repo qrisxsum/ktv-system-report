@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 
 from app.models.user import User
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, decode_token
 
 
 class UserService:
@@ -42,7 +42,7 @@ class UserService:
         # 更新最后登录时间
         user.last_login_at = datetime.utcnow()
 
-        # 如果提供了token，更新用户的token信息（用于单设备登录控制）
+        # 如果提供了token，更新用户的token信息（仅作记录，不再强制单设备）
         if token:
             from app.core.security import ACCESS_TOKEN_EXPIRE_HOURS
             from datetime import timedelta
@@ -173,10 +173,20 @@ class UserService:
         return user
 
     def get_user_by_token(self, token: str) -> Optional[User]:
-        """根据token获取用户"""
+        """根据token获取用户 (支持多设备登录)"""
+        # 解码token验证有效性
+        payload = decode_token(token)
+        if not payload:
+            return None
+            
+        username = payload.get("sub")
+        if not username:
+            return None
+
+        # 只要token有效且用户存在并激活，即视为有效登录
+        # 不再校验 User.current_token，允许多设备同时在线
         return self.db.query(User).filter(
-            User.current_token == token,
-            User.token_expires_at > datetime.utcnow(),
+            User.username == username,
             User.is_active == True
         ).first()
 
