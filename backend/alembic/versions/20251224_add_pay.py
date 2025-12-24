@@ -1,7 +1,7 @@
 """add scan and deposit columns
 
 Revision ID: 20251224_add_pay
-Revises: 20251220_room_idx
+Revises: 20251224_add_member_change
 Create Date: 2025-12-24 11:30:00.000000
 
 """
