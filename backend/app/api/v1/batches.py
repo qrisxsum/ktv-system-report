@@ -39,9 +39,11 @@ TABLE_TYPE_NAMES = {
     TableType.BOOKING: "预订汇总表",
     TableType.ROOM: "包厢开台分析表",
     TableType.SALES: "酒水销售分析表",
+    TableType.MEMBER_CHANGE: "连锁会员变动明细表",
     "booking": "预订汇总表",
     "room": "包厢开台分析表",
     "sales": "酒水销售分析表",
+    "member_change": "连锁会员变动明细表",
 }
 
 

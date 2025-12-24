@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.meta import MetaFileBatch
-from app.models.facts import FactBooking, FactRoom, FactSales
+from app.models.facts import FactBooking, FactRoom, FactSales, FactMemberChange
 from app.models.dims import DimEmployee, DimProduct, DimRoom, DimStore, DimPaymentMethod
 
 
@@ -46,6 +46,7 @@ class ImporterService:
         "booking": FactBooking,
         "room": FactRoom,
         "sales": FactSales,
+        "member_change": FactMemberChange,
     }
 
     def __init__(self, db: Session):
@@ -300,13 +301,51 @@ class ImporterService:
         self.db.flush()
         return new_record.id
 
+    @staticmethod
+    def _extract_store_name_from_brackets(store_name: str) -> str:
+        """
+        从门店名称中提取括号内的内容。
+        
+        例如：
+        - "空境·派对KTV（万象城店）" -> "万象城店"
+        - "空境·派对KTV(青年路店)" -> "青年路店"
+        - "万象城店" -> "万象城店" (如果没有括号，返回原值)
+        
+        Args:
+            store_name: 原始门店名称
+        
+        Returns:
+            str: 提取后的门店名称
+        """
+        if not store_name or not isinstance(store_name, str):
+            return store_name or ""
+        
+        import re
+        store_name = store_name.strip()
+        
+        # 匹配中文括号或英文括号内的内容
+        bracket_patterns = [
+            r"（([^（）]+)）",  # 中文括号
+            r"\(([^()]+)\)",   # 英文括号
+        ]
+        
+        for pattern in bracket_patterns:
+            match = re.search(pattern, store_name)
+            if match:
+                extracted = match.group(1).strip()
+                if extracted:
+                    return extracted
+        
+        # 如果没有括号，返回原值
+        return store_name
+
     def _get_or_create_store(self, session: Session, store_name: str, return_store: bool = False):
         """
         根据门店名称获取或创建 DimStore 记录。
         
         Args:
             session: 数据库会话
-            store_name: 门店名称
+            store_name: 门店名称（支持从括号中提取，如"空境·派对KTV（万象城店）"会提取为"万象城店"）
             return_store: 是否返回 store 对象，False 时只返回 store_id
         
         Returns:
@@ -316,7 +355,9 @@ class ImporterService:
         if not store_name:
             raise ValueError("store_name 不能为空")
 
-        normalized_name = store_name.strip()
+        # 从括号中提取门店名称
+        extracted_name = self._extract_store_name_from_brackets(store_name)
+        normalized_name = extracted_name.strip()
         if not normalized_name:
             raise ValueError("store_name 不能为空白字符串")
 
@@ -431,7 +472,33 @@ class ImporterService:
     ) -> Dict[str, Any]:
         """
         处理文件上传的完整流程
+        
+        对于连锁会员变动明细表，如果包含多个门店，会按门店分组处理，每个门店创建一个批次。
         """
+        # 对于连锁会员变动明细表，检查是否需要按门店分组
+        if table_type == "member_change" and cleaned_data:
+            # 检查是否包含多个不同的门店名称
+            store_names = set()
+            for row in cleaned_data:
+                biz_store_name = row.get("biz_store_name")
+                if biz_store_name and isinstance(biz_store_name, str) and biz_store_name.strip():
+                    # 提取门店名称（从括号中）
+                    extracted_name = self._extract_store_name_from_brackets(biz_store_name.strip())
+                    if extracted_name:
+                        store_names.add(extracted_name)
+            
+            # 如果包含多个门店，按门店分组处理
+            if len(store_names) > 1:
+                return self._process_multi_store_upload(
+                    file_name=file_name,
+                    table_type=table_type,
+                    cleaned_data=cleaned_data,
+                    biz_date=biz_date,
+                    payment_methods=payment_methods,
+                    file_hash=file_hash,
+                )
+        
+        # 单门店处理逻辑（原有逻辑）
         batch: Optional[MetaFileBatch] = None
         sales_total = 0.0
         actual_total = 0.0
@@ -597,6 +664,18 @@ class ImporterService:
                 else:
                     row_copy.pop("category", None)
 
+            # member_change: 根据每行的 biz_store_name 动态确定 store_id
+            if table_type == "member_change" and "biz_store_name" in row:
+                biz_store_name = row.get("biz_store_name")
+                if biz_store_name and isinstance(biz_store_name, str) and biz_store_name.strip():
+                    # 从 biz_store_name 中提取括号内的门店名称（如"空境·派对KTV（万象城店）" -> "万象城店"）
+                    # 然后根据提取的名称获取或创建门店，并更新该行的 store_id
+                    row_store_id = self._get_or_create_store(self.db, biz_store_name.strip())
+                    row_copy["store_id"] = row_store_id
+                else:
+                    # 如果没有 biz_store_name，使用默认的 store_id
+                    row_copy["store_id"] = store_id
+
             processed.append(row_copy)
 
         return processed
@@ -650,6 +729,167 @@ class ImporterService:
             .order_by(MetaFileBatch.created_at.desc())
             .first()
         )
+
+    def _get_store_id_from_biz_store_name(self, biz_store_name: str) -> Optional[int]:
+        """
+        从 biz_store_name 获取 store_id（不创建新门店，仅用于检查）
+        
+        Args:
+            biz_store_name: 商家门店名称
+            
+        Returns:
+            Optional[int]: store_id，如果门店不存在则返回 None
+        """
+        if not biz_store_name or not isinstance(biz_store_name, str):
+            return None
+        
+        # 提取门店名称
+        extracted_name = self._extract_store_name_from_brackets(biz_store_name.strip())
+        if not extracted_name:
+            return None
+        
+        # 查找门店
+        store = (
+            self.db.query(DimStore)
+            .filter(DimStore.store_name == extracted_name.strip())
+            .first()
+        )
+        return store.id if store else None
+    
+    def _process_multi_store_upload(
+        self,
+        file_name: str,
+        table_type: str,
+        cleaned_data: List[Dict[str, Any]],
+        biz_date: Optional[str] = None,
+        payment_methods: Optional[List[Dict[str, Any]]] = None,
+        file_hash: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        按门店分组处理多门店上传（用于连锁会员变动明细表）
+        
+        每个门店创建一个独立的批次，返回所有批次的结果。
+        
+        Returns:
+            Dict[str, Any]: 包含多个批次的结果
+        """
+        # 0. 确保支付方式维度已初始化
+        self._ensure_payment_methods()
+        if payment_methods:
+            self._sync_payment_methods(self.db, payment_methods)
+        
+        # 1. 按门店分组数据
+        from collections import defaultdict
+        store_data_map: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+        rows_without_store = []
+        
+        for row in cleaned_data:
+            biz_store_name = row.get("biz_store_name")
+            if not biz_store_name or not isinstance(biz_store_name, str) or not biz_store_name.strip():
+                rows_without_store.append(row)
+                continue
+            
+            # 获取或创建门店
+            store_id = self._get_or_create_store(self.db, biz_store_name.strip())
+            store_data_map[store_id].append(row)
+        
+        if not store_data_map:
+            raise ValueError("无法从数据中提取门店信息")
+        
+        # 如果有数据没有门店信息，使用第一个门店作为默认门店
+        if rows_without_store:
+            first_store_id = list(store_data_map.keys())[0]
+            store_data_map[first_store_id].extend(rows_without_store)
+        
+        # 2. 为每个门店创建批次并入库
+        batch_results = []
+        total_row_count = 0
+        total_sales_total = 0.0
+        total_actual_total = 0.0
+        
+        for store_id, store_data in store_data_map.items():
+            try:
+                # 获取门店信息
+                store = self.db.query(DimStore).filter(DimStore.id == store_id).first()
+                store_name = store.store_name if store else f"门店{store_id}"
+                
+                # 创建批次
+                batch = self.create_batch(file_name, store_id, table_type)
+                batch.status = "processing"
+                self.db.commit()
+                
+                # 处理日期
+                if biz_date:
+                    for row in store_data:
+                        row["biz_date"] = biz_date
+                
+                # 删除该门店该日期的旧数据
+                if biz_date:
+                    model = self.TABLE_MODEL_MAP[table_type]
+                    self.db.execute(
+                        delete(model).where(
+                            model.store_id == store_id, model.biz_date == biz_date
+                        )
+                    )
+                
+                # 处理维度
+                processed_data = self._process_dimensions(
+                    table_type, store_id, store_data
+                )
+                
+                # 计算总额
+                sales_total, actual_total = self._calculate_totals(processed_data)
+                
+                # 入库（注意：多门店情况下，file_hash 只用于第一个批次，避免重复检查）
+                use_file_hash = file_hash if len(batch_results) == 0 else None
+                row_count = self.save_batch(
+                    batch.id,
+                    table_type,
+                    processed_data,
+                    overwrite=False,
+                    file_hash=use_file_hash,
+                )
+                
+                batch_results.append({
+                    "batch_id": batch.id,
+                    "batch_no": batch.batch_no,
+                    "store_id": store_id,
+                    "store_name": store_name,
+                    "row_count": row_count,
+                    "sales_total": sales_total,
+                    "actual_total": actual_total,
+                    "status": "success",
+                })
+                
+                total_row_count += row_count
+                total_sales_total += sales_total
+                total_actual_total += actual_total
+                
+            except Exception as e:
+                # 如果某个门店处理失败，记录错误但继续处理其他门店
+                batch_results.append({
+                    "batch_id": None,
+                    "batch_no": None,
+                    "store_id": store_id,
+                    "store_name": store_name if 'store_name' in locals() else f"门店{store_id}",
+                    "row_count": 0,
+                    "sales_total": 0.0,
+                    "actual_total": 0.0,
+                    "status": "failed",
+                    "error": str(e),
+                })
+        
+        # 3. 返回汇总结果
+        return {
+            "batch_id": batch_results[0]["batch_id"] if batch_results else None,
+            "batch_no": batch_results[0]["batch_no"] if batch_results else None,
+            "row_count": total_row_count,
+            "sales_total": total_sales_total,
+            "actual_total": total_actual_total,
+            "status": "success" if all(r["status"] == "success" for r in batch_results) else "partial",
+            "multi_store": True,
+            "batch_results": batch_results,  # 所有批次的结果
+        }
 
     @staticmethod
     def _is_file_hash_constraint(error: IntegrityError) -> bool:

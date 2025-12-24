@@ -14,7 +14,7 @@ from app.core.database import get_db
 from app.core.security import get_current_manager
 from app.models.meta import MetaFileBatch
 from app.models.dims import DimStore
-from app.models.facts import FactBooking, FactRoom, FactSales
+from app.models.facts import FactBooking, FactRoom, FactSales, FactMemberChange
 from app.schemas import TableType
 
 router = APIRouter()
@@ -35,6 +35,11 @@ TABLE_TYPE_MAP = {
         "name": "酒水销售分析",
         "model": FactSales,
         "table_name": "fact_sales"
+    },
+    TableType.MEMBER_CHANGE: {
+        "name": "连锁会员变动明细",
+        "model": FactMemberChange,
+        "table_name": "fact_member_change"
     }
 }
 
@@ -43,6 +48,7 @@ REPORT_TYPE_NAMES = {
     TableType.BOOKING: "预订汇总",
     TableType.ROOM: "包厢开台分析",
     TableType.SALES: "酒水销售分析",
+    TableType.MEMBER_CHANGE: "连锁会员变动明细",
 }
 
 
