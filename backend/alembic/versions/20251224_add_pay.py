@@ -1,7 +1,7 @@
 """add scan and deposit columns
 
 Revision ID: 20251224_add_pay
-Revises: 20251220_room_idx
+Revises: 20251224_add_member_change
 Create Date: 2025-12-24 11:30:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20251224_add_pay'
-down_revision = '20251220_room_idx'
+down_revision = '20251224_add_member_change'
 branch_labels = None
 depends_on = None
 

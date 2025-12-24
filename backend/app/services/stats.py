@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Dict, Any, Optional, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, case
 from sqlalchemy.orm import Session
 
 from app.models.facts import FactBooking, FactRoom, FactSales, FactMemberChange
@@ -203,7 +203,8 @@ class StatsService:
                 ("balance_total", self._safe_sum(model.balance_total)),
                 ("points_delta", self._safe_sum(model.points_delta)),
                 ("growth_delta", self._safe_sum(model.growth_delta)),
-                ("recharge_count", func.count(model.id).filter(model.change_type == "充值")),
+                # 使用 CASE WHEN 替代 FILTER，兼容 MySQL
+                ("recharge_count", func.sum(case((model.change_type.like("%充值%"), 1), else_=0))),
             ]
         raise ValueError("未知表类型")
 
