@@ -86,6 +86,17 @@
           </el-select>
         </div>
 
+        <div class="toolbar-actions">
+          <el-button
+            type="primary"
+            plain
+            size="small"
+            @click="handleFinancialDailyPreset"
+          >
+            财务日报
+          </el-button>
+        </div>
+
         <!-- 自动查询：选满条件后自动触发，无需手动“查询”按钮 -->
       </div>
 
@@ -155,19 +166,49 @@
         v-loading="loading"
         :empty-text="loading ? '数据加载中…' : '暂无数据，请先执行查询'"
       >
-        <el-table-column
-          v-for="column in tableColumns"
-          :key="column.prop"
-          :prop="column.prop"
-          :label="column.label"
-          :min-width="column.minWidth || 120"
-          :align="column.align || 'left'"
-          show-overflow-tooltip
-        >
-          <template #default="{ row }">
-            {{ row[column.prop] ?? '--' }}
-          </template>
-        </el-table-column>
+        <template v-for="column in tableColumns" :key="columnKey(column)">
+          <el-table-column
+            v-if="column.children"
+            :label="column.label"
+            :align="column.align || 'center'"
+          >
+            <el-table-column
+              v-for="child in column.children"
+              :key="columnKey(child)"
+              :prop="child.prop"
+              :label="child.label"
+              :min-width="child.minWidth || 120"
+              :align="child.align || 'left'"
+              show-overflow-tooltip
+            >
+              <template #default="{ row }">
+                <span v-if="child.format === 'percent'">
+                  {{ formatPercentCell(row[child.prop]) }}
+                </span>
+                <span v-else>
+                  {{ formatDefaultCell(row[child.prop]) }}
+                </span>
+              </template>
+            </el-table-column>
+          </el-table-column>
+          <el-table-column
+            v-else
+            :prop="column.prop"
+            :label="column.label"
+            :min-width="column.minWidth || 120"
+            :align="column.align || 'left'"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">
+              <span v-if="column.format === 'percent'">
+                {{ formatPercentCell(row[column.prop]) }}
+              </span>
+              <span v-else>
+                {{ formatDefaultCell(row[column.prop]) }}
+              </span>
+            </template>
+          </el-table-column>
+        </template>
       </el-table>
 
       <div class="table-pagination">
@@ -269,9 +310,28 @@ const DIMENSION_COLUMN_MAP = {
 const COLUMN_CONFIG = {
   booking: [
     { prop: 'orders', label: '订单数', align: 'right', minWidth: 100 },
-    { prop: 'sales_amount', label: '销售额', align: 'right', minWidth: 120 },
-    { prop: 'actual', label: '实收', align: 'right', minWidth: 120 },
-    { prop: 'performance', label: '业绩', align: 'right', minWidth: 120 }
+    { prop: 'actual', label: '实收金额', align: 'right', minWidth: 140 },
+    { prop: 'performance', label: '业绩', align: 'right', minWidth: 120 },
+    { prop: 'credit_amount', label: '挂账金额', align: 'right', minWidth: 120 },
+    { prop: 'sales_amount', label: '销售金额(应收)', align: 'right', minWidth: 140 },
+    { prop: 'avg_order_amount', label: '单均消费', align: 'right', minWidth: 120 },
+    { prop: 'service_fee', label: '服务费', align: 'right', minWidth: 120 },
+    { prop: 'actual_rate', label: '实收转化率', align: 'right', minWidth: 140, format: 'percent' },
+    { prop: 'credit_rate', label: '挂账率', align: 'right', minWidth: 140, format: 'percent' },
+    { prop: 'free_amount', label: '免单金额', align: 'right', minWidth: 120 },
+    { prop: 'round_off_amount', label: '抹零金额', align: 'right', minWidth: 120 },
+    { prop: 'discount_amount', label: '折扣金额', align: 'right', minWidth: 120 },
+    { prop: 'gift_amount', label: '赠送金额', align: 'right', minWidth: 120 },
+    { prop: 'adjustment_amount', label: '调整金额', align: 'right', minWidth: 120 },
+    { prop: 'pay_wechat', label: '微信支付', align: 'right', minWidth: 120 },
+    { prop: 'pay_alipay', label: '支付宝支付', align: 'right', minWidth: 120 },
+    { prop: 'pay_scan', label: '扫码支付', align: 'right', minWidth: 120 },
+    { prop: 'pay_cash', label: '现金支付', align: 'right', minWidth: 120 },
+    { prop: 'pay_pos', label: 'POS银行卡', align: 'right', minWidth: 120 },
+    { prop: 'pay_member', label: '会员支付', align: 'right', minWidth: 120 },
+    { prop: 'pay_deposit', label: '定金消费', align: 'right', minWidth: 120 },
+    { prop: 'pay_douyin', label: '抖音核销', align: 'right', minWidth: 120 },
+    { prop: 'pay_meituan', label: '美团核销', align: 'right', minWidth: 120 }
   ],
   sales: [
     { prop: 'sales_qty', label: '销量', align: 'right', minWidth: 100 },
@@ -287,6 +347,35 @@ const COLUMN_CONFIG = {
     { prop: 'duration', label: '时长', align: 'right', minWidth: 100 } // 假设后端字段为 duration
   ]
 }
+
+const BOOKING_COLUMN_GROUPS = Object.freeze([
+  {
+    label: '基础指标区',
+    columns: ['orders', 'performance', 'avg_order_amount', 'service_fee']
+  },
+  {
+    label: '财务对账区',
+    columns: ['sales_amount', 'actual', 'actual_rate', 'credit_amount', 'credit_rate']
+  },
+  {
+    label: '损耗明细区',
+    columns: ['free_amount', 'round_off_amount', 'discount_amount', 'gift_amount', 'adjustment_amount']
+  },
+  {
+    label: '支付渠道区',
+    columns: [
+      'pay_wechat',
+      'pay_alipay',
+      'pay_scan',
+      'pay_cash',
+      'pay_pos',
+      'pay_member',
+      'pay_deposit',
+      'pay_douyin',
+      'pay_meituan'
+    ]
+  }
+])
 
 const tableOptions = TABLE_OPTIONS
 
@@ -443,10 +532,67 @@ const formatDimensionLabel = (value) => {
   return label.length > 20 ? `${label.slice(0, 18)}…` : label
 }
 
-const normalizeRow = (item) => ({
-  ...item,
-  dimension_value: item.dimension_label || item.dimension_key || '--'
-})
+const toFiniteNumber = (value, fallback = 0) => {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : fallback
+}
+
+const computeRatio = (numerator, denominator, digits = 4) => {
+  if (!denominator) return 0
+  const ratio = numerator / denominator
+  return Number.isFinite(ratio) ? Number(ratio.toFixed(digits)) : 0
+}
+
+const computeAverage = (sum, count, digits = 2) => {
+  if (!count) return 0
+  const avg = sum / count
+  return Number.isFinite(avg) ? Number(avg.toFixed(digits)) : 0
+}
+
+const withBookingDerivedMetrics = (row) => {
+  const actual = toFiniteNumber(row.actual)
+  const credit = toFiniteNumber(row.credit_amount)
+  const sales = toFiniteNumber(row.sales_amount)
+  const orders = toFiniteNumber(row.orders)
+
+  return {
+    ...row,
+    avg_order_amount: computeAverage(actual, orders, 2),
+    credit_rate: computeRatio(credit, actual, 4),
+    actual_rate: computeRatio(actual, sales, 4)
+  }
+}
+
+const normalizeRow = (item, table) => {
+  const baseRow = {
+    ...item,
+    dimension_value: item.dimension_label || item.dimension_key || '--'
+  }
+  if (table === 'booking') {
+    return withBookingDerivedMetrics(baseRow)
+  }
+  return baseRow
+}
+
+const formatDefaultCell = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return '--'
+  }
+  return value
+}
+
+const formatPercentCell = (value) => {
+  const numeric = toFiniteNumber(value, NaN)
+  if (!Number.isFinite(numeric)) {
+    return '--'
+  }
+  return `${(numeric * 100).toFixed(2)}%`
+}
+
+const columnKey = (column) => {
+  if (!column) return ''
+  return column.prop || column.label || ''
+}
 
 const hasChartData = computed(
   () =>
@@ -468,6 +614,22 @@ const buildTableColumns = () => {
     label: '当前维度',
     prop: 'dimension_value',
     minWidth: 140
+  }
+  if (queryParams.table === 'booking') {
+    const metricMap = new Map(
+      (COLUMN_CONFIG.booking || []).map((item) => [item.prop, item])
+    )
+    const groupedColumns = BOOKING_COLUMN_GROUPS.map((group) => {
+      const children = group.columns
+        .map((prop) => metricMap.get(prop))
+        .filter(Boolean)
+      return {
+        label: group.label,
+        children
+      }
+    }).filter((group) => group.children.length)
+    tableColumns.value = [dimensionColumn, ...groupedColumns]
+    return
   }
   const metrics = COLUMN_CONFIG[queryParams.table] || []
   tableColumns.value = [dimensionColumn, ...metrics]
@@ -568,8 +730,8 @@ const performQuery = async ({ resetPage = false, source = 'query', paramsSnapsho
     if (response?.success) {
       const rows = Array.isArray(payload.rows) ? payload.rows : []
       const seriesRows = Array.isArray(payload.series_rows) ? payload.series_rows : []
-      tableData.value = rows.map(normalizeRow)
-      chartSeriesRows.value = seriesRows.map(normalizeRow)
+      tableData.value = rows.map((row) => normalizeRow(row, snapshot.table))
+      chartSeriesRows.value = seriesRows.map((row) => normalizeRow(row, snapshot.table))
       const parsedTotal = Number(payload.total)
       tableTotal.value = Number.isFinite(parsedTotal) ? parsedTotal : rows.length || 0
       chartMeta.value = payload.meta || {}
@@ -875,7 +1037,11 @@ watch(
     pagination.page = PAGINATION_CONFIG.defaultPage
     cancelActiveQuery()
     const defaultDimension = DEFAULT_DIMENSION_MAP[nextTable] || 'date'
-    queryParams.dimension = defaultDimension
+    const dimensionCandidates = DIMENSION_OPTIONS_MAP[nextTable] || []
+    const dimensionValid = dimensionCandidates.some((item) => item.value === queryParams.dimension)
+    if (!dimensionValid) {
+      queryParams.dimension = defaultDimension
+    }
   },
   { immediate: true }
 )
@@ -960,6 +1126,16 @@ const scheduleAutoQuery = ({ resetPage = true, source = 'auto' } = {}) => {
   }, 250)
 }
 
+const handleFinancialDailyPreset = () => {
+  suppressAutoQuery.value = true
+  queryParams.table = 'booking'
+  queryParams.dimension = 'employee'
+  nextTick(() => {
+    suppressAutoQuery.value = false
+    scheduleAutoQuery({ resetPage: true, source: 'preset:financial' })
+  })
+}
+
 onMounted(() => {
   const savedState = readSessionJSON(generalAnalysisStateKey, null)
   if (savedState?.query) {
@@ -1040,7 +1216,15 @@ onBeforeUnmount(() => {
       }
     }
 
-    // toolbar-action 已移除：改为自动查询
+    .toolbar-actions {
+      display: flex;
+      align-items: flex-end;
+      margin-left: auto;
+
+      .el-button {
+        align-self: flex-end;
+      }
+    }
   }
 
   .chart-section {
