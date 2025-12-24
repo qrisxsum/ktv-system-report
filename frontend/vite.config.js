@@ -28,6 +28,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    // 允许的主机名
+    allowedHosts: 'all', // 允许所有主机访问(包括局域网IP、cloudflare tunnel等)
     // 热重载配置
     watch: {
       usePolling: true, // Docker 环境需要轮询监听文件变化
@@ -39,7 +41,8 @@ export default defineConfig({
     // 代理后端 API
     proxy: {
       '/api': {
-        target: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
+        // Docker 环境使用服务名,本地开发使用 localhost
+        target: process.env.VITE_PROXY_TARGET || 'http://backend:8000',
         changeOrigin: true,
       },
     },

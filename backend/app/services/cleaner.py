@@ -188,11 +188,62 @@ ROOM_MAPPING: Dict[str, str] = {
     "支付方式_扫码": "pay_scan",
 }
 
+# 连锁会员变动明细 / 会员账户变动表字段映射
+MEMBER_CHANGE_MAPPING: Dict[str, str] = {
+    # 基本会员信息
+    "会员名称": "member_name",
+    "会员卡号": "card_no",
+    "会员等级": "member_level",
+    "联系电话": "phone",
+    # 业务属性
+    "变动类型": "change_type",
+    "充值类型": "recharge_type",
+    "建卡门店": "card_store_name",
+    "商家门店": "biz_store_name",
+    # 金额相关（多级表头扁平化后列名）
+    "房费变动金额_本金": "room_amount_principal",
+    "房费变动金额_赠送": "room_amount_gift",
+    "酒水变动金额_本金": "drink_amount_principal",
+    "酒水变动金额_赠送": "drink_amount_gift",
+    # 成长值 / 积分 / 余额
+    "成长值_变动": "growth_delta",
+    "成长值_余额": "growth_balance",
+    "变动积分": "points_delta",
+    "积分余额": "points_balance",
+    "余额_合计": "balance_total",
+    "余额_本金": "balance_principal",
+    "余额_赠送": "balance_gift",
+    # 其他业务字段
+    "支付信息": "pay_info",
+    "充值销售人": "salesperson_recharge",
+    "免单人": "free_by",
+    "免单金额": "free_amount",
+    "备注": "remark",
+    "状态": "status",
+    "变动时间": "change_time",
+    "操作人": "operator",
+}
+
 # 关键数值字段（缺失时需自动补 0）
 CORE_NUMERIC_FIELDS: Dict[str, Tuple[str, ...]] = {
     "booking": ("booking_qty",),
     "room": ("duration_min",),
     "sales": (),
+    # 会员变动：至少确保这些金额字段存在并补 0，便于后续计算充值实收
+    "member_change": (
+        "room_amount_principal",
+        "room_amount_gift",
+        "drink_amount_principal",
+        "drink_amount_gift",
+        "balance_total",
+        "balance_principal",
+        "balance_gift",
+        "growth_delta",
+        "growth_balance",
+        "points_delta",
+        "points_balance",
+        "free_amount",
+    ),
 }
 
 # 收入类支付方式（计入实收）
@@ -585,6 +636,71 @@ class CleanerService:
 
         return None
 
+    def _extract_stores_from_member_change(self, df_clean: pd.DataFrame) -> List[str]:
+        """
+        从连锁会员变动明细表中提取所有不同的门店名称
+        
+        从 biz_store_name 列中提取所有门店，并从括号中提取门店名称
+        例如："空境·派对KTV（万象城店）" -> "万象城店"
+        
+        Args:
+            df_clean: 清洗后的 DataFrame，应包含 biz_store_name 列
+            
+        Returns:
+            List[str]: 去重后的门店名称列表
+        """
+        if "biz_store_name" not in df_clean.columns:
+            return []
+        
+        store_names = set()
+        for value in df_clean["biz_store_name"].dropna():
+            if not isinstance(value, str) or not value.strip():
+                continue
+            
+            # 从括号中提取门店名称
+            extracted = self._extract_store_name_from_brackets(value.strip())
+            if extracted:
+                store_names.add(extracted)
+        
+        return sorted(list(store_names))
+    
+    @staticmethod
+    def _extract_store_name_from_brackets(store_name: str) -> str:
+        """
+        从门店名称中提取括号内的内容
+        
+        例如：
+        - "空境·派对KTV（万象城店）" -> "万象城店"
+        - "空境·派对KTV(青年路店)" -> "青年路店"
+        - "万象城店" -> "万象城店" (如果没有括号，返回原值)
+        
+        Args:
+            store_name: 原始门店名称
+            
+        Returns:
+            str: 提取后的门店名称
+        """
+        if not store_name or not isinstance(store_name, str):
+            return store_name or ""
+        
+        store_name = store_name.strip()
+        
+        # 匹配中文括号或英文括号内的内容
+        bracket_patterns = [
+            r"（([^（）]+)）",  # 中文括号
+            r"\(([^()]+)\)",   # 英文括号
+        ]
+        
+        for pattern in bracket_patterns:
+            match = re.search(pattern, store_name)
+            if match:
+                extracted = match.group(1).strip()
+                if extracted:
+                    return extracted
+        
+        # 如果没有括号，返回原值
+        return store_name
+
     @staticmethod
     def _normalize_payment_code(field_name: str) -> str:
         """
@@ -744,36 +860,169 @@ class CleanerService:
 
         # 4.1 营业日自动补全（字段映射后、类型转换前）
         if "biz_date" not in df_clean.columns:
-            extracted_filename_date = self._extract_date_from_filename(filename)
-            if extracted_filename_date:
-                df_clean["biz_date"] = extracted_filename_date
-            elif detected_date:
-                # 使用 Parser 从标题行检测到的日期
-                df_clean["biz_date"] = detected_date
-                self._warnings.append(
-                    RowError(
-                        row_index=-1,
-                        column="biz_date",
-                        message=f"文件名无日期，使用从标题行解析的日期: {detected_date}",
-                        error_type=ETLErrorType.WARNING,
-                        severity="warning",
-                        raw_data={"detected_date": detected_date},
-                    )
-                )
+            # 对于 member_change 类型，优先从 change_time 列提取日期
+            if report_type == "member_change" and "change_time" in df_clean.columns:
+                # 从 change_time 中提取日期部分
+                def extract_date_from_change_time(value):
+                    """从 change_time 值中提取日期部分"""
+                    if pd.isna(value) or value is None:
+                        return None
+                    value_str = str(value).strip()
+                    if value_str == "" or value_str.lower() == "nan":
+                        return None
+                    
+                    # 尝试多种日期时间格式提取日期部分
+                    # 匹配日期时间格式：2025-12-01 10:00:00, 2025/12/01 10:00:00 等
+                    date_patterns = [
+                        r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})",  # 2025-12-01 或 2025/12/01
+                        r"(\d{4}\.\d{1,2}\.\d{1,2})",      # 2025.12.01
+                        r"(\d{4}年\d{1,2}月\d{1,2}日)",     # 2025年12月01日
+                    ]
+                    
+                    for pattern in date_patterns:
+                        match = re.search(pattern, value_str)
+                        if match:
+                            date_str = match.group(1)
+                            # 标准化处理
+                            date_str = (
+                                date_str.replace("年", "-")
+                                .replace("月", "-")
+                                .replace("日", "")
+                                .replace(".", "-")
+                                .replace("/", "-")
+                            )
+                            try:
+                                parts = date_str.split("-")
+                                if len(parts) == 3:
+                                    return f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+                            except:
+                                continue
+                    
+                    # 尝试使用 pandas 解析
+                    try:
+                        dt = pd.to_datetime(value_str)
+                        if pd.notna(dt):
+                            return dt.strftime("%Y-%m-%d")
+                    except:
+                        pass
+                    
+                    return None
+                
+                # 从每行的 change_time 提取日期
+                df_clean["biz_date"] = df_clean["change_time"].apply(extract_date_from_change_time)
+                
+                # 检查是否有有效的日期
+                valid_dates = df_clean["biz_date"].notna()
+                if valid_dates.any():
+                    # 如果部分行有有效日期，对于无效的行使用文件名或标题行日期作为兜底
+                    fallback_date = None
+                    extracted_filename_date = self._extract_date_from_filename(filename)
+                    if extracted_filename_date:
+                        fallback_date = extracted_filename_date
+                    elif detected_date:
+                        fallback_date = detected_date
+                    
+                    if fallback_date:
+                        df_clean.loc[~valid_dates, "biz_date"] = fallback_date
+                        self._warnings.append(
+                            RowError(
+                                row_index=-1,
+                                column="biz_date",
+                                message=f"部分行的变动时间无效，使用兜底日期: {fallback_date}",
+                                error_type=ETLErrorType.WARNING,
+                                severity="warning",
+                                raw_data={"fallback_date": fallback_date},
+                            )
+                        )
+                    
+                    # 检查是否仍有无效日期
+                    if df_clean["biz_date"].isna().any():
+                        self._errors.append(
+                            RowError(
+                                row_index=-1,
+                                column="biz_date",
+                                message=(
+                                    "部分行无法从变动时间提取有效日期，"
+                                    f"且文件名 '{filename}' 及标题行中均未发现有效日期"
+                                ),
+                                error_type=ETLErrorType.HEADER_ERROR,
+                                severity="error",
+                                raw_data={"filename": filename},
+                            )
+                        )
+                else:
+                    # 所有行的 change_time 都无效，回退到文件名或标题行
+                    extracted_filename_date = self._extract_date_from_filename(filename)
+                    if extracted_filename_date:
+                        df_clean["biz_date"] = extracted_filename_date
+                        self._warnings.append(
+                            RowError(
+                                row_index=-1,
+                                column="biz_date",
+                                message="变动时间列无效，使用文件名中的日期",
+                                error_type=ETLErrorType.WARNING,
+                                severity="warning",
+                                raw_data={"extracted_date": extracted_filename_date},
+                            )
+                        )
+                    elif detected_date:
+                        df_clean["biz_date"] = detected_date
+                        self._warnings.append(
+                            RowError(
+                                row_index=-1,
+                                column="biz_date",
+                                message=f"变动时间列无效，使用从标题行解析的日期: {detected_date}",
+                                error_type=ETLErrorType.WARNING,
+                                severity="warning",
+                                raw_data={"detected_date": detected_date},
+                            )
+                        )
+                    else:
+                        self._errors.append(
+                            RowError(
+                                row_index=-1,
+                                column="biz_date",
+                                message=(
+                                    "无法从变动时间提取日期，且文件内容缺少 'biz_date' 列，"
+                                    f"文件名 '{filename}' 及标题行中均未发现有效日期"
+                                ),
+                                error_type=ETLErrorType.HEADER_ERROR,
+                                severity="error",
+                                raw_data={"filename": filename},
+                            )
+                        )
             else:
-                self._errors.append(
-                    RowError(
-                        row_index=-1,
-                        column="biz_date",
-                        message=(
-                            "无法获取营业日期：文件内容缺少 'biz_date' 列，"
-                            f"且文件名 '{filename}' 及标题行中均未发现有效日期"
-                        ),
-                        error_type=ETLErrorType.HEADER_ERROR,
-                        severity="error",
-                        raw_data={"filename": filename},
+                # 其他报表类型：从文件名或标题行提取
+                extracted_filename_date = self._extract_date_from_filename(filename)
+                if extracted_filename_date:
+                    df_clean["biz_date"] = extracted_filename_date
+                elif detected_date:
+                    # 使用 Parser 从标题行检测到的日期
+                    df_clean["biz_date"] = detected_date
+                    self._warnings.append(
+                        RowError(
+                            row_index=-1,
+                            column="biz_date",
+                            message=f"文件名无日期，使用从标题行解析的日期: {detected_date}",
+                            error_type=ETLErrorType.WARNING,
+                            severity="warning",
+                            raw_data={"detected_date": detected_date},
+                        )
                     )
-                )
+                else:
+                    self._errors.append(
+                        RowError(
+                            row_index=-1,
+                            column="biz_date",
+                            message=(
+                                "无法获取营业日期：文件内容缺少 'biz_date' 列，"
+                                f"且文件名 '{filename}' 及标题行中均未发现有效日期"
+                            ),
+                            error_type=ETLErrorType.HEADER_ERROR,
+                            severity="error",
+                            raw_data={"filename": filename},
+                        )
+                    )
 
         # 5. 数据类型转换
         df_clean = self._convert_types(df_clean, report_type)
@@ -803,7 +1052,21 @@ class CleanerService:
         if validation_result.summary is None:
             validation_result.summary = {}
         meta_summary = dict(validation_result.summary.get("meta", {}))
-        meta_summary["store_name"] = extracted_store_name
+        
+        # 对于连锁会员变动明细表，统计所有不同的门店
+        if report_type == "member_change" and "biz_store_name" in df_clean.columns:
+            store_names = self._extract_stores_from_member_change(df_clean)
+            if len(store_names) > 1:
+                # 多个门店，显示"多门店"或门店列表
+                meta_summary["store_name"] = f"多门店 ({len(store_names)}个)"
+                meta_summary["store_names"] = sorted(store_names)  # 保存所有门店名称列表
+            elif len(store_names) == 1:
+                meta_summary["store_name"] = store_names[0]
+            else:
+                meta_summary["store_name"] = extracted_store_name
+        else:
+            meta_summary["store_name"] = extracted_store_name
+        
         payment_methods_meta = self._collect_payment_methods_meta(df_clean)
         if payment_methods_meta:
             meta_summary["payment_methods"] = payment_methods_meta
@@ -828,6 +1091,7 @@ class CleanerService:
             "booking": BOOKING_MAPPING,
             "sales": SALES_MAPPING,
             "room": ROOM_MAPPING,
+            "member_change": MEMBER_CHANGE_MAPPING,
         }
         return mapping_dict.get(report_type.lower())
 
@@ -1066,7 +1330,14 @@ class CleanerService:
         df = df.copy()
 
         # 日期时间字段
-        datetime_fields = {"open_time", "close_time", "clean_time", "biz_date"}
+        datetime_fields = {
+            "open_time",
+            "close_time",
+            "clean_time",
+            "biz_date",
+            # 会员变动时间
+            "change_time",
+        }
 
         # 整数字段（数量类）
         integer_fields = {
@@ -1080,6 +1351,29 @@ class CleanerService:
             "gift_qty_total",
             "gift_qty_gift",
             "gift_qty_combo",
+            # 会员成长值 / 积分
+            "growth_delta",
+            "growth_balance",
+            "points_delta",
+            "points_balance",
+        }
+
+        # 字符串字段（需要保持为字符串，避免被转换为数值）
+        string_fields = {
+            "card_no",  # 会员卡号可能是长数字，需要保持字符串格式
+            "phone",    # 电话号码也需要保持字符串（可能有前导0）
+            "member_name",
+            "member_level",
+            "card_store_name",
+            "biz_store_name",
+            "change_type",
+            "recharge_type",
+            "status",
+            "operator",
+            "salesperson_recharge",
+            "free_by",
+            "pay_info",
+            "remark",
         }
 
         for col in df.columns:
@@ -1089,6 +1383,26 @@ class CleanerService:
             if col in datetime_fields:
                 # 日期时间转换
                 df[col] = df[col].apply(_clean_datetime_value)
+            elif col in string_fields:
+                # 字符串字段：确保转换为字符串，避免科学计数法
+                df[col] = df[col].astype(str).replace("nan", "").replace("None", "")
+                # 对于 card_no，如果是科学计数法格式，尝试恢复原始值
+                if col == "card_no":
+                    def _fix_card_no(val):
+                        if pd.isna(val) or val == "" or val == "nan":
+                            return ""
+                        val_str = str(val).strip()
+                        # 如果是科学计数法格式（包含 'e' 或 'E'）
+                        if "e" in val_str.lower() and "." in val_str:
+                            try:
+                                # 尝试转换为浮点数再转回整数，然后转字符串
+                                num = float(val_str)
+                                # 去掉小数点，恢复原始长数字
+                                return str(int(num))
+                            except (ValueError, OverflowError):
+                                return val_str
+                        return val_str
+                    df[col] = df[col].apply(_fix_card_no)
             elif col in integer_fields:
                 # 整数转换
                 df[col] = df[col].apply(lambda x: int(_clean_numeric_value(x)))
@@ -1110,6 +1424,37 @@ class CleanerService:
                         df[col] = df[col].apply(_clean_numeric_value)
                 except Exception:
                     pass
+
+        # 会员变动表专用派生字段：充值实收金额
+        if report_type == "member_change":
+            if "change_type" in df.columns:
+                # 仅对充值类变动计算充值实收，其它类型默认为 0
+                def _calc_recharge_income(row: pd.Series) -> float:
+                    try:
+                        if str(row.get("change_type", "")).strip() != "充值":
+                            return 0.0
+                    except Exception:
+                        return 0.0
+
+                    principal_room = _clean_numeric_value(
+                        row.get("room_amount_principal", 0)
+                    )
+                    principal_drink = _clean_numeric_value(
+                        row.get("drink_amount_principal", 0)
+                    )
+                    return principal_room + principal_drink
+
+                df["recharge_real_income"] = df.apply(
+                    _calc_recharge_income,
+                    axis=1,
+                )
+            else:
+                # 缺少 change_type 时，仍然补一个字段，全部为 0，避免下游 KeyError
+                df["recharge_real_income"] = 0.0
+
+            # 为了让 Importer 的 _calculate_totals 能直接汇总“会员充值实收”，
+            # 这里复用 actual_amount 字段存放充值实收金额（仅用于统计，不入库存储）。
+            df["actual_amount"] = df["recharge_real_income"]
 
         return df
 

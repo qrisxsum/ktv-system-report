@@ -137,6 +137,7 @@ TABLE_TYPE_NAMES = {
     TableType.BOOKING: "预订汇总表",
     TableType.ROOM: "包厢开台分析表",
     TableType.SALES: "酒水销售分析表",
+    TableType.MEMBER_CHANGE: "连锁会员变动明细表",
 }
 
 
@@ -147,6 +148,14 @@ def detect_table_type(filename: str) -> tuple[TableType, str]:
     TODO: 后续可改为基于文件内容识别
     """
     filename_lower = filename.lower()
+
+    # 连锁会员变动明细 / 会员账户变动
+    if (
+        "会员变动" in filename
+        or "连锁会员" in filename
+        or "member_change" in filename_lower
+    ):
+        return TableType.MEMBER_CHANGE, TABLE_TYPE_NAMES[TableType.MEMBER_CHANGE]
 
     if "预订" in filename or "booking" in filename_lower:
         return TableType.BOOKING, TABLE_TYPE_NAMES[TableType.BOOKING]
@@ -403,24 +412,59 @@ async def confirm_import(
     except ValueError:
         status_enum = BatchStatus.FAILED
 
-    if status_enum != BatchStatus.SUCCESS:
-        error_message = service_result.get("error") or "入库失败，请稍后重试"
-        raise HTTPException(status_code=500, detail=error_message)
+    # 处理多门店情况
+    if service_result.get("multi_store"):
+        # 多门店情况：返回第一个批次作为主结果，但消息中包含所有门店信息
+        batch_results = service_result.get("batch_results", [])
+        success_count = sum(1 for r in batch_results if r.get("status") == "success")
+        total_stores = len(batch_results)
+        
+        if status_enum != BatchStatus.SUCCESS:
+            error_message = service_result.get("error") or f"部分门店入库失败 ({success_count}/{total_stores} 成功)"
+            raise HTTPException(status_code=500, detail=error_message)
+        
+        # 构建汇总消息
+        store_names = [r.get("store_name", "未知门店") for r in batch_results if r.get("status") == "success"]
+        message = f"成功导入 {service_result.get('row_count', 0)} 条数据，涉及 {len(store_names)} 个门店：{', '.join(store_names)}"
+        
+        summary = ImportSummary(
+            row_count=service_result.get("row_count", 0),
+            sales_total=service_result.get("sales_total"),
+            actual_total=service_result.get("actual_total"),
+            balance_diff_count=0,
+        )
 
-    summary = ImportSummary(
-        row_count=service_result.get("row_count", 0),
-        sales_total=service_result.get("sales_total"),
-        actual_total=service_result.get("actual_total"),
-        balance_diff_count=0,
-    )
+        import_result = ImportResult(
+            batch_id=service_result.get("batch_id"),
+            batch_no=service_result.get("batch_no") or "",
+            status=status_enum,
+            summary=summary,
+            message=message,
+        )
+        
+        # 在多门店情况下，将批次结果保存到 extra_info 中（如果需要）
+        # 注意：这里我们返回第一个批次作为主结果，前端可以通过批次列表API查看所有批次
+        
+    else:
+        # 单门店情况（原有逻辑）
+        if status_enum != BatchStatus.SUCCESS:
+            error_message = service_result.get("error") or "入库失败，请稍后重试"
+            raise HTTPException(status_code=500, detail=error_message)
 
-    import_result = ImportResult(
-        batch_id=service_result.get("batch_id"),
-        batch_no=service_result.get("batch_no") or "",
-        status=status_enum,
-        summary=summary,
-        message=f"成功导入 {summary.row_count} 条数据",
-    )
+        summary = ImportSummary(
+            row_count=service_result.get("row_count", 0),
+            sales_total=service_result.get("sales_total"),
+            actual_total=service_result.get("actual_total"),
+            balance_diff_count=0,
+        )
+
+        import_result = ImportResult(
+            batch_id=service_result.get("batch_id"),
+            batch_no=service_result.get("batch_no") or "",
+            status=status_enum,
+            summary=summary,
+            message=f"成功导入 {summary.row_count} 条数据",
+        )
 
     # 清理缓存
     del _parse_cache[session_id]

@@ -101,11 +101,13 @@
       <!-- 分页 -->
       <div class="pagination-wrapper">
         <el-pagination
+          background
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :total="total"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
+          :page-sizes="pageSizeOptions"
+          :layout="paginationLayout"
+          :pager-count="pagerCount"
           @size-change="loadBatches"
           @current-change="loadBatches"
         />
@@ -170,10 +172,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, inject, watch } from 'vue'
+import { ref, reactive, onMounted, inject, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listBatches, getBatchDetail, deleteBatch } from '@/api/batch'
 import { listStores } from '@/api/store'
+import { usePagination } from '@/composables/usePagination'
 
 // 状态
 const loading = ref(false)
@@ -197,6 +200,12 @@ const filters = reactive({
 const pagination = reactive({
   page: 1,
   pageSize: 20,
+})
+
+// 使用分页优化 Composable
+const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
+  desktopPageSizes: [10, 20, 50, 100],
+  mobilePageSizes: [10, 20, 50]
 })
 
 // 状态映射
@@ -353,6 +362,7 @@ onMounted(() => {
       margin-top: 20px;
       display: flex;
       justify-content: flex-end;
+      width: 100%;
     }
   }
   
@@ -364,6 +374,296 @@ onMounted(() => {
       white-space: pre-wrap;
       word-break: break-all;
       font-size: 12px;
+    }
+  }
+
+  // 移动端优化
+  @media (max-width: 768px) {
+    .filter-card {
+      // 优化内边距
+      :deep(.el-card__body) {
+        padding: 12px 12px 0 12px;
+      }
+
+      :deep(.el-form) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px; // 间距更紧凑
+        
+        .el-form-item {
+          display: flex;
+          margin-right: 0;
+          margin-bottom: 0; // 由 gap 控制
+          width: calc(50% - 4px); // 两列布局
+
+          // 当前门店筛选和按钮组占满一行
+          &:first-child,
+          &:last-child {
+            width: 100%;
+          }
+
+          .el-form-item__label {
+            width: auto;
+            padding-right: 8px;
+            font-size: 13px;
+            line-height: 32px;
+          }
+
+          .el-form-item__content {
+            flex: 1;
+            margin-left: 0 !important;
+
+            .el-select,
+            .el-button {
+              width: 100%;
+            }
+          }
+          
+          // 按钮组横向排列
+          &:last-child .el-form-item__content {
+            display: flex;
+            gap: 8px;
+            
+            .el-button {
+              flex: 1;
+              margin-left: 0;
+            }
+          }
+        }
+      }
+    }
+
+    .table-card {
+      .card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      // 表格横向滚动
+      :deep(.el-table) {
+        .el-table__header-wrapper,
+        .el-table__body-wrapper {
+          overflow-x: auto;
+        }
+
+        // 固定操作列
+        .el-table__fixed-right {
+          box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1);
+        }
+      }
+
+      .pagination-wrapper {
+        justify-content: center !important;
+        margin-top: 15px;
+        overflow-x: auto; // 允许横向滚动作为后备方案
+        -webkit-overflow-scrolling: touch;
+
+        :deep(.el-pagination) {
+          flex-wrap: wrap; // 允许换行
+          justify-content: center;
+          font-size: 12px;
+
+          .el-pagination__total,
+          .el-pagination__sizes,
+          .el-pagination__jump {
+            margin-right: 8px;
+            font-size: 12px;
+          }
+
+          .btn-prev,
+          .btn-next {
+            min-width: 26px;
+            height: 26px;
+            line-height: 26px;
+            padding: 0 6px;
+          }
+
+          .el-pager {
+            li {
+              min-width: 26px;
+              height: 26px;
+              line-height: 26px;
+              font-size: 12px;
+              margin: 0 2px;
+            }
+          }
+
+          // 每页条数选择器优化
+          .el-pagination__sizes {
+            .el-select {
+              .el-input {
+                .el-input__inner {
+                  height: 26px;
+                  line-height: 26px;
+                  font-size: 12px;
+                  padding: 0 20px 0 8px;
+                }
+              }
+            }
+          }
+
+          // 跳转输入框优化
+          .el-pagination__jump {
+            .el-input {
+              .el-input__inner {
+                height: 26px;
+                line-height: 26px;
+                font-size: 12px;
+                width: 40px;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 详情弹窗优化
+    :deep(.el-dialog) {
+      width: 90% !important;
+      margin: 0 auto;
+      
+      .el-dialog__header {
+        padding: 15px;
+      }
+
+      .el-dialog__body {
+        padding: 15px;
+
+        .el-descriptions {
+          font-size: 13px;
+
+          .el-descriptions__label {
+            font-size: 13px;
+          }
+
+          .el-descriptions__content {
+            font-size: 13px;
+          }
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    .filter-card {
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      :deep(.el-form) {
+        .el-form-item {
+          margin-bottom: 10px;
+
+          .el-form-item__label {
+            font-size: 13px;
+          }
+        }
+      }
+    }
+
+    .table-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      .card-header {
+        font-size: 14px;
+
+        .total-count {
+          font-size: 12px;
+        }
+      }
+
+      :deep(.el-table) {
+        font-size: 11px;
+
+        .el-table__header th,
+        .el-table__body td {
+          padding: 6px 5px;
+        }
+
+        .el-button {
+          padding: 4px 8px;
+          font-size: 11px;
+        }
+
+        .el-tag {
+          font-size: 10px;
+          padding: 0 4px;
+        }
+      }
+    }
+
+    .pagination-wrapper {
+      margin-top: 12px;
+
+      :deep(.el-pagination) {
+        font-size: 11px;
+        gap: 4px; // 元素间距更小
+
+        .el-pagination__total {
+          font-size: 11px;
+          margin-right: 4px;
+        }
+
+        .el-pagination__sizes {
+          margin-right: 4px;
+          
+          .el-select {
+            .el-input {
+              .el-input__inner {
+                height: 24px;
+                line-height: 24px;
+                font-size: 11px;
+                padding: 0 18px 0 6px;
+              }
+            }
+          }
+        }
+
+        .btn-prev,
+        .btn-next {
+          min-width: 24px;
+          height: 24px;
+          line-height: 24px;
+          padding: 0 4px;
+        }
+
+        .el-pager {
+          li {
+            min-width: 24px;
+            height: 24px;
+            line-height: 24px;
+            font-size: 11px;
+            margin: 0 1px;
+          }
+        }
+
+        .el-pagination__jump {
+          margin-left: 4px;
+          font-size: 11px;
+          
+          .el-input {
+            .el-input__inner {
+              height: 24px;
+              line-height: 24px;
+              font-size: 11px;
+              width: 35px;
+            }
+          }
+        }
+      }
+    }
+
+    .error-log {
+      pre {
+        font-size: 11px;
+      }
     }
   }
 }

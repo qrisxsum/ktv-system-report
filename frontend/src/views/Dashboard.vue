@@ -17,7 +17,7 @@
     <section class="kpi-section">
       <div class="kpi-section-title">财务概览</div>
       <el-row :gutter="20" class="kpi-cards">
-        <el-col :span="financialColSpan" v-for="kpi in financialKpis" :key="`fin-${kpi.title}`">
+        <el-col :xs="24" :sm="12" :md="financialColSpan" :span="financialColSpan" v-for="kpi in financialKpis" :key="`fin-${kpi.title}`">
           <el-card class="kpi-card" :body-style="{ padding: '20px' }">
             <div class="kpi-icon" :style="{ background: kpi.color }">
               <el-icon size="24"><component :is="kpi.icon" /></el-icon>
@@ -39,7 +39,7 @@
     <section class="kpi-section">
       <div class="kpi-section-title">经营效能</div>
       <el-row :gutter="20" class="kpi-cards efficiency">
-        <el-col :span="efficiencyColSpan" v-for="kpi in efficiencyKpis" :key="`eff-${kpi.title}`">
+        <el-col :xs="24" :sm="12" :md="efficiencyColSpan" :span="efficiencyColSpan" v-for="kpi in efficiencyKpis" :key="`eff-${kpi.title}`">
           <el-card class="kpi-card" :body-style="{ padding: '20px' }">
             <div class="kpi-icon" :style="{ background: kpi.color }">
               <el-icon size="24"><component :is="kpi.icon" /></el-icon>
@@ -60,7 +60,7 @@
 
     <!-- 图表区域 -->
     <el-row :gutter="20" class="charts">
-      <el-col :span="16">
+      <el-col :xs="24" :sm="24" :md="16" :lg="16">
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
@@ -77,7 +77,7 @@
         </el-card>
       </el-col>
       
-      <el-col :span="8">
+      <el-col :xs="24" :sm="24" :md="8" :lg="8">
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
@@ -91,7 +91,7 @@
 
     <!-- 排行榜 -->
     <el-row :gutter="20" class="rankings">
-      <el-col :span="12">
+      <el-col :xs="24" :sm="24" :md="12" :lg="12">
         <el-card class="ranking-card">
           <template #header>
             <div class="card-header">
@@ -102,7 +102,7 @@
         </el-card>
       </el-col>
       
-      <el-col :span="12">
+      <el-col :xs="24" :sm="24" :md="12" :lg="12">
         <el-card class="ranking-card">
           <template #header>
             <div class="card-header">
@@ -774,17 +774,6 @@ onUnmounted(() => {
     }
   }
 
-  @media (max-width: 600px) {
-    .dashboard-header {
-      flex-direction: column;
-      align-items: flex-start;
-
-      :deep(.el-date-editor) {
-        width: 100%;
-        max-width: 100%;
-      }
-    }
-  }
 
   .kpi-section {
     margin-bottom: 20px;
@@ -878,6 +867,171 @@ onUnmounted(() => {
     
     .chart-container {
       height: 300px;
+    }
+  }
+
+  // 移动端优化
+  @media (max-width: 768px) {
+    .dashboard-header {
+      .dashboard-title {
+        font-size: 18px;
+        margin-right: 12px;
+      }
+      
+      // 调整移动端日期选择器样式，避免独占一行
+      :deep(.el-date-editor) {
+        flex: 1;
+        width: auto;
+        min-width: 150px;
+        max-width: none;
+      }
+    }
+
+    .kpi-section {
+      .kpi-section-title {
+        font-size: 15px;
+        margin-bottom: 10px;
+      }
+      
+      // 移动端下 KPI 卡片单列显示，增加底部间距
+      :deep(.el-col) {
+        margin-bottom: 15px;
+      }
+    }
+
+    .kpi-card {
+      :deep(.el-card__body) {
+        padding: 15px !important;
+      }
+
+      .kpi-icon {
+        width: 50px;
+        height: 50px;
+        margin-right: 12px;
+
+        .el-icon {
+          font-size: 20px !important;
+        }
+      }
+
+      .kpi-content {
+        .kpi-title {
+          font-size: 13px;
+          margin-bottom: 6px;
+        }
+
+        .kpi-value {
+          font-size: 20px;
+          margin-bottom: 4px;
+        }
+
+        .kpi-change {
+          font-size: 12px;
+        }
+      }
+    }
+
+    // 图表区域移动端单列显示
+    .charts, .rankings {
+      :deep(.el-col) {
+        width: 100%;
+        max-width: 100%;
+        margin-bottom: 15px;
+      }
+    }
+
+    .chart-card, .ranking-card {
+      .card-header {
+        font-size: 14px;
+
+        .trend-toggle {
+          width: 100%;
+
+          :deep(.el-radio-group) {
+            width: 100%;
+            display: flex;
+
+            .el-radio-button {
+              flex: 1;
+
+              :deep(.el-radio-button__inner) {
+                width: 100%;
+                padding: 8px 10px;
+                font-size: 12px;
+              }
+            }
+          }
+        }
+      }
+
+      .chart-container {
+        height: 250px;
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    .dashboard-header {
+      .dashboard-title {
+        font-size: 16px;
+      }
+    }
+
+    .kpi-section {
+      margin-bottom: 15px;
+
+      .kpi-section-title {
+        font-size: 14px;
+      }
+    }
+
+    .kpi-card {
+      :deep(.el-card__body) {
+        padding: 12px !important;
+      }
+
+      .kpi-icon {
+        width: 45px;
+        height: 45px;
+        margin-right: 10px;
+        border-radius: 10px;
+
+        .el-icon {
+          font-size: 18px !important;
+        }
+      }
+
+      .kpi-content {
+        .kpi-title {
+          font-size: 12px;
+        }
+
+        .kpi-value {
+          font-size: 18px;
+        }
+
+        .kpi-change {
+          font-size: 11px;
+        }
+      }
+    }
+
+    .chart-card, .ranking-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 15px;
+      }
+
+      .card-header {
+        font-size: 13px;
+      }
+
+      .chart-container {
+        height: 220px;
+      }
     }
   }
 }

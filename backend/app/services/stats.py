@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.facts import FactBooking, FactRoom, FactSales
+from app.models.facts import FactBooking, FactRoom, FactSales, FactMemberChange
 from app.models.dims import DimStore, DimEmployee, DimProduct, DimRoom
 
 
@@ -30,6 +30,7 @@ class StatsService:
         "booking": FactBooking,
         "room": FactRoom,
         "sales": FactSales,
+        "member_change": FactMemberChange,
     }
 
     @staticmethod
@@ -191,6 +192,18 @@ class StatsService:
                 ("cost_total", func.sum(model.cost_total)),
                 ("profit", func.sum(model.profit)),
                 ("profit_rate", func.avg(model.profit_rate)),  # 利润率取平均值
+            ]
+        if model is FactMemberChange:
+            return [
+                ("recharge_real_income", self._safe_sum(model.recharge_real_income)),
+                ("room_amount_principal", self._safe_sum(model.room_amount_principal)),
+                ("drink_amount_principal", self._safe_sum(model.drink_amount_principal)),
+                ("room_amount_gift", self._safe_sum(model.room_amount_gift)),
+                ("drink_amount_gift", self._safe_sum(model.drink_amount_gift)),
+                ("balance_total", self._safe_sum(model.balance_total)),
+                ("points_delta", self._safe_sum(model.points_delta)),
+                ("growth_delta", self._safe_sum(model.growth_delta)),
+                ("recharge_count", func.count(model.id).filter(model.change_type == "充值")),
             ]
         raise ValueError("未知表类型")
 

@@ -36,6 +36,7 @@ class TableType(StrEnum):
     BOOKING = "booking"     # 预订汇总表
     ROOM = "room"           # 包厢开台分析表
     SALES = "sales"         # 酒水销售分析表
+    MEMBER_CHANGE = "member_change"  # 连锁会员变动明细表
 
 
 class BatchStatus(StrEnum):

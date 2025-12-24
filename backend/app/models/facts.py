@@ -211,10 +211,89 @@ class FactSales(Base):
         return f"<FactSales(id={self.id}, product={self.product_name})>"
 
 
+class FactMemberChange(Base):
+    """
+    连锁会员变动明细事实表
+
+    记录会员账户充值/消费等变动流水，用于与包厢实收汇总。
+    """
+
+    __tablename__ = "fact_member_change"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment="自增主键")
+    batch_id = Column(BigInteger, nullable=False, index=True, comment="关联批次")
+    biz_date = Column(Date, nullable=False, comment="营业日期")
+    store_id = Column(Integer, nullable=False, comment="关联门店")
+
+    # ==================== 会员基础信息 ====================
+    member_name = Column(String(50), comment="会员名称")
+    card_no = Column(String(50), comment="会员卡号")
+    member_level = Column(String(50), comment="会员等级")
+    phone = Column(String(20), comment="联系电话")
+
+    # ==================== 门店信息 ====================
+    card_store_name = Column(String(100), comment="建卡门店")
+    biz_store_name = Column(String(100), comment="业务发生门店")
+
+    # ==================== 业务属性 ====================
+    change_type = Column(String(20), comment="变动类型 (充值/消费/退费等)")
+    recharge_type = Column(String(20), comment="充值类型 (首充/非首充等)")
+    status = Column(String(20), comment="状态 (已确认/作废等)")
+    operator = Column(String(50), comment="操作人")
+
+    # ==================== 金额相关 ====================
+    room_amount_principal = Column(DECIMAL(12, 2), default=0, comment="房费变动金额_本金")
+    room_amount_gift = Column(DECIMAL(12, 2), default=0, comment="房费变动金额_赠送")
+    drink_amount_principal = Column(DECIMAL(12, 2), default=0, comment="酒水变动金额_本金")
+    drink_amount_gift = Column(DECIMAL(12, 2), default=0, comment="酒水变动金额_赠送")
+
+    balance_total = Column(DECIMAL(14, 2), default=0, comment="余额_合计")
+    balance_principal = Column(DECIMAL(14, 2), default=0, comment="余额_本金")
+    balance_gift = Column(DECIMAL(14, 2), default=0, comment="余额_赠送")
+
+    # 会员充值实收：仅统计本金部分，用于与包厢实收汇总
+    recharge_real_income = Column(
+        DECIMAL(12, 2),
+        default=0,
+        comment="充值实收(房费本金+酒水本金，仅在变动类型=充值时有值)",
+    )
+
+    # ==================== 积分 / 成长值 ====================
+    growth_delta = Column(Integer, default=0, comment="成长值_变动")
+    growth_balance = Column(Integer, default=0, comment="成长值_余额")
+    points_delta = Column(Integer, default=0, comment="变动积分")
+    points_balance = Column(Integer, default=0, comment="积分余额")
+
+    # ==================== 其他业务字段 ====================
+    pay_info = Column(String(255), comment="支付信息原文")
+    salesperson_recharge = Column(String(50), comment="充值销售人")
+    free_by = Column(String(50), comment="免单人")
+    free_amount = Column(DECIMAL(12, 2), default=0, comment="免单金额")
+    remark = Column(String(255), comment="备注")
+    change_time = Column(DateTime, comment="变动时间")
+
+    # ==================== 扩展字段 ====================
+    extra_info = Column(JSON, comment="其他扩展信息(JSON)")
+
+    created_at = Column(DateTime, server_default=func.now(), comment="入库时间")
+
+    __table_args__ = (
+        Index("idx_date_store", "biz_date", "store_id"),
+        Index("idx_card_no", "card_no"),
+        Index("idx_change_type", "change_type"),
+        Index("idx_batch", "batch_id"),
+        {"comment": "连锁会员变动明细事实表"},
+    )
+
+    def __repr__(self):
+        return f"<FactMemberChange(id={self.id}, card_no={self.card_no})>"
+
+
 # 导出所有事实表模型
 __all__ = [
     "FactBooking",
     "FactRoom",
     "FactSales",
+    "FactMemberChange",
 ]
 
