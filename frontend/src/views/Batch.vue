@@ -382,40 +382,52 @@ onMounted(() => {
     .filter-card {
       // 优化内边距
       :deep(.el-card__body) {
-        padding: 12px 12px 0 12px;
+        padding: 15px 12px 15px 12px;
       }
 
       :deep(.el-form) {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px; // 间距更紧凑
+        gap: 14px;
         
         .el-form-item {
           display: flex;
+          flex-direction: column;
+          align-items: flex-start;
           margin-right: 0;
-          margin-bottom: 0; // 由 gap 控制
-          width: calc(50% - 4px); // 两列布局
+          margin-bottom: 0;
 
-          // 当前门店筛选和按钮组占满一行
-          &:first-child,
+          // 当前门店筛选占满一行
+          &:first-child {
+            width: 100%;
+          }
+
+          // 表类型和状态各占一半
+          &:nth-child(2),
+          &:nth-child(3) {
+            width: calc(50% - 7px);
+          }
+
+          // 按钮组占满一行
           &:last-child {
             width: 100%;
           }
 
           .el-form-item__label {
             width: auto;
-            padding-right: 8px;
+            padding-right: 0;
+            padding-bottom: 4px;
             font-size: 13px;
-            line-height: 32px;
+            line-height: 1.4;
           }
 
           .el-form-item__content {
-            flex: 1;
+            width: 100%;
             margin-left: 0 !important;
 
             .el-select,
             .el-button {
-              width: 100%;
+              width: 100% !important;
             }
           }
           

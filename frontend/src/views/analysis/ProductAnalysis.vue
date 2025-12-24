@@ -5,18 +5,17 @@
         <div class="card-header">
           <span class="header-title">🍺 商品销售分析</span>
           <div class="header-right">
-            <span class="filter-label">时间</span>
+            <span class="filter-label">时间范围</span>
             <el-date-picker
               class="date-range"
               v-model="dateRange"
               type="daterange"
+              unlink-panels
               range-separator="至"
               start-placeholder="开始日期"
               end-placeholder="结束日期"
-              format="MM-DD"
               value-format="YYYY-MM-DD"
               @change="handleDateChange"
-              size="default"
             />
           </div>
         </div>
@@ -282,7 +281,6 @@ onMounted(async () => {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 0 0 auto;
   }
 
   .filter-label {
@@ -292,17 +290,53 @@ onMounted(async () => {
   }
 
   .date-range {
-    width: 320px;
+    width: 360px;
     max-width: 100%;
   }
 
   @media (max-width: 768px) {
+    .card-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
     .header-right {
       width: 100%;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .filter-label {
+      font-size: 12px;
     }
 
     .date-range {
       width: 100%;
+    }
+
+    // 时间范围选择器样式优化（与财务专项一致）
+    :deep(.el-date-editor--daterange) {
+      width: 100% !important;
+      padding: 3px 5px;
+      
+      .el-range-separator {
+        padding: 0 4px;
+        font-size: 12px;
+        width: auto;
+      }
+      
+      .el-range-input {
+        font-size: 12px;
+        width: 42%;
+      }
+
+      .el-range__icon,
+      .el-range__close-icon {
+        font-size: 12px;
+        width: 18px;
+      }
     }
 
     :deep(.el-table) {

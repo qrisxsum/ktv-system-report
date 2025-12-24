@@ -1338,18 +1338,18 @@ onBeforeUnmount(() => {
 
     .analysis-card {
       :deep(.el-card__body) {
-        padding: 12px;
+        padding: 15px 12px;
       }
     }
 
     .query-toolbar {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px; // 间距更紧凑
+      gap: 14px;
 
       .toolbar-item {
         margin-bottom: 0;
-        width: calc(50% - 5px); // 两列布局
+        width: calc(50% - 7px); // 两列布局
         min-width: 0; // 允许缩小
 
         // 使用 order 调整移动端显示顺序
@@ -1377,12 +1377,12 @@ onBeforeUnmount(() => {
 
         .toolbar-label {
           font-size: 12px;
-          margin-bottom: 4px;
+          margin-bottom: 6px;
         }
 
         :deep(.el-select),
         :deep(.el-input) {
-          width: 100%;
+          width: 100% !important;
         }
 
         // 时间范围选择器样式优化
@@ -1391,7 +1391,7 @@ onBeforeUnmount(() => {
           padding: 3px 5px;
           
           .el-range-separator {
-            padding: 0 2px;
+            padding: 0 4px;
             font-size: 12px;
             width: auto;
           }
