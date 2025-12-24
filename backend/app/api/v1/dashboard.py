@@ -183,54 +183,103 @@ async def get_dashboard_summary(
     }
     
     # 查询数据
+    # 每日实收 = 包厢开台实收 + 会员充值实收
     try:
-        # 基准日数据
-        yesterday_result = stats_service.query_stats(
-            table="booking",
+        # 基准日数据 - 包厢开台实收
+        yesterday_room_result = stats_service.query_stats(
+            table="room",
             start_date=yesterday,
             end_date=yesterday,
             store_id=store_id,
             dimension="date",
             granularity="day",
         )
-        for row in yesterday_result.get("series_rows", []):
+        for row in yesterday_room_result.get("series_rows", []):
             yesterday_actual += _safe_float(row.get("actual"))
         
-        # 前天数据
-        day_before_result = stats_service.query_stats(
-            table="booking",
+        # 基准日数据 - 会员充值实收
+        yesterday_member_result = stats_service.query_stats(
+            table="member_change",
+            start_date=yesterday,
+            end_date=yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in yesterday_member_result.get("series_rows", []):
+            yesterday_actual += _safe_float(row.get("recharge_real_income"))
+        
+        # 前天数据 - 包厢开台实收
+        day_before_room_result = stats_service.query_stats(
+            table="room",
             start_date=day_before_yesterday,
             end_date=day_before_yesterday,
             store_id=store_id,
             dimension="date",
             granularity="day",
         )
-        for row in day_before_result.get("series_rows", []):
+        for row in day_before_room_result.get("series_rows", []):
             day_before_actual += _safe_float(row.get("actual"))
         
-        # 本月累计
-        month_result = stats_service.query_stats(
-            table="booking",
+        # 前天数据 - 会员充值实收
+        day_before_member_result = stats_service.query_stats(
+            table="member_change",
+            start_date=day_before_yesterday,
+            end_date=day_before_yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in day_before_member_result.get("series_rows", []):
+            day_before_actual += _safe_float(row.get("recharge_real_income"))
+        
+        # 本月累计 - 包厢开台实收
+        month_room_result = stats_service.query_stats(
+            table="room",
             start_date=month_start,
             end_date=yesterday,
             store_id=store_id,
             dimension="date",
             granularity="day",
         )
-        for row in month_result.get("series_rows", []):
+        for row in month_room_result.get("series_rows", []):
             month_actual += _safe_float(row.get("actual"))
         
-        # 上月同期
-        last_month_result = stats_service.query_stats(
-            table="booking",
+        # 本月累计 - 会员充值实收
+        month_member_result = stats_service.query_stats(
+            table="member_change",
+            start_date=month_start,
+            end_date=yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in month_member_result.get("series_rows", []):
+            month_actual += _safe_float(row.get("recharge_real_income"))
+        
+        # 上月同期 - 包厢开台实收
+        last_month_room_result = stats_service.query_stats(
+            table="room",
             start_date=last_month_start,
             end_date=last_month_end,
             store_id=store_id,
             dimension="date",
             granularity="day",
         )
-        for row in last_month_result.get("series_rows", []):
+        for row in last_month_room_result.get("series_rows", []):
             last_month_actual += _safe_float(row.get("actual"))
+        
+        # 上月同期 - 会员充值实收
+        last_month_member_result = stats_service.query_stats(
+            table="member_change",
+            start_date=last_month_start,
+            end_date=last_month_end,
+            store_id=store_id,
+            dimension="date",
+            granularity="day",
+        )
+        for row in last_month_member_result.get("series_rows", []):
+            last_month_actual += _safe_float(row.get("recharge_real_income"))
     except Exception:
         pass
 
@@ -273,34 +322,64 @@ async def get_dashboard_summary(
     gift_rate = calculate_gift_rate(gift_qty_total, total_qty)
     
     # 生成趋势数据 (近12个月)
+    # 趋势数据 = 包厢开台实收 + 会员充值实收
     revenue_trend: List[TrendItem] = []
     trend_window_start = add_months(yesterday.replace(day=1), -(TREND_MONTH_WINDOW - 1))
     month_keys = build_month_keys(trend_window_start, TREND_MONTH_WINDOW)
     month_key_set = set(month_keys)
 
     try:
-        trend_result = stats_service.query_stats(
-            table="booking",
+        # 包厢开台实收趋势
+        trend_room_result = stats_service.query_stats(
+            table="room",
             start_date=trend_window_start,
             end_date=yesterday,
             store_id=store_id,
             dimension="date",
             granularity="month",
         )
-        for row in trend_result.get("series_rows", []):
+        # 会员充值实收趋势
+        trend_member_result = stats_service.query_stats(
+            table="member_change",
+            start_date=trend_window_start,
+            end_date=yesterday,
+            store_id=store_id,
+            dimension="date",
+            granularity="month",
+        )
+        
+        # 合并包厢实收和会员充值实收
+        room_data = {}
+        for row in trend_room_result.get("series_rows", []):
             dimension_key = str(row.get("dimension_key") or "")
-            if not dimension_key or dimension_key not in month_key_set:
-                continue
-            actual_value = round(_safe_float(row.get("actual")), 2)
-            orders_value = int(_safe_float(row.get("orders")))
+            if dimension_key and dimension_key in month_key_set:
+                room_data[dimension_key] = {
+                    "actual": _safe_float(row.get("actual")),
+                    "orders": int(_safe_float(row.get("orders"))),
+                }
+        
+        member_data = {}
+        for row in trend_member_result.get("series_rows", []):
+            dimension_key = str(row.get("dimension_key") or "")
+            if dimension_key and dimension_key in month_key_set:
+                member_data[dimension_key] = _safe_float(row.get("recharge_real_income"))
+        
+        # 合并数据
+        for dimension_key in month_key_set:
+            room_actual = room_data.get(dimension_key, {}).get("actual", 0.0)
+            member_actual = member_data.get(dimension_key, 0.0)
+            total_actual = round(room_actual + member_actual, 2)
+            orders_value = room_data.get(dimension_key, {}).get("orders", 0)
+            
             revenue_trend.append(
                 TrendItem(
                     date=dimension_key,
-                    value=actual_value,
-                    revenue=actual_value,
+                    value=total_actual,
+                    revenue=total_actual,
                     orders=orders_value,
                 )
             )
+        
         revenue_trend.sort(key=lambda item: item.date)
     except Exception:
         revenue_trend = []

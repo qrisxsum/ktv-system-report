@@ -23,13 +23,24 @@ from pandas.errors import EmptyDataError, ParserError as PandasParserError
 
 # 用于识别表头的关键词列表
 HEADER_KEYWORDS = [
+    # 预订汇总表关键词
     "实收金额",
     "开台单号",
-    "酒水名称",
     "账单合计",
-    "门店名称",
-    "包厢名称",
     "订位人",
+    # 包厢开台分析表关键词
+    "包厢名称",
+    # 酒水销售分析表关键词
+    "酒水名称",
+    # 通用关键词
+    "门店名称",
+    # 连锁会员变动明细表关键词
+    "会员名称",
+    "会员卡号",
+    "变动类型",
+    "商家门店",
+    "变动时间",
+    "会员等级",
 ]
 
 
@@ -596,6 +607,17 @@ def detect_report_type(df: pd.DataFrame, filename: str = "") -> str:
         or "酒水" in filename_lower
     ):
         return "sales"
+
+    # 连锁会员变动明细特征
+    if (
+        "会员名称" in columns_str
+        or "会员卡号" in columns_str
+        or "变动类型" in columns_str
+        or "商家门店" in columns_str
+        or "会员变动" in filename_lower
+        or "连锁会员" in filename_lower
+    ):
+        return "member_change"
 
     return "unknown"
 
