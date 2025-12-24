@@ -826,6 +826,178 @@ onMounted(() => {
       justify-content: flex-end;
     }
   }
+
+  // 移动端优化
+  @media (max-width: 768px) {
+    .filter-card {
+      :deep(.el-form) {
+        .el-form-item {
+          display: block;
+          margin-right: 0;
+          margin-bottom: 12px;
+
+          .el-form-item__label {
+            width: 100%;
+            text-align: left;
+          }
+
+          .el-form-item__content {
+            margin-left: 0 !important;
+
+            .el-select,
+            .el-input,
+            .el-button {
+              width: 100%;
+            }
+          }
+        }
+      }
+    }
+
+    .table-card {
+      .card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+
+        .el-button {
+          width: 100%;
+        }
+      }
+
+      :deep(.el-table) {
+        font-size: 12px;
+
+        .el-table__header th,
+        .el-table__body td {
+          padding: 8px 5px;
+        }
+
+        // 固定操作列
+        .el-table__fixed-right {
+          box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1);
+        }
+      }
+
+      .pagination-wrapper {
+        justify-content: center;
+
+        :deep(.el-pagination) {
+          .btn-prev,
+          .btn-next,
+          .el-pager li {
+            min-width: 28px;
+            height: 28px;
+            line-height: 28px;
+          }
+        }
+      }
+    }
+
+    // 对话框优化
+    :deep(.el-dialog) {
+      width: 90% !important;
+      margin: 0 auto;
+
+      .el-dialog__header {
+        padding: 15px;
+      }
+
+      .el-dialog__body {
+        padding: 15px;
+
+        .el-form {
+          .el-form-item {
+            .el-form-item__label {
+              font-size: 13px;
+            }
+
+            .el-input,
+            .el-select {
+              font-size: 14px;
+            }
+          }
+        }
+      }
+
+      .el-dialog__footer {
+        padding: 12px 15px;
+
+        .el-button {
+          width: 48%;
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    .filter-card {
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      :deep(.el-form) {
+        .el-form-item {
+          margin-bottom: 10px;
+
+          .el-form-item__label {
+            font-size: 13px;
+          }
+        }
+      }
+    }
+
+    .table-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      .card-header {
+        font-size: 14px;
+
+        .total-count {
+          font-size: 12px;
+        }
+      }
+
+      :deep(.el-table) {
+        font-size: 11px;
+
+        .el-table__header th,
+        .el-table__body td {
+          padding: 6px 3px;
+        }
+
+        .el-button {
+          padding: 4px 8px;
+          font-size: 11px;
+        }
+
+        .el-tag {
+          font-size: 10px;
+          padding: 0 4px;
+        }
+
+        .el-switch {
+          transform: scale(0.9);
+        }
+      }
+    }
+
+    :deep(.el-dialog) {
+      .el-dialog__footer {
+        .el-button {
+          width: 100%;
+          margin-top: 8px;
+          margin-left: 0 !important;
+        }
+      }
+    }
+  }
 }
 </style>
 

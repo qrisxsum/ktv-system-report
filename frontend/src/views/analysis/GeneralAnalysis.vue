@@ -173,12 +173,13 @@
       <div class="table-pagination">
         <el-pagination
           background
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="paginationLayout"
           :current-page="pagination.page"
           :page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
           :total="renderedTableTotal"
           :disabled="paginationDisabled"
+          :pager-count="pagerCount"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
@@ -195,6 +196,7 @@ import { ElMessage } from 'element-plus'
 import { queryStats } from '@/api/stats'
 import { listStores } from '@/api/store'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
+import { usePagination } from '@/composables/usePagination'
 
 const EMPTY_DATASET = Object.freeze([])
 const PAGINATION_CONFIG = Object.freeze({
@@ -296,7 +298,11 @@ const showGranularity = computed(() => queryParams.dimension === 'date')
 
 const granularityOptions = GRANULARITY_OPTIONS
 
-const pageSizeOptions = PAGINATION_CONFIG.pageSizeOptions
+// 使用分页优化 Composable
+const { pageSizeOptions, paginationLayout, pagerCount, checkDevice } = usePagination({
+  desktopPageSizes: PAGINATION_CONFIG.pageSizeOptions,
+  mobilePageSizes: [20, 50]
+})
 
 const metricOptions = computed(() => COLUMN_CONFIG[queryParams.table] || [])
 
@@ -633,6 +639,7 @@ const fetchStoreOptions = async () => {
 }
 
 const handleResize = () => {
+  checkDevice()
   if (chartInstance) {
     chartInstance.resize()
   }
@@ -1016,7 +1023,7 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 .general-analysis {
-  padding: 16px;
+  // 移除 padding，使用 MainLayout 的统一 padding
 
   .analysis-card {
     min-height: 360px;
@@ -1138,6 +1145,290 @@ onBeforeUnmount(() => {
     display: flex;
     justify-content: flex-end;
     margin-top: 12px;
+    width: 100%;
+  }
+
+  // 移动端优化
+  @media (max-width: 768px) {
+    // 移除 padding，使用 MainLayout 的统一 padding
+
+    .analysis-card {
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+    }
+
+    .query-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px; // 间距更紧凑
+
+      .toolbar-item {
+        margin-bottom: 0;
+        width: calc(50% - 5px); // 两列布局
+        min-width: 0; // 允许缩小
+
+        // 使用 order 调整移动端显示顺序
+        // 数据源（第1个）：第二行左侧
+        &:nth-child(1) {
+          order: 2;
+        }
+        // 时间范围（第2个）：首行，独占一行
+        &:nth-child(2) {
+          order: 1;
+          width: 100%;
+        }
+        // 门店（第3个）：第二行右侧
+        &:nth-child(3) {
+          order: 3;
+        }
+        // 分析维度（第4个）：第三行左侧
+        &:nth-child(4) {
+          order: 4;
+        }
+        // 时间粒度（第5个）：第三行右侧
+        &:nth-child(5) {
+          order: 5;
+        }
+
+        .toolbar-label {
+          font-size: 12px;
+          margin-bottom: 4px;
+        }
+
+        :deep(.el-select),
+        :deep(.el-input) {
+          width: 100%;
+        }
+
+        // 时间范围选择器样式优化
+        :deep(.el-date-editor--daterange) {
+          width: 100% !important;
+          padding: 3px 5px;
+          
+          .el-range-separator {
+            padding: 0 2px;
+            font-size: 12px;
+            width: auto;
+          }
+          
+          .el-range-input {
+            font-size: 12px;
+            width: 42%;
+          }
+
+          .el-range__icon,
+          .el-range__close-icon {
+            font-size: 12px;
+            width: 18px;
+          }
+        }
+      }
+    }
+
+    .result-table {
+      :deep(.el-table__empty-text) {
+        width: 100%;
+        line-height: 20px; // 优化多行文本显示
+        white-space: normal; // 允许换行
+        padding: 0 20px;
+      }
+    }
+
+    .filter-section {
+      :deep(.el-form) {
+        .el-form-item {
+          margin-right: 0;
+          margin-bottom: 12px;
+          width: 100%;
+          
+          .el-form-item__content {
+            .el-date-editor,
+            .el-select {
+              width: 100% !important;
+            }
+
+            .el-button {
+              width: 100%;
+              margin-top: 8px;
+            }
+          }
+        }
+      }
+    }
+
+    .result-section {
+      :deep(.el-table) {
+        font-size: 12px;
+
+        .el-table__header th,
+        .el-table__body td {
+          padding: 8px 5px;
+        }
+      }
+    }
+
+    .table-pagination {
+      justify-content: center !important;
+      margin-top: 10px;
+      overflow-x: auto; // 允许横向滚动作为后备方案
+      -webkit-overflow-scrolling: touch;
+
+      :deep(.el-pagination) {
+        flex-wrap: wrap; // 允许换行
+        justify-content: center;
+        font-size: 12px;
+
+        .el-pagination__total,
+        .el-pagination__sizes,
+        .el-pagination__jump {
+          margin-right: 8px;
+          font-size: 12px;
+        }
+
+        .btn-prev,
+        .btn-next {
+          min-width: 26px;
+          height: 26px;
+          line-height: 26px;
+          padding: 0 6px;
+        }
+
+        .el-pager {
+          li {
+            min-width: 26px;
+            height: 26px;
+            line-height: 26px;
+            font-size: 12px;
+            margin: 0 2px;
+          }
+        }
+
+        // 每页条数选择器优化
+        .el-pagination__sizes {
+          .el-select {
+            .el-input {
+              .el-input__inner {
+                height: 26px;
+                line-height: 26px;
+                font-size: 12px;
+                padding: 0 20px 0 8px;
+              }
+            }
+          }
+        }
+
+        // 跳转输入框优化
+        .el-pagination__jump {
+          .el-input {
+            .el-input__inner {
+              height: 26px;
+              line-height: 26px;
+              font-size: 12px;
+              width: 40px;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    .filter-section {
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+    }
+
+    .result-section {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      .card-header {
+        h2 {
+          font-size: 16px;
+        }
+
+        .card-subtitle {
+          font-size: 12px;
+        }
+      }
+
+      :deep(.el-table) {
+        font-size: 11px;
+
+        .el-table__header th,
+        .el-table__body td {
+          padding: 6px 3px;
+        }
+      }
+
+      .table-pagination {
+        margin-top: 8px;
+
+        :deep(.el-pagination) {
+          font-size: 11px;
+          gap: 4px; // 元素间距更小
+
+          .el-pagination__total {
+            font-size: 11px;
+            margin-right: 4px;
+          }
+
+          .el-pagination__sizes {
+            margin-right: 4px;
+            
+            .el-select {
+              .el-input {
+                .el-input__inner {
+                  height: 24px;
+                  line-height: 24px;
+                  font-size: 11px;
+                  padding: 0 18px 0 6px;
+                }
+              }
+            }
+          }
+
+          .btn-prev,
+          .btn-next {
+            min-width: 24px;
+            height: 24px;
+            line-height: 24px;
+            padding: 0 4px;
+          }
+
+          .el-pager {
+            li {
+              min-width: 24px;
+              height: 24px;
+              line-height: 24px;
+              font-size: 11px;
+              margin: 0 1px;
+            }
+          }
+
+          .el-pagination__jump {
+            margin-left: 4px;
+            font-size: 11px;
+            
+            .el-input {
+              .el-input__inner {
+                height: 24px;
+                line-height: 24px;
+                font-size: 11px;
+                width: 35px;
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
 }

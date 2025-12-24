@@ -2,7 +2,7 @@
   <div class="upload-page">
     <el-row :gutter="20">
       <!-- 上传区域 -->
-      <el-col :span="14">
+      <el-col :xs="24" :sm="24" :md="14" :lg="14">
         <el-card class="upload-card">
           <template #header>
             <div class="card-header">
@@ -126,7 +126,7 @@
       </el-col>
       
       <!-- 上传历史 -->
-      <el-col :span="10">
+      <el-col :xs="24" :sm="24" :md="10" :lg="10">
         <el-card class="history-card">
           <template #header>
             <div class="card-header">
@@ -431,6 +431,131 @@ onMounted(() => {
       display: flex;
       justify-content: space-between;
       align-items: center;
+    }
+  }
+
+  // 移动端优化
+  @media (max-width: 768px) {
+    :deep(.el-row) {
+      .el-col {
+        margin-bottom: 15px;
+      }
+    }
+
+    .upload-card {
+      .upload-dragger {
+        :deep(.el-upload-dragger) {
+          height: 180px;
+        }
+
+        :deep(.el-icon--upload) {
+          font-size: 50px !important;
+        }
+
+        :deep(.el-upload__text) {
+          font-size: 14px;
+        }
+
+        :deep(.el-upload__tip) {
+          font-size: 12px;
+        }
+      }
+
+      .parse-result {
+        :deep(.el-descriptions) {
+          .el-descriptions__label {
+            font-size: 13px;
+          }
+
+          .el-descriptions__content {
+            font-size: 13px;
+          }
+        }
+
+        .preview-table {
+          overflow-x: auto;
+
+          h4 {
+            font-size: 14px;
+          }
+
+          :deep(.el-table) {
+            font-size: 12px;
+          }
+        }
+
+        .action-buttons {
+          text-align: center;
+
+          .el-button {
+            width: 48%;
+          }
+        }
+      }
+    }
+
+    .history-card {
+      :deep(.el-table) {
+        font-size: 12px;
+
+        .el-table__header th,
+        .el-table__body td {
+          padding: 8px 5px;
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    .upload-card {
+      .upload-dragger {
+        :deep(.el-upload-dragger) {
+          height: 160px;
+        }
+
+        :deep(.el-icon--upload) {
+          font-size: 45px !important;
+        }
+
+        :deep(.el-upload__text) {
+          font-size: 13px;
+          padding: 0 10px;
+        }
+      }
+
+      .parse-result {
+        :deep(.el-descriptions) {
+          font-size: 12px;
+        }
+
+        :deep(.el-alert) {
+          font-size: 12px;
+          padding: 8px 12px;
+        }
+
+        .action-buttons {
+          .el-button {
+            width: 100%;
+            margin-top: 8px;
+            margin-left: 0 !important;
+          }
+        }
+      }
+    }
+
+    .history-card {
+      .card-header {
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      :deep(.el-table) {
+        .el-table__header th,
+        .el-table__body td {
+          padding: 6px 3px;
+          font-size: 11px;
+        }
+      }
     }
   }
 }

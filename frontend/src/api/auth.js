@@ -18,6 +18,12 @@ authRequest.interceptors.request.use(
   (config) => {
     // 开启进度条
     if (window.NProgress) window.NProgress.start()
+
+    // 自动携带 Token
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`
+    }
     return config
   },
   (error) => {
@@ -49,12 +55,6 @@ authRequest.interceptors.response.use(
  * @returns {Promise} 登录结果
  */
 export function login(username, password) {
-  console.log('authRequest配置:', {
-    baseURL: authRequest.defaults.baseURL,
-    url: '/auth/login',
-    method: 'post'
-  })
-
   return authRequest({
     url: '/auth/login',
     method: 'post',
