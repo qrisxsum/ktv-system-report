@@ -49,6 +49,8 @@ class FactBooking(Base):
     pay_member = Column(DECIMAL(12, 2), default=0, comment="会员支付")
     pay_douyin = Column(DECIMAL(12, 2), default=0, comment="抖音")
     pay_meituan = Column(DECIMAL(12, 2), default=0, comment="美团/团购")
+    pay_scan = Column(DECIMAL(12, 2), default=0, comment="扫码支付")
+    pay_deposit = Column(DECIMAL(12, 2), default=0, comment="定金消费")
     
     # ==================== 扩展字段 ====================
     extra_payments = Column(JSON, comment="其他支付方式(JSON)")
@@ -121,6 +123,8 @@ class FactRoom(Base):
     pay_member = Column(DECIMAL(12, 2), default=0, comment="会员支付")
     pay_douyin = Column(DECIMAL(12, 2), default=0, comment="抖音")
     pay_meituan = Column(DECIMAL(12, 2), default=0, comment="美团/团购")
+    pay_scan = Column(DECIMAL(12, 2), default=0, comment="扫码支付")
+    pay_deposit = Column(DECIMAL(12, 2), default=0, comment="定金消费")
     
     # ==================== 扩展字段 ====================
     extra_payments = Column(JSON, comment="其他支付方式(JSON)")
