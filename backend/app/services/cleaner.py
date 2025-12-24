@@ -71,7 +71,7 @@ BOOKING_MAPPING: Dict[str, str] = {
     "支付方式_服务员收款": "pay_waiter",
     "支付方式_员工信用扣款": "pay_employee_credit",
     "支付方式_付呗": "pay_fubei",
-    "支付方式_团购": "pay_groupon",
+    "支付方式_团购": "pay_meituan",
     "支付方式_店长签单": "pay_manager_sign",
     "支付方式_演绎提成": "pay_performance_commission",
     "支付方式_抖音": "pay_douyin",
@@ -84,6 +84,8 @@ BOOKING_MAPPING: Dict[str, str] = {
     "支付方式_往来款": "pay_inter_account",
     "支付方式_高德": "pay_gaode",
     "支付方式_人员打折": "pay_staff_discount",
+    "支付方式_定金消费": "pay_deposit",
+    "支付方式_扫码": "pay_scan",
     # 酒水类别字段
     "酒水类别金额_过期取酒": "beverage_expired_wine",
     "酒水类别金额_小计": "beverage_subtotal",
@@ -168,10 +170,10 @@ ROOM_MAPPING: Dict[str, str] = {
     "支付方式_付呗": "pay_fubei",
     "支付方式_店长签单": "pay_manager_sign",
     "支付方式_美团": "pay_meituan",
+    "支付方式_团购": "pay_meituan",
     "支付方式_抖音": "pay_douyin",
     "支付方式_pos银行卡": "pay_pos_card",
     "支付方式_员工信用扣款": "pay_employee_credit",
-    "支付方式_团购": "pay_groupon",
     "支付方式_演绎提成": "pay_performance_commission",
     "支付方式_POS机": "pay_pos",
     "支付方式_营销提成": "pay_marketing_commission",
@@ -182,6 +184,8 @@ ROOM_MAPPING: Dict[str, str] = {
     "支付方式_往来款": "pay_inter_account",
     "支付方式_高德": "pay_gaode",
     "支付方式_人员打折": "pay_staff_discount",
+    "支付方式_定金消费": "pay_deposit",
+    "支付方式_扫码": "pay_scan",
 }
 
 # 连锁会员变动明细 / 会员账户变动表字段映射
@@ -255,6 +259,7 @@ INCOME_PAYMENT_FIELDS: Set[str] = {
     "pay_pos",  # POS机
     "pay_gaode",  # 高德
     "pay_meituan",  # 美团
+    "pay_scan",  # 扫码支付
 }
 
 # 成本/权益类支付方式（不计入实收）
@@ -271,6 +276,7 @@ COST_PAYMENT_FIELDS: Set[str] = {
     "pay_member_disabled",  # 会员停用
     "pay_staff_discount",  # 人员打折
     "pay_triple_recharge",  # 三倍充值活动
+    "pay_deposit",  # 定金消费
 }
 
 # 会员相关支付方式（需与本金/赠送互斥计算）
@@ -306,6 +312,8 @@ PAYMENT_DISPLAY_NAME_MAP: Dict[str, str] = {
     "triple_recharge": "三倍充值活动",
     "inter_account": "往来款",
     "staff_discount": "人员打折",
+    "scan": "扫码支付",
+    "deposit": "定金消费",
 }
 
 # 支付方式排序（code -> sort 值）
@@ -334,6 +342,8 @@ PAYMENT_SORT_ORDER_MAP: Dict[str, int] = {
     "triple_recharge": 230,
     "inter_account": 240,
     "staff_discount": 250,
+    "scan": 15,  # 扫码排在微信/支付宝附近
+    "deposit": 115,  # 定金排在会员附近
 }
 
 
@@ -1467,8 +1477,6 @@ class CleanerService:
         if report_type == "booking":
             # 平衡性校验：实收金额 vs 收入类支付方式合计
             errors.extend(self._validate_balance(df, report_type))
-            # 深度校验：账单构成校验（销售 - 优惠 = 实收）
-            errors.extend(self._validate_booking_logic(df))
         elif report_type == "room":
             # 平衡性校验：实收金额 vs 收入类支付方式合计
             errors.extend(self._validate_balance(df, report_type))

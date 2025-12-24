@@ -108,6 +108,12 @@ const routes = [
             name: 'RoomAnalysis',
             component: () => import('@/views/analysis/RoomAnalysis.vue'),
             meta: { title: '包厢效能' }
+          },
+          {
+            path: 'financial',
+            name: 'FinancialAnalysis',
+            component: () => import('@/views/analysis/FinancialAnalysis.vue'),
+            meta: { title: '财务专项' }
           }
         ]
       },

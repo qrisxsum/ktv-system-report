@@ -5,6 +5,7 @@
 """
 
 from datetime import date
+from decimal import Decimal
 from typing import List, Dict, Any, Optional, Tuple
 
 from sqlalchemy import func, select
@@ -67,6 +68,86 @@ class StatsService:
                 return DimRoom.room_type.label("dimension_key")
         raise ValueError(f"不支持的维度: {dimension}  或该表缺少对应字段")
 
+    @staticmethod
+    def _normalize_payment_amount(value: Any) -> float:
+        """将任意数值类型归一为 float"""
+        if value is None:
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, Decimal):
+            return float(value)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _merge_payment_payload(
+        self, target: Dict[str, float], payload: Optional[Dict[str, Any]], only_prefixed: bool
+    ):
+        """将 payload 中的支付金额累加到 target"""
+        if not isinstance(payload, dict):
+            return
+        for key, raw_value in payload.items():
+            if not isinstance(key, str):
+                continue
+            if only_prefixed and not key.startswith("pay_"):
+                continue
+            normalized_key = key if key.startswith("pay_") else f"pay_{key}"
+            amount = self._normalize_payment_amount(raw_value)
+            if amount == 0:
+                continue
+            target[normalized_key] = target.get(normalized_key, 0.0) + amount
+
+    def _aggregate_extra_payments(
+        self,
+        model,
+        dimension: str,
+        granularity: str,
+        start_date: date,
+        end_date: date,
+        store_id: Optional[int],
+    ) -> Dict[Any, Dict[str, float]]:
+        """
+        聚合 extra_payments / extra_info 中的动态支付方式
+        """
+        if not hasattr(model, "extra_payments"):
+            return {}
+
+        dim_expr = self._get_dimension_expr(model, dimension, granularity)
+        query = (
+            self.db.query(
+                dim_expr.label("dimension_key"),
+                model.extra_payments,
+                model.extra_info,
+            )
+            .filter(model.biz_date.between(start_date, end_date))
+        )
+        if store_id is not None:
+            query = query.filter(model.store_id == store_id)
+
+        aggregates: Dict[Any, Dict[str, float]] = {}
+        for dimension_key, extra_payments, extra_info in query:
+            bucket = aggregates.setdefault(dimension_key, {})
+            self._merge_payment_payload(bucket, extra_payments, only_prefixed=False)
+            self._merge_payment_payload(bucket, extra_info, only_prefixed=True)
+
+        return aggregates
+
+    @staticmethod
+    def _inject_extra_payments(records: List[Dict[str, Any]], aggregates: Dict[Any, Dict[str, float]]):
+        """将聚合好的支付方式注入结果行"""
+        if not records or not aggregates:
+            return
+        for record in records:
+            key = record.get("dimension_key")
+            if key not in aggregates:
+                continue
+            combined = dict(record.get("extra_payments") or {})
+            for pay_key, amount in aggregates[key].items():
+                combined[pay_key] = combined.get(pay_key, 0.0) + amount
+            record["extra_payments"] = combined
+
     def _get_metrics_exprs(self, model) -> List[Tuple[str, Any]]:
         """根据表类型生成常用指标表达式"""
         if model is FactBooking:
@@ -76,6 +157,20 @@ class StatsService:
                 ("performance", self._safe_sum(model.base_performance)),
                 ("gift_amount", self._safe_sum(model.gift_amount)),
                 ("discount_amount", self._safe_sum(model.discount_amount)),
+                ("credit_amount", self._safe_sum(model.credit_amount)),
+                ("free_amount", self._safe_sum(model.free_amount)),
+                ("round_off_amount", self._safe_sum(model.round_off_amount)),
+                ("service_fee", self._safe_sum(model.service_fee)),
+                ("adjustment_amount", self._safe_sum(model.adjustment_amount)),
+                ("pay_wechat", self._safe_sum(model.pay_wechat)),
+                ("pay_alipay", self._safe_sum(model.pay_alipay)),
+                ("pay_cash", self._safe_sum(model.pay_cash)),
+                ("pay_pos", self._safe_sum(model.pay_pos)),
+                ("pay_member", self._safe_sum(model.pay_member)),
+                ("pay_douyin", self._safe_sum(model.pay_douyin)),
+                ("pay_meituan", self._safe_sum(model.pay_meituan)),
+                ("pay_scan", self._safe_sum(model.pay_scan)),
+                ("pay_deposit", self._safe_sum(model.pay_deposit)),
                 ("orders", self._safe_sum(model.booking_qty)),
             ]
         if model is FactRoom:
@@ -357,9 +452,60 @@ class StatsService:
                     f"已限制为前 {top_n} 项，建议缩小筛选范围或调大 top_n"
                 )
 
+        extra_rows_map = self._aggregate_extra_payments(
+            model=model,
+            dimension=dimension,
+            granularity=granularity,
+            start_date=start_date,
+            end_date=end_date,
+            store_id=store_id,
+        )
+        if extra_rows_map:
+            self._inject_extra_payments(rows, extra_rows_map)
+
+        series_granularity_for_extra = series_granularity
+        if dimension != "date":
+            series_granularity_for_extra = granularity
+        extra_series_map = (
+            extra_rows_map
+            if series_granularity_for_extra == granularity
+            else self._aggregate_extra_payments(
+                model=model,
+                dimension=dimension,
+                granularity=series_granularity_for_extra,
+                start_date=start_date,
+                end_date=end_date,
+                store_id=store_id,
+            )
+        )
+        if extra_series_map:
+            self._inject_extra_payments(series_rows, extra_series_map)
+
+        # 计算全局汇总 (Grand Total)
+        summary_selects = [expr.label(name) for name, expr in metrics]
+        summary_stmt = select(*summary_selects).where(model.biz_date.between(start_date, end_date))
+        if store_id is not None:
+            summary_stmt = summary_stmt.where(model.store_id == store_id)
+        
+        summary_row = self.db.execute(summary_stmt).one_or_none()
+        summary_data = {}
+        if summary_row:
+            summary_mapping = summary_row._mapping
+            for name, _ in metrics:
+                summary_data[name] = summary_mapping.get(name) or 0
+
+        # 处理动态支付方式的全局汇总
+        if extra_rows_map:
+            global_extra = {}
+            for bucket in extra_rows_map.values():
+                for k, v in bucket.items():
+                    global_extra[k] = global_extra.get(k, 0.0) + v
+            summary_data["extra_payments"] = global_extra
+
         return {
             "rows": rows,
             "series_rows": series_rows,
+            "summary": summary_data,  # 返回全局汇总数据
             "total": total,
             "meta": {
                 "table": table,
