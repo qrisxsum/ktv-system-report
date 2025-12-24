@@ -18,49 +18,31 @@
         router
         class="menu"
       >
-        <el-menu-item index="/dashboard">
-          <el-icon><DataAnalysis /></el-icon>
-          <template #title>综合驾驶舱</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/upload">
-          <el-icon><Upload /></el-icon>
-          <template #title>数据上传</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/batch">
-          <el-icon><List /></el-icon>
-          <template #title>批次管理</template>
-        </el-menu-item>
+        <template v-for="item in menuItems" :key="item.index">
+          <!-- 仅当没有角色限制或用户符合角色限制时显示 -->
+          <template v-if="!item.role || currentUser?.role === item.role">
+            <!-- 子菜单 -->
+            <el-sub-menu v-if="item.children" :index="item.index">
+              <template #title>
+                <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
+                <span>{{ item.title }}</span>
+              </template>
+              <el-menu-item 
+                v-for="child in item.children" 
+                :key="child.index" 
+                :index="child.index"
+              >
+                {{ child.title }}
+              </el-menu-item>
+            </el-sub-menu>
 
-        <el-menu-item index="/data-health">
-          <el-icon><Monitor /></el-icon>
-          <template #title>数据健康度</template>
-        </el-menu-item>
-
-        <el-menu-item index="/general-analysis">
-          <el-icon><DataLine /></el-icon>
-          <template #title>通用分析</template>
-        </el-menu-item>
-        
-        <el-sub-menu index="/analysis">
-          <template #title>
-            <el-icon><TrendCharts /></el-icon>
-            <span>专项分析</span>
+            <!-- 普通菜单项 -->
+            <el-menu-item v-else :index="item.index">
+              <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
+              <template #title>{{ item.title }}</template>
+            </el-menu-item>
           </template>
-          <el-menu-item index="/analysis/staff">人员风云榜</el-menu-item>
-          <el-menu-item index="/analysis/products">商品销售</el-menu-item>
-          <el-menu-item index="/analysis/rooms">包厢效能</el-menu-item>
-          <el-menu-item index="/analysis/financial">财务专项</el-menu-item>
-        </el-sub-menu>
-
-        <el-menu-item 
-          v-if="currentUser?.role === 'admin'"
-          index="/users"
-        >
-          <el-icon><User /></el-icon>
-          <template #title>账号管理</template>
-        </el-menu-item>
+        </template>
       </el-menu>
     </el-aside>
 
@@ -84,43 +66,31 @@
           class="menu"
           @select="handleMobileMenuSelect"
         >
-          <el-menu-item index="/dashboard">
-            <el-icon><DataAnalysis /></el-icon>
-            <template #title>综合驾驶舱</template>
-          </el-menu-item>
-          
-          <el-menu-item index="/upload">
-            <el-icon><Upload /></el-icon>
-            <template #title>数据上传</template>
-          </el-menu-item>
-          
-          <el-menu-item index="/batch">
-            <el-icon><List /></el-icon>
-            <template #title>批次管理</template>
-          </el-menu-item>
+          <template v-for="item in menuItems" :key="item.index">
+            <!-- 仅当没有角色限制或用户符合角色限制时显示 -->
+            <template v-if="!item.role || currentUser?.role === item.role">
+              <!-- 子菜单 -->
+              <el-sub-menu v-if="item.children" :index="item.index">
+                <template #title>
+                  <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
+                  <span>{{ item.title }}</span>
+                </template>
+                <el-menu-item 
+                  v-for="child in item.children" 
+                  :key="child.index" 
+                  :index="child.index"
+                >
+                  {{ child.title }}
+                </el-menu-item>
+              </el-sub-menu>
 
-          <el-menu-item index="/general-analysis">
-            <el-icon><DataLine /></el-icon>
-            <template #title>通用分析</template>
-          </el-menu-item>
-          
-          <el-sub-menu index="/analysis">
-            <template #title>
-              <el-icon><TrendCharts /></el-icon>
-              <span>专项分析</span>
+              <!-- 普通菜单项 -->
+              <el-menu-item v-else :index="item.index">
+                <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
+                <template #title>{{ item.title }}</template>
+              </el-menu-item>
             </template>
-            <el-menu-item index="/analysis/staff">人员风云榜</el-menu-item>
-            <el-menu-item index="/analysis/products">商品销售</el-menu-item>
-            <el-menu-item index="/analysis/rooms">包厢效能</el-menu-item>
-          </el-sub-menu>
-
-          <el-menu-item 
-            v-if="currentUser?.role === 'admin'"
-            index="/users"
-          >
-            <el-icon><User /></el-icon>
-            <template #title>账号管理</template>
-          </el-menu-item>
+          </template>
         </el-menu>
       </div>
     </el-drawer>
@@ -216,6 +186,27 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { listStores } from '@/api/store'
 import { logout } from '@/api/auth'
 import { Avatar, ArrowDown, SwitchButton, Menu } from '@element-plus/icons-vue'
+
+// 菜单配置
+const menuItems = [
+  { index: '/dashboard', icon: 'DataAnalysis', title: '综合驾驶舱' },
+  { index: '/upload', icon: 'Upload', title: '数据上传' },
+  { index: '/batch', icon: 'List', title: '批次管理' },
+  { index: '/data-health', icon: 'Monitor', title: '数据健康度' },
+  { index: '/general-analysis', icon: 'DataLine', title: '通用分析' },
+  {
+    index: '/analysis',
+    icon: 'TrendCharts',
+    title: '专项分析',
+    children: [
+      { index: '/analysis/staff', title: '人员风云榜' },
+      { index: '/analysis/products', title: '商品销售' },
+      { index: '/analysis/rooms', title: '包厢效能' },
+      { index: '/analysis/financial', title: '财务专项' }
+    ]
+  },
+  { index: '/users', icon: 'User', title: '账号管理', role: 'admin' }
+]
 
 const route = useRoute()
 const router = useRouter()
