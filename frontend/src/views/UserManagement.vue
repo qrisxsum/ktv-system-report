@@ -114,8 +114,10 @@
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :total="total"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
+          :page-sizes="pageSizeOptions"
+          :layout="paginationLayout"
+          :pager-count="pagerCount"
+          background
           @size-change="loadManagers"
           @current-change="loadManagers"
         />
@@ -373,6 +375,7 @@ import {
 } from '@/api/user'
 import { listStores, deleteStore } from '@/api/store'
 import { useRouter } from 'vue-router'
+import { usePagination } from '@/composables/usePagination'
 
 const router = useRouter()
 
@@ -406,6 +409,12 @@ const filters = reactive({
 const pagination = reactive({
   page: 1,
   pageSize: 20,
+})
+
+// 使用分页优化 Composable
+const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
+  desktopPageSizes: [10, 20, 50, 100],
+  mobilePageSizes: [10, 20, 50]
 })
 
 // 表单数据
@@ -806,6 +815,10 @@ onMounted(() => {
 .user-management-page {
   .filter-card {
     margin-bottom: 20px;
+
+    :deep(.el-card__body) {
+      padding-bottom: 0;
+    }
   }
 
   .table-card {
@@ -824,30 +837,73 @@ onMounted(() => {
       margin-top: 20px;
       display: flex;
       justify-content: flex-end;
+      width: 100%;
     }
   }
 
   // 移动端优化
   @media (max-width: 768px) {
     .filter-card {
+      :deep(.el-card__body) {
+        padding: 15px 12px 15px 12px;
+      }
+
       :deep(.el-form) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+
         .el-form-item {
-          display: block;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
           margin-right: 0;
-          margin-bottom: 12px;
+          margin-bottom: 0;
+
+          // 门店和状态各占一半
+          &:nth-child(1),
+          &:nth-child(2) {
+            width: calc(50% - 7px);
+          }
+
+          // 关键词占满一行
+          &:nth-child(3) {
+            width: 100%;
+          }
+
+          // 按钮组占满一行
+          &:last-child {
+            width: 100%;
+          }
 
           .el-form-item__label {
-            width: 100%;
-            text-align: left;
+            width: auto;
+            padding-right: 0;
+            padding-bottom: 4px;
+            font-size: 13px;
+            line-height: 1.4;
           }
 
           .el-form-item__content {
+            width: 100%;
             margin-left: 0 !important;
 
             .el-select,
-            .el-input,
+            .el-input {
+              width: 100% !important;
+            }
+          }
+
+          // 按钮组横向排列
+          &:last-child .el-form-item__content {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+
             .el-button {
-              width: 100%;
+              flex: 1;
+              min-width: calc(33% - 6px);
+              margin-left: 0;
             }
           }
         }
@@ -855,14 +911,18 @@ onMounted(() => {
     }
 
     .table-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
       .card-header {
         flex-direction: column;
         align-items: flex-start;
-        gap: 10px;
-
-        .el-button {
-          width: 100%;
-        }
+        gap: 8px;
       }
 
       :deep(.el-table) {
@@ -880,15 +940,63 @@ onMounted(() => {
       }
 
       .pagination-wrapper {
-        justify-content: center;
+        justify-content: center !important;
+        margin-top: 15px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
 
         :deep(.el-pagination) {
+          flex-wrap: wrap;
+          justify-content: center;
+          font-size: 12px;
+
+          .el-pagination__total,
+          .el-pagination__sizes,
+          .el-pagination__jump {
+            margin-right: 8px;
+            font-size: 12px;
+          }
+
           .btn-prev,
-          .btn-next,
-          .el-pager li {
-            min-width: 28px;
-            height: 28px;
-            line-height: 28px;
+          .btn-next {
+            min-width: 26px;
+            height: 26px;
+            line-height: 26px;
+            padding: 0 6px;
+          }
+
+          .el-pager {
+            li {
+              min-width: 26px;
+              height: 26px;
+              line-height: 26px;
+              font-size: 12px;
+              margin: 0 2px;
+            }
+          }
+
+          .el-pagination__sizes {
+            .el-select {
+              .el-input {
+                .el-input__inner {
+                  height: 26px;
+                  line-height: 26px;
+                  font-size: 12px;
+                  padding: 0 20px 0 8px;
+                }
+              }
+            }
+          }
+
+          .el-pagination__jump {
+            .el-input {
+              .el-input__inner {
+                height: 26px;
+                line-height: 26px;
+                font-size: 12px;
+                width: 40px;
+              }
+            }
           }
         }
       }
@@ -908,6 +1016,8 @@ onMounted(() => {
 
         .el-form {
           .el-form-item {
+            margin-bottom: 16px;
+
             .el-form-item__label {
               font-size: 13px;
             }
@@ -915,6 +1025,12 @@ onMounted(() => {
             .el-input,
             .el-select {
               font-size: 14px;
+            }
+
+            .el-radio-group {
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
             }
           }
         }
@@ -937,25 +1053,38 @@ onMounted(() => {
       }
 
       :deep(.el-form) {
+        gap: 12px;
+
         .el-form-item {
-          margin-bottom: 10px;
+          // 480px 以下门店和状态仍然各占一半
+          &:nth-child(1),
+          &:nth-child(2) {
+            width: calc(50% - 6px);
+          }
 
           .el-form-item__label {
-            font-size: 13px;
+            font-size: 12px;
+          }
+
+          // 按钮组
+          &:last-child .el-form-item__content {
+            .el-button {
+              min-width: calc(50% - 4px);
+              font-size: 13px;
+              padding: 8px 12px;
+
+              // 添加店长按钮单独一行
+              &:last-child {
+                width: 100%;
+                margin-top: 4px;
+              }
+            }
           }
         }
       }
     }
 
     .table-card {
-      :deep(.el-card__header) {
-        padding: 12px 15px;
-      }
-
-      :deep(.el-card__body) {
-        padding: 12px;
-      }
-
       .card-header {
         font-size: 14px;
 
@@ -973,7 +1102,7 @@ onMounted(() => {
         }
 
         .el-button {
-          padding: 4px 8px;
+          padding: 4px 6px;
           font-size: 11px;
         }
 
@@ -981,18 +1110,95 @@ onMounted(() => {
           font-size: 10px;
           padding: 0 4px;
         }
+      }
 
-        .el-switch {
-          transform: scale(0.9);
+      .pagination-wrapper {
+        margin-top: 12px;
+
+        :deep(.el-pagination) {
+          font-size: 11px;
+          gap: 4px;
+
+          .el-pagination__total {
+            font-size: 11px;
+            margin-right: 4px;
+          }
+
+          .el-pagination__sizes {
+            margin-right: 4px;
+
+            .el-select {
+              .el-input {
+                .el-input__inner {
+                  height: 24px;
+                  line-height: 24px;
+                  font-size: 11px;
+                  padding: 0 18px 0 6px;
+                }
+              }
+            }
+          }
+
+          .btn-prev,
+          .btn-next {
+            min-width: 24px;
+            height: 24px;
+            line-height: 24px;
+            padding: 0 4px;
+          }
+
+          .el-pager {
+            li {
+              min-width: 24px;
+              height: 24px;
+              line-height: 24px;
+              font-size: 11px;
+              margin: 0 1px;
+            }
+          }
+
+          .el-pagination__jump {
+            margin-left: 4px;
+            font-size: 11px;
+
+            .el-input {
+              .el-input__inner {
+                height: 24px;
+                line-height: 24px;
+                font-size: 11px;
+                width: 35px;
+              }
+            }
+          }
         }
       }
     }
 
     :deep(.el-dialog) {
+      width: 95% !important;
+
+      .el-dialog__body {
+        padding: 12px;
+
+        .el-form {
+          .el-form-item {
+            margin-bottom: 14px;
+
+            .el-form-item__label {
+              font-size: 12px;
+            }
+          }
+        }
+      }
+
       .el-dialog__footer {
+        padding: 10px 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+
         .el-button {
           width: 100%;
-          margin-top: 8px;
           margin-left: 0 !important;
         }
       }

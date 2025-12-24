@@ -3,18 +3,19 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>👑 人员风云榜</span>
-          <div class="filter-group">
+          <span class="header-title">👑 人员风云榜</span>
+          <div class="header-right">
+            <span class="filter-label">时间范围</span>
             <el-date-picker
+              class="date-range"
               v-model="dateRange"
               type="daterange"
+              unlink-panels
               range-separator="至"
               start-placeholder="开始日期"
               end-placeholder="结束日期"
-              format="YYYY-MM-DD"
               value-format="YYYY-MM-DD"
               @change="handleDateChange"
-              style="margin-right: 10px"
             />
           </div>
         </div>
@@ -363,7 +364,30 @@ onUnmounted(() => {
   .card-header {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .header-title {
+    font-weight: 600;
+  }
+
+  .header-right {
+    display: flex;
     align-items: center;
+    gap: 8px;
+  }
+
+  .filter-label {
+    font-size: 13px;
+    color: #606266;
+    white-space: nowrap;
+  }
+
+  .date-range {
+    width: 360px;
+    max-width: 100%;
   }
   
   .chart-container {
@@ -388,18 +412,44 @@ onUnmounted(() => {
     .card-header {
       flex-direction: column;
       align-items: flex-start;
-      gap: 10px;
+      gap: 12px;
+    }
 
-      :deep(.el-radio-group) {
-        width: 100%;
+    .header-right {
+      width: 100%;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
 
-        .el-radio-button {
-          flex: 1;
+    .filter-label {
+      font-size: 12px;
+    }
 
-          :deep(.el-radio-button__inner) {
-            width: 100%;
-          }
-        }
+    .date-range {
+      width: 100%;
+    }
+
+    // 时间范围选择器样式优化（与财务专项一致）
+    :deep(.el-date-editor--daterange) {
+      width: 100% !important;
+      padding: 3px 5px;
+      
+      .el-range-separator {
+        padding: 0 4px;
+        font-size: 12px;
+        width: auto;
+      }
+      
+      .el-range-input {
+        font-size: 12px;
+        width: 42%;
+      }
+
+      .el-range__icon,
+      .el-range__close-icon {
+        font-size: 12px;
+        width: 18px;
       }
     }
 

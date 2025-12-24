@@ -200,6 +200,12 @@ import { queryStats, getDateRange } from '@/api/stats'
 import { listStores } from '@/api/store'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
 
+// 移动端检测
+const isMobile = ref(false)
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+}
+
 // 支付方式分组元数据
 const PAYMENT_GROUP_META = {
   income: {
@@ -658,6 +664,18 @@ const buildFunnelOption = () => {
   if (!hasFunnelData.value) {
     return null
   }
+  
+  // 移动端配置调整
+  const labelConfig = isMobile.value
+    ? {
+        position: 'inside',
+        formatter: ({ data }) => `${data.name}\n¥${formatCurrency(data.value)}`,
+        fontSize: 11
+      }
+    : {
+        formatter: ({ data }) => `${data.name}\n¥${formatCurrency(data.value)}`
+      }
+
   return {
     tooltip: {
       trigger: 'item',
@@ -668,14 +686,14 @@ const buildFunnelOption = () => {
         name: '营收转化',
         type: 'funnel',
         sort: 'none',
-        gap: 4,
+        gap: isMobile.value ? 2 : 4,
         top: 10,
         bottom: 10,
+        left: isMobile.value ? '5%' : '10%',
+        right: isMobile.value ? '5%' : '10%',
         minSize: '20%',
         maxSize: '100%',
-        label: {
-          formatter: ({ data }) => `${data.name}\n¥${formatCurrency(data.value)}`
-        },
+        label: labelConfig,
         data: funnelStages.value
       }
     ]
@@ -689,6 +707,46 @@ const buildAnomalyOption = () => {
   const categories = anomalyDataset.value.map((item) => item.label)
   const giftData = anomalyDataset.value.map((item) => Number(item.gift.toFixed(2)))
   const freeData = anomalyDataset.value.map((item) => Number(item.free.toFixed(2)))
+  
+  // 移动端配置调整
+  const gridConfig = isMobile.value
+    ? { left: 70, right: 15, bottom: 30, top: 40 }
+    : { left: 80, right: 20, bottom: 20, top: 40 }
+
+  const xAxisLabelConfig = isMobile.value
+    ? {
+        formatter: (value) => {
+          // 移动端使用更简洁的格式
+          if (value >= 10000) {
+            return '¥' + (value / 10000).toFixed(1) + '万'
+          } else if (value >= 1000) {
+            return '¥' + (value / 1000).toFixed(0) + 'K'
+          } else {
+            return '¥' + value.toFixed(0)
+          }
+        },
+        fontSize: 10,
+        rotate: 0
+      }
+    : {
+        formatter: (value) => `¥${formatCurrency(value)}`
+      }
+
+  const yAxisLabelConfig = isMobile.value
+    ? {
+        formatter: (value) => {
+          // 移动端截断过长的名称
+          if (value && value.length > 6) {
+            return value.slice(0, 6) + '...'
+          }
+          return value || '未命名'
+        },
+        fontSize: 11
+      }
+    : {
+        formatter: (value) => value || '未命名'
+      }
+
   return {
     tooltip: {
       trigger: 'axis',
@@ -696,39 +754,33 @@ const buildAnomalyOption = () => {
       valueFormatter: (value) => `¥${formatCurrency(value)}`
     },
     legend: {
-      top: 0
+      top: 0,
+      textStyle: {
+        fontSize: isMobile.value ? 11 : 12
+      }
     },
-    grid: {
-      left: 80,
-      right: 20,
-      bottom: 20,
-      top: 40
-    },
+    grid: gridConfig,
     xAxis: {
       type: 'value',
-      axisLabel: {
-        formatter: (value) => `¥${formatCurrency(value)}`
-      }
+      axisLabel: xAxisLabelConfig
     },
     yAxis: {
       type: 'category',
       data: categories,
-      axisLabel: {
-        formatter: (value) => value || '未命名'
-      }
+      axisLabel: yAxisLabelConfig
     },
     series: [
       {
         name: '赠送金额',
         type: 'bar',
         data: giftData,
-        barMaxWidth: 26
+        barMaxWidth: isMobile.value ? 20 : 26
       },
       {
         name: '免单金额',
         type: 'bar',
         data: freeData,
-        barMaxWidth: 26
+        barMaxWidth: isMobile.value ? 20 : 26
       }
     ]
   }
@@ -757,8 +809,14 @@ const updateAnomalyChart = () => {
 }
 
 const handleResize = () => {
+  checkMobile()
   Object.values(chartInstances).forEach((instance) => {
     instance?.resize()
+  })
+  // 移动端尺寸变化时重新更新图表配置
+  nextTick(() => {
+    updateFunnelChart()
+    updateAnomalyChart()
   })
 }
 
@@ -940,6 +998,7 @@ watch(
 )
 
 onMounted(async () => {
+  checkMobile()
   loadCurrentUser()
   await Promise.all([fetchStoreOptions(), restoreDateRange()])
   await nextTick()
@@ -992,23 +1051,37 @@ onBeforeUnmount(() => {
   .filters {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px;
+    gap: 24px;
+    align-items: center;
 
     .filter-item {
-      min-width: 240px;
-      flex: 1;
       display: flex;
-      flex-direction: column;
-      gap: 8px;
+      align-items: center;
+      gap: 12px;
+
+      :deep(.el-date-editor--daterange) {
+        width: 360px;
+      }
+
+      :deep(.el-select) {
+        width: 180px;
+      }
+
+      :deep(.el-input) {
+        width: 180px;
+      }
     }
 
     .dimension-switch {
-      min-width: 220px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     .filter-label {
       font-size: 13px;
       color: #606266;
+      white-space: nowrap;
     }
   }
 
@@ -1261,11 +1334,381 @@ onBeforeUnmount(() => {
   }
 
   @media (max-width: 768px) {
+    gap: 15px;
+
+    .filter-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      .card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+
+        h2 {
+          font-size: 16px;
+        }
+
+        .card-subtitle {
+          font-size: 12px;
+        }
+      }
+    }
+
     .filters {
       flex-direction: column;
+      gap: 14px;
+      align-items: stretch;
 
       .filter-item {
         width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
+        .filter-label {
+          font-size: 12px;
+        }
+
+        :deep(.el-select),
+        :deep(.el-input) {
+          width: 100% !important;
+        }
+
+        // 时间范围选择器移动端优化
+        :deep(.el-date-editor--daterange) {
+          width: 100% !important;
+          padding: 3px 5px;
+          
+          .el-range-separator {
+            padding: 0 4px;
+            font-size: 12px;
+            width: auto;
+          }
+          
+          .el-range-input {
+            font-size: 12px;
+            width: 42%;
+          }
+
+          .el-range__icon,
+          .el-range__close-icon {
+            font-size: 12px;
+            width: 18px;
+          }
+        }
+      }
+
+      .dimension-switch {
+        width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
+        :deep(.el-radio-group) {
+          width: 100%;
+
+          .el-radio-button {
+            flex: 1;
+
+            .el-radio-button__inner {
+              width: 100%;
+              padding: 8px 12px;
+            }
+          }
+        }
+      }
+    }
+
+    .summary-card {
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      :deep(.el-row) {
+        .el-col {
+          margin-bottom: 12px;
+
+          &:last-child {
+            margin-bottom: 0;
+          }
+        }
+      }
+
+      .summary-item {
+        padding: 14px;
+
+        .summary-title {
+          font-size: 12px;
+        }
+
+        .summary-value {
+          font-size: 20px;
+        }
+
+        .summary-desc {
+          font-size: 11px;
+        }
+      }
+    }
+
+    .chart-row {
+      .el-col {
+        margin-bottom: 15px;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+    }
+
+    .chart-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      .chart-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+
+        h3 {
+          font-size: 14px;
+        }
+
+        .chart-subtitle {
+          font-size: 12px;
+        }
+      }
+
+      .chart-body {
+        min-height: 280px;
+      }
+
+      .chart-container {
+        min-height: 280px;
+
+        &.tall {
+          min-height: 380px;
+        }
+      }
+    }
+
+    // 支付构成卡片移动端优化
+    .payment-breakdown-card {
+      .chart-header {
+        .payment-grand-total {
+          margin-top: 8px;
+          text-align: left;
+
+          .total-label {
+            display: inline;
+            margin-right: 8px;
+          }
+
+          .total-value {
+            font-size: 18px;
+          }
+        }
+      }
+
+      .payment-breakdown {
+        gap: 16px;
+      }
+
+      .payment-group {
+        .group-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+          padding: 10px 12px;
+
+          .group-info {
+            .group-name {
+              font-size: 14px;
+            }
+
+            .group-desc {
+              font-size: 11px;
+            }
+          }
+
+          .group-stats {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            text-align: left;
+
+            .group-total {
+              font-size: 15px;
+            }
+
+            .group-ratio {
+              font-size: 12px;
+            }
+          }
+        }
+
+        .group-items {
+          padding-left: 12px;
+          gap: 6px;
+        }
+
+        .payment-item {
+          grid-template-columns: 80px 1fr 100px;
+          gap: 8px;
+          padding: 4px 0;
+
+          .item-label {
+            .item-name {
+              font-size: 12px;
+            }
+          }
+
+          .item-bar-wrapper {
+            .item-bar-bg {
+              height: 16px;
+            }
+          }
+
+          .item-stats {
+            gap: 4px;
+
+            .item-amount {
+              font-size: 12px;
+              min-width: 60px;
+            }
+
+            .item-ratio {
+              font-size: 11px;
+              min-width: 40px;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    gap: 12px;
+
+    .filter-card {
+      .card-header {
+        h2 {
+          font-size: 15px;
+        }
+      }
+    }
+
+    .summary-card {
+      .summary-item {
+        padding: 12px;
+
+        .summary-title {
+          font-size: 11px;
+        }
+
+        .summary-value {
+          font-size: 18px;
+        }
+
+        .summary-desc {
+          font-size: 10px;
+        }
+      }
+    }
+
+    .chart-card {
+      .chart-header {
+        h3 {
+          font-size: 13px;
+        }
+
+        .chart-subtitle {
+          font-size: 11px;
+        }
+      }
+
+      .chart-body {
+        min-height: 250px;
+      }
+
+      .chart-container {
+        min-height: 250px;
+
+        &.tall {
+          min-height: 300px;
+        }
+      }
+    }
+
+    .payment-breakdown-card {
+      .payment-group {
+        .group-header {
+          padding: 8px 10px;
+
+          .group-info {
+            .group-name {
+              font-size: 13px;
+            }
+
+            .group-desc {
+              font-size: 10px;
+            }
+          }
+
+          .group-stats {
+            .group-total {
+              font-size: 14px;
+            }
+
+            .group-ratio {
+              font-size: 11px;
+            }
+          }
+        }
+
+        .group-items {
+          padding-left: 8px;
+        }
+
+        .payment-item {
+          grid-template-columns: 70px 1fr 85px;
+          gap: 6px;
+
+          .item-label {
+            .item-name {
+              font-size: 11px;
+            }
+          }
+
+          .item-bar-wrapper {
+            .item-bar-bg {
+              height: 14px;
+            }
+          }
+
+          .item-stats {
+            .item-amount {
+              font-size: 11px;
+              min-width: 50px;
+            }
+
+            .item-ratio {
+              font-size: 10px;
+              min-width: 35px;
+            }
+          }
+        }
       }
     }
   }

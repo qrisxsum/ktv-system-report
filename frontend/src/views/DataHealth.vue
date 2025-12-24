@@ -456,6 +456,10 @@ onMounted(() => {
 .data-health-page {
   .filter-card {
     margin-bottom: 20px;
+
+    :deep(.el-card__body) {
+      padding-bottom: 0;
+    }
   }
 
   .summary-card {
@@ -519,6 +523,245 @@ onMounted(() => {
       .status-percent {
         font-size: 12px;
         opacity: 0.9;
+      }
+    }
+  }
+
+  // 移动端优化
+  @media (max-width: 768px) {
+    .filter-card {
+      :deep(.el-card__body) {
+        padding: 15px 12px 15px 12px;
+      }
+
+      :deep(.el-form) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+
+        .el-form-item {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          margin-right: 0;
+          margin-bottom: 0;
+
+          // 当前门店筛选占满一行
+          &:first-child {
+            width: 100%;
+          }
+
+          // 月份选择和按钮组在同一行，各占一半
+          &:nth-child(2) {
+            width: calc(40% - 7px);
+          }
+
+          // 按钮组
+          &:last-child {
+            width: calc(60% - 7px);
+          }
+
+          .el-form-item__label {
+            width: auto;
+            padding-right: 0;
+            padding-bottom: 4px;
+            font-size: 13px;
+            line-height: 1.4;
+          }
+
+          .el-form-item__content {
+            width: 100%;
+            margin-left: 0 !important;
+
+            .el-select,
+            .el-tag {
+              width: 100%;
+            }
+
+            :deep(.el-date-editor) {
+              width: 100% !important;
+            }
+          }
+
+          // 按钮组横向排列
+          &:last-child {
+            .el-form-item__label {
+              visibility: hidden;
+              height: 0;
+              padding: 0;
+              margin: 0;
+            }
+
+            .el-form-item__content {
+              display: flex;
+              gap: 8px;
+              height: 100%;
+              align-items: flex-end;
+
+              .el-button {
+                flex: 1;
+                margin-left: 0;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    .summary-card {
+      :deep(.el-row) {
+        .el-col {
+          margin-bottom: 12px;
+
+          &:last-child {
+            margin-bottom: 0;
+          }
+        }
+      }
+
+      :deep(.el-statistic) {
+        .el-statistic__head {
+          font-size: 13px;
+        }
+
+        .el-statistic__content {
+          .el-statistic__number {
+            font-size: 20px;
+          }
+        }
+      }
+    }
+
+    .matrix-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      // 表格优化
+      :deep(.el-table) {
+        font-size: 12px;
+
+        .el-table__header th,
+        .el-table__body td {
+          padding: 8px 5px;
+        }
+
+        // 固定列阴影
+        .el-table__fixed-left {
+          box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+        }
+      }
+
+      .status-badge {
+        min-width: 70px;
+        padding: 3px 8px;
+        font-size: 11px;
+        gap: 4px;
+
+        .status-percent {
+          font-size: 10px;
+        }
+      }
+    }
+
+    // 详情抽屉优化
+    :deep(.el-drawer) {
+      width: 90% !important;
+      max-width: 400px;
+
+      .el-drawer__header {
+        padding: 15px;
+        margin-bottom: 0;
+      }
+
+      .el-drawer__body {
+        padding: 15px;
+
+        .el-descriptions {
+          font-size: 13px;
+
+          .el-descriptions__label,
+          .el-descriptions__content {
+            font-size: 13px;
+            padding: 8px 10px;
+          }
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    .filter-card {
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      :deep(.el-form) {
+        .el-form-item {
+          .el-form-item__label {
+            font-size: 12px;
+          }
+        }
+      }
+    }
+
+    .summary-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      :deep(.el-statistic) {
+        .el-statistic__head {
+          font-size: 12px;
+        }
+
+        .el-statistic__content {
+          .el-statistic__number {
+            font-size: 18px;
+          }
+        }
+      }
+    }
+
+    .matrix-card {
+      :deep(.el-table) {
+        font-size: 11px;
+
+        .el-table__header th,
+        .el-table__body td {
+          padding: 6px 3px;
+        }
+      }
+
+      .status-badge {
+        min-width: 60px;
+        padding: 2px 6px;
+        font-size: 10px;
+
+        .status-percent {
+          font-size: 9px;
+        }
+      }
+    }
+
+    :deep(.el-drawer) {
+      width: 100% !important;
+      max-width: none;
+
+      .el-descriptions {
+        .el-descriptions__label,
+        .el-descriptions__content {
+          font-size: 12px;
+          padding: 6px 8px;
+        }
       }
     }
   }
