@@ -281,13 +281,60 @@ const handleLogin = async () => {
 }
 
 // 响应式设计
+@media (max-width: 768px) {
+  .login-container {
+    padding: 15px;
+  }
+
+  .login-card {
+    padding: 35px 25px;
+  }
+
+  .login-header {
+    margin-bottom: 25px;
+
+    .logo-icon {
+      font-size: 50px !important;
+    }
+
+    .title {
+      font-size: 22px;
+    }
+  }
+
+  .demo-accounts {
+    .demo-title {
+      font-size: 13px;
+    }
+
+    .account-list .account-item {
+      font-size: 12px;
+    }
+  }
+}
+
 @media (max-width: 480px) {
   .login-card {
     padding: 30px 20px;
   }
 
-  .login-header .title {
-    font-size: 20px;
+  .login-header {
+    .logo-icon {
+      font-size: 45px !important;
+    }
+
+    .title {
+      font-size: 20px;
+    }
+
+    .subtitle {
+      font-size: 13px;
+    }
+  }
+
+  .login-btn {
+    height: 44px;
+    font-size: 15px;
   }
 }
 </style>
