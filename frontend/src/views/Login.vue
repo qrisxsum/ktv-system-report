@@ -107,9 +107,7 @@ const handleLogin = async () => {
     loading.value = true
 
     // 调用登录API
-    console.log('开始登录请求:', { username: loginForm.username, password: '***' })
     const response = await login(loginForm.username, loginForm.password)
-    console.log('登录API响应:', response)
 
     if (response.success) {
       // 保存token和用户信息到本地存储
@@ -119,53 +117,12 @@ const handleLogin = async () => {
       localStorage.setItem('access_token', token)
       localStorage.setItem('user', JSON.stringify(user))
 
-      console.log('登录成功，保存token和用户信息:', {
-        token: token,
-        user: user,
-        localStorage_token: localStorage.getItem('access_token'),
-        localStorage_user: localStorage.getItem('user')
-      })
-
       ElMessage.success('登录成功')
 
-      // 延迟一下确保数据保存完成
-      await new Promise(resolve => setTimeout(resolve, 100))
-
-      // 验证数据是否正确保存
-      const savedToken = localStorage.getItem('access_token')
-      const savedUser = localStorage.getItem('user')
-
-      console.log('验证保存的数据:', {
-        savedToken: !!savedToken,
-        savedUser: !!savedUser,
-        tokenLength: savedToken?.length,
-        userParsed: savedUser ? JSON.parse(savedUser) : null
-      })
-
       // 跳转到首页
-      console.log('跳转到dashboard页面')
-      console.log('当前路由:', router.currentRoute.value)
-
-      try {
-        console.log('开始路由跳转...')
-        const result = await router.push('/dashboard')
-        console.log('路由跳转结果:', result)
-        console.log('跳转后路由:', router.currentRoute.value)
-
-        // 等待一小段时间，确保页面加载完成
-        await new Promise(resolve => setTimeout(resolve, 500))
-
-        console.log('页面应该已经跳转完成')
-      } catch (error) {
-        console.error('路由跳转失败:', error)
-        // 如果路由跳转失败，强制刷新页面
-        console.log('尝试强制跳转...')
-        window.location.href = '/#/dashboard'
-      }
+      router.push('/dashboard')
     }
   } catch (error) {
-    console.error('登录失败:', error)
-    console.error('错误详情:', error.response?.data)
     // 显示具体的错误信息
     // 优先显示后端返回的详细错误信息（如"账号已停用"）
     let errorMessage = '登录失败，请检查用户名和密码'
