@@ -58,12 +58,13 @@
       <div class="table-pagination">
         <el-pagination
           background
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="isSmallScreen ? 'sizes, prev, pager, next' : (isMobile ? 'total, sizes, prev, pager, next' : 'total, sizes, prev, pager, next, jumper')"
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
           :total="total"
           :disabled="loading"
+          :pager-count="isSmallScreen ? 3 : (isMobile ? 5 : 7)"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
@@ -102,7 +103,18 @@ const pagination = reactive({
   pageSize: 20
 })
 
-const pageSizeOptions = [20, 50, 100]
+// 根据屏幕宽度动态设置分页选项
+const isMobile = ref(false)
+const isSmallScreen = ref(false)
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+  isSmallScreen.value = window.innerWidth <= 480
+}
+
+const pageSizeOptions = computed(() => {
+  // 移动端只显示较少的选项，避免超出屏幕
+  return isMobile.value ? [20, 50] : [20, 50, 100]
+})
 
 const normalizeStaffRow = (item = {}) => ({
   name: item.dimension_label || '未知员工',
@@ -221,6 +233,30 @@ const updateChart = () => {
     .map(item => ({ name: item.name, value: item.actual_amount }))
     .reverse() // 图表从下到上排列
   
+  // 根据设备类型调整配置
+  const gridConfig = isMobile.value 
+    ? { left: '20%', right: '5%', top: '5%', bottom: '10%' } // 移动端：减少右侧空间，增加底部空间给横坐标
+    : { left: '15%', right: '15%', top: '5%', bottom: '5%' }
+  
+  const xAxisLabelConfig = isMobile.value
+    ? {
+        formatter: (value) => {
+          // 移动端使用更简洁的格式
+          if (value >= 10000) {
+            return '¥' + (value / 10000).toFixed(1) + '万'
+          } else if (value >= 1000) {
+            return '¥' + (value / 1000).toFixed(0) + 'K'
+          } else {
+            return '¥' + value.toFixed(0)
+          }
+        },
+        fontSize: 10, // 移动端字体更小
+        margin: 8 // 增加标签与轴线的距离
+      }
+    : {
+        formatter: (value) => '¥' + (value / 1000).toFixed(0) + 'K'
+      }
+  
   chart.setOption({
     tooltip: { 
       trigger: 'axis', 
@@ -229,18 +265,17 @@ const updateChart = () => {
         type: 'shadow'
       }
     },
-    grid: { left: '15%', right: '15%', top: '5%', bottom: '5%' },
+    grid: gridConfig,
     xAxis: { 
       type: 'value',
-      axisLabel: {
-        formatter: (value) => '¥' + (value / 1000).toFixed(0) + 'K'
-      }
+      axisLabel: xAxisLabelConfig
     },
     yAxis: {
       type: 'category',
       data: data.map(d => d.name),
       axisLabel: {
-        interval: 0
+        interval: 0,
+        fontSize: isMobile.value ? 11 : undefined // 移动端Y轴标签也稍微缩小
       }
     },
     series: [{
@@ -253,7 +288,7 @@ const updateChart = () => {
         ])
       },
       label: {
-        show: true,
+        show: !isMobile.value, // 移动端隐藏柱状图右侧的数值标签，避免拥挤
         position: 'right',
         formatter: (params) => '¥' + params.value.toLocaleString()
       }
@@ -301,9 +336,15 @@ const handleDateChange = () => {
   fetchData()
 }
 
-const handleResize = () => chart?.resize()
+const handleResize = () => {
+  checkMobile()
+  chart?.resize()
+  // 窗口大小变化时重新更新图表配置，确保移动端/桌面端配置正确
+  updateChart()
+}
 
 onMounted(async () => {
+  checkMobile()
   initChart()
   const saved = readSessionJSON(dateRangeStorageKey, null)
   if (isValidDateRange(saved)) {
@@ -340,12 +381,200 @@ onUnmounted(() => {
     display: flex;
     justify-content: flex-end;
     margin-top: 12px;
+    width: 100%;
   }
   
   .empty-hint {
     text-align: center;
     padding: 40px 0;
     color: #999;
+  }
+
+  // 移动端优化
+  @media (max-width: 768px) {
+    .card-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+
+      :deep(.el-radio-group) {
+        width: 100%;
+
+        .el-radio-button {
+          flex: 1;
+
+          :deep(.el-radio-button__inner) {
+            width: 100%;
+          }
+        }
+      }
+    }
+
+    .chart-container {
+      height: 300px;
+    }
+
+    :deep(.el-table) {
+      font-size: 12px;
+
+      .el-table__header th,
+      .el-table__body td {
+        padding: 8px 5px;
+      }
+    }
+
+    .table-pagination {
+      justify-content: center !important;
+      margin-top: 10px;
+      overflow-x: auto; // 允许横向滚动作为后备方案
+      -webkit-overflow-scrolling: touch;
+
+      :deep(.el-pagination) {
+        flex-wrap: wrap; // 允许换行
+        justify-content: center;
+        font-size: 12px;
+
+        .el-pagination__total,
+        .el-pagination__sizes,
+        .el-pagination__jump {
+          margin-right: 8px;
+          font-size: 12px;
+        }
+
+        .btn-prev,
+        .btn-next {
+          min-width: 26px;
+          height: 26px;
+          line-height: 26px;
+          padding: 0 6px;
+        }
+
+        .el-pager {
+          li {
+            min-width: 26px;
+            height: 26px;
+            line-height: 26px;
+            font-size: 12px;
+            margin: 0 2px;
+          }
+        }
+
+        // 每页条数选择器优化
+        .el-pagination__sizes {
+          .el-select {
+            .el-input {
+              .el-input__inner {
+                height: 26px;
+                line-height: 26px;
+                font-size: 12px;
+                padding: 0 20px 0 8px;
+              }
+            }
+          }
+        }
+
+        // 跳转输入框优化
+        .el-pagination__jump {
+          .el-input {
+            .el-input__inner {
+              height: 26px;
+              line-height: 26px;
+              font-size: 12px;
+              width: 40px;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    :deep(.el-card__header) {
+      padding: 12px 15px;
+    }
+
+    :deep(.el-card__body) {
+      padding: 12px;
+    }
+
+    .chart-container {
+      height: 250px;
+    }
+
+    :deep(.el-table) {
+      font-size: 11px;
+
+      .el-table__header th,
+      .el-table__body td {
+        padding: 6px 3px;
+      }
+    }
+
+    .table-pagination {
+      margin-top: 8px;
+
+      :deep(.el-pagination) {
+        font-size: 11px;
+        gap: 4px; // 元素间距更小
+
+        .el-pagination__total {
+          font-size: 11px;
+          margin-right: 4px;
+        }
+
+        .el-pagination__sizes {
+          margin-right: 4px;
+          
+          .el-select {
+            .el-input {
+              .el-input__inner {
+                height: 24px;
+                line-height: 24px;
+                font-size: 11px;
+                padding: 0 18px 0 6px;
+              }
+            }
+          }
+        }
+
+        .btn-prev,
+        .btn-next {
+          min-width: 24px;
+          height: 24px;
+          line-height: 24px;
+          padding: 0 4px;
+        }
+
+        .el-pager {
+          li {
+            min-width: 24px;
+            height: 24px;
+            line-height: 24px;
+            font-size: 11px;
+            margin: 0 1px;
+          }
+        }
+
+        .el-pagination__jump {
+          margin-left: 4px;
+          font-size: 11px;
+          
+          .el-input {
+            .el-input__inner {
+              height: 24px;
+              line-height: 24px;
+              font-size: 11px;
+              width: 35px;
+            }
+          }
+        }
+      }
+    }
+
+    .empty-hint {
+      padding: 30px 0;
+      font-size: 14px;
+    }
   }
 }
 </style>

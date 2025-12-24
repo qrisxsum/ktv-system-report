@@ -23,25 +23,25 @@
       </template>
       
       <el-row :gutter="20" class="summary-cards">
-        <el-col :span="6">
+        <el-col :xs="24" :sm="12" :md="6" :span="6">
           <div class="summary-item">
             <div class="label">总开台数</div>
             <div class="value">{{ summary.totalOrders }}</div>
           </div>
         </el-col>
-        <el-col :span="6">
+        <el-col :xs="24" :sm="12" :md="6" :span="6">
           <div class="summary-item">
             <div class="label">总GMV</div>
             <div class="value">¥{{ summary.totalGmv.toLocaleString() }}</div>
           </div>
         </el-col>
-        <el-col :span="6">
+        <el-col :xs="24" :sm="12" :md="6" :span="6">
           <div class="summary-item">
             <div class="label">总实收</div>
             <div class="value">¥{{ summary.totalActual.toLocaleString() }}</div>
           </div>
         </el-col>
-        <el-col :span="6">
+        <el-col :xs="24" :sm="12" :md="6" :span="6">
           <div class="summary-item">
             <div class="label">平均实收</div>
             <div class="value">¥{{ summary.avgActual.toFixed(2) }}</div>
@@ -57,29 +57,29 @@
         style="margin-top: 20px"
         v-loading="loading"
       >
-        <el-table-column prop="room_name" label="包厢名称" width="180" />
-        <el-table-column prop="order_count" label="开台次数" width="120" align="right" />
-        <el-table-column prop="gmv" label="GMV（应收金额）" width="140" align="right">
+        <el-table-column prop="room_name" label="包厢名称" min-width="150" />
+        <el-table-column prop="order_count" label="开台次数" min-width="100" align="right" />
+        <el-table-column prop="gmv" label="GMV（应收金额）" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.gmv || 0).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column prop="actual" label="实收金额" width="140" align="right">
+        <el-table-column prop="actual" label="实收金额" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.actual || 0).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column prop="room_discount" label="包厢折扣" width="140" align="right">
+        <el-table-column prop="room_discount" label="包厢折扣" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.room_discount || 0).toFixed(2) }}
           </template>
         </el-table-column>
-        <el-table-column prop="beverage_discount" label="酒水折扣" width="140" align="right">
+        <el-table-column prop="beverage_discount" label="酒水折扣" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.beverage_discount || 0).toFixed(2) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_amount" label="赠送金额" align="right">
+        <el-table-column prop="gift_amount" label="赠送金额" min-width="120" align="right">
           <template #default="{ row }">
             ¥{{ (row.gift_amount || 0).toFixed(2) }}
           </template>
@@ -89,12 +89,13 @@
       <div class="table-pagination">
         <el-pagination
           background
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="isSmallScreen ? 'sizes, prev, pager, next' : (isMobile ? 'total, sizes, prev, pager, next' : 'total, sizes, prev, pager, next, jumper')"
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
           :total="total"
           :disabled="loading"
+          :pager-count="isSmallScreen ? 3 : (isMobile ? 5 : 7)"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
@@ -108,7 +109,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, inject, watch, reactive, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, inject, watch, reactive, nextTick } from 'vue'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
@@ -130,7 +131,18 @@ const pagination = reactive({
   pageSize: 20
 })
 
-const pageSizeOptions = [20, 50, 100]
+// 根据屏幕宽度动态设置分页选项
+const isMobile = ref(false)
+const isSmallScreen = ref(false)
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+  isSmallScreen.value = window.innerWidth <= 480
+}
+
+const pageSizeOptions = computed(() => {
+  // 移动端只显示较少的选项，避免超出屏幕
+  return isMobile.value ? [20, 50] : [20, 50, 100]
+})
 
 // 汇总统计
 const summary = computed(() => {
@@ -277,6 +289,9 @@ const handleDateChange = () => {
 }
 
 onMounted(async () => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+  
   const saved = readSessionJSON(dateRangeStorageKey, null)
   if (isValidDateRange(saved)) {
     dateRange.value = saved
@@ -287,6 +302,10 @@ onMounted(async () => {
     }
   }
   await fetchData()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', checkMobile)
 })
 </script>
 
@@ -357,12 +376,257 @@ onMounted(async () => {
     display: flex;
     justify-content: flex-end;
     margin-top: 12px;
+    width: 100%;
   }
   
   .empty-hint {
     text-align: center;
     padding: 40px 0;
     color: #999;
+  }
+
+  // 移动端优化
+  @media (max-width: 768px) {
+    .card-header {
+      flex-wrap: wrap;
+      gap: 10px;
+
+      :deep(.el-date-editor) {
+        width: 100%;
+      }
+    }
+
+    .summary-cards {
+      // 移动端每个卡片占满一行，增加底部间距
+      :deep(.el-col) {
+        margin-bottom: 12px;
+      }
+
+      .summary-item {
+        padding: 15px;
+
+        .label {
+          font-size: 13px;
+        }
+
+        .value {
+          font-size: 20px;
+        }
+      }
+    }
+
+    .metrics-row {
+      :deep(.el-col) {
+        margin-bottom: 12px;
+      }
+
+      .metric-card {
+        padding: 15px;
+
+        .label {
+          font-size: 13px;
+        }
+
+        .value {
+          font-size: 20px;
+        }
+      }
+    }
+
+    :deep(.el-table) {
+      font-size: 12px;
+
+      .el-table__header th,
+      .el-table__body td {
+        padding: 8px 5px;
+      }
+    }
+
+    .table-pagination {
+      justify-content: center !important;
+      margin-top: 10px;
+      overflow-x: auto; // 允许横向滚动作为后备方案
+      -webkit-overflow-scrolling: touch;
+
+      :deep(.el-pagination) {
+        flex-wrap: wrap; // 允许换行
+        justify-content: center;
+        font-size: 12px;
+
+        .el-pagination__total,
+        .el-pagination__sizes,
+        .el-pagination__jump {
+          margin-right: 8px;
+          font-size: 12px;
+        }
+
+        .btn-prev,
+        .btn-next {
+          min-width: 26px;
+          height: 26px;
+          line-height: 26px;
+          padding: 0 6px;
+        }
+
+        .el-pager {
+          li {
+            min-width: 26px;
+            height: 26px;
+            line-height: 26px;
+            font-size: 12px;
+            margin: 0 2px;
+          }
+        }
+
+        // 每页条数选择器优化
+        .el-pagination__sizes {
+          .el-select {
+            .el-input {
+              .el-input__inner {
+                height: 26px;
+                line-height: 26px;
+                font-size: 12px;
+                padding: 0 20px 0 8px;
+              }
+            }
+          }
+        }
+
+        // 跳转输入框优化
+        .el-pagination__jump {
+          .el-input {
+            .el-input__inner {
+              height: 26px;
+              line-height: 26px;
+              font-size: 12px;
+              width: 40px;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @media (max-width: 480px) {
+    :deep(.el-card__header) {
+      padding: 12px 15px;
+    }
+
+    :deep(.el-card__body) {
+      padding: 12px;
+    }
+
+    .card-header {
+      font-size: 14px;
+    }
+
+    .summary-cards {
+      // 极小屏幕下确保每个卡片占满一行
+      :deep(.el-col) {
+        margin-bottom: 10px;
+      }
+
+      .summary-item {
+        padding: 12px;
+
+        .label {
+          font-size: 12px;
+        }
+
+        .value {
+          font-size: 18px;
+        }
+      }
+    }
+
+    .metrics-row {
+      .metric-card {
+        padding: 12px;
+
+        .label {
+          font-size: 12px;
+        }
+
+        .value {
+          font-size: 18px;
+        }
+      }
+    }
+
+    :deep(.el-table) {
+      font-size: 11px;
+
+      .el-table__header th,
+      .el-table__body td {
+        padding: 6px 3px;
+      }
+    }
+
+    .table-pagination {
+      margin-top: 8px;
+
+      :deep(.el-pagination) {
+        font-size: 11px;
+        gap: 4px; // 元素间距更小
+
+        .el-pagination__total {
+          font-size: 11px;
+          margin-right: 4px;
+        }
+
+        .el-pagination__sizes {
+          margin-right: 4px;
+          
+          .el-select {
+            .el-input {
+              .el-input__inner {
+                height: 24px;
+                line-height: 24px;
+                font-size: 11px;
+                padding: 0 18px 0 6px;
+              }
+            }
+          }
+        }
+
+        .btn-prev,
+        .btn-next {
+          min-width: 24px;
+          height: 24px;
+          line-height: 24px;
+          padding: 0 4px;
+        }
+
+        .el-pager {
+          li {
+            min-width: 24px;
+            height: 24px;
+            line-height: 24px;
+            font-size: 11px;
+            margin: 0 1px;
+          }
+        }
+
+        .el-pagination__jump {
+          margin-left: 4px;
+          font-size: 11px;
+          
+          .el-input {
+            .el-input__inner {
+              height: 24px;
+              line-height: 24px;
+              font-size: 11px;
+              width: 35px;
+            }
+          }
+        }
+      }
+    }
+
+    .empty-hint {
+      padding: 30px 0;
+      font-size: 14px;
+    }
   }
 }
 </style>

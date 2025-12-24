@@ -1,7 +1,11 @@
 <template>
   <el-container class="main-layout">
-    <!-- 侧边栏 -->
-    <el-aside :width="isCollapse ? '64px' : '220px'" class="aside">
+    <!-- 桌面端侧边栏 -->
+    <el-aside 
+      v-if="!isMobile"
+      :width="isCollapse ? '64px' : '220px'" 
+      class="aside"
+    >
       <div class="logo">
         <el-icon size="28"><Microphone /></el-icon>
         <span v-show="!isCollapse" class="logo-text">KTV 经营分析</span>
@@ -54,19 +58,92 @@
       </el-menu>
     </el-aside>
 
+    <!-- 移动端侧边栏抽屉 -->
+    <el-drawer
+      v-model="mobileMenuVisible"
+      :with-header="false"
+      direction="ltr"
+      size="200px"
+      class="mobile-drawer"
+    >
+      <div class="aside mobile-aside">
+        <div class="logo">
+          <el-icon size="28"><Microphone /></el-icon>
+          <span class="logo-text">KTV 经营分析</span>
+        </div>
+        
+        <el-menu
+          :default-active="activeMenu"
+          router
+          class="menu"
+          @select="handleMobileMenuSelect"
+        >
+          <el-menu-item index="/dashboard">
+            <el-icon><DataAnalysis /></el-icon>
+            <template #title>综合驾驶舱</template>
+          </el-menu-item>
+          
+          <el-menu-item index="/upload">
+            <el-icon><Upload /></el-icon>
+            <template #title>数据上传</template>
+          </el-menu-item>
+          
+          <el-menu-item index="/batch">
+            <el-icon><List /></el-icon>
+            <template #title>批次管理</template>
+          </el-menu-item>
+
+          <el-menu-item index="/general-analysis">
+            <el-icon><DataLine /></el-icon>
+            <template #title>通用分析</template>
+          </el-menu-item>
+          
+          <el-sub-menu index="/analysis">
+            <template #title>
+              <el-icon><TrendCharts /></el-icon>
+              <span>专项分析</span>
+            </template>
+            <el-menu-item index="/analysis/staff">人员风云榜</el-menu-item>
+            <el-menu-item index="/analysis/products">商品销售</el-menu-item>
+            <el-menu-item index="/analysis/rooms">包厢效能</el-menu-item>
+          </el-sub-menu>
+
+          <el-menu-item 
+            v-if="currentUser?.role === 'admin'"
+            index="/users"
+          >
+            <el-icon><User /></el-icon>
+            <template #title>账号管理</template>
+          </el-menu-item>
+        </el-menu>
+      </div>
+    </el-drawer>
+
     <!-- 主内容区 -->
     <el-container>
       <!-- 顶部导航 -->
       <el-header class="header">
         <div class="header-left">
+          <!-- 移动端显示菜单按钮,桌面端显示折叠按钮 -->
           <el-icon 
+            v-if="isMobile"
+            class="collapse-btn menu-btn" 
+            @click="mobileMenuVisible = true"
+          >
+            <Menu />
+          </el-icon>
+          <el-icon 
+            v-else
             class="collapse-btn" 
             @click="isCollapse = !isCollapse"
           >
             <Fold v-if="!isCollapse" />
             <Expand v-else />
           </el-icon>
-          <el-breadcrumb separator="/">
+          
+          <!-- 移动端隐藏面包屑,显示标题 -->
+          <span v-if="isMobile" class="mobile-title">{{ currentTitle }}</span>
+          <el-breadcrumb v-else separator="/">
             <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item>{{ currentTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
@@ -78,7 +155,8 @@
             v-if="showStoreSelector && currentUser?.role === 'admin'"
             v-model="currentStore" 
             placeholder="选择门店" 
-            style="width: 180px"
+            :class="isMobile ? 'mobile-store-select' : ''"
+            :style="isMobile ? 'width: 100px' : 'width: 180px'"
           >
             <el-option
               v-for="store in stores"
@@ -88,22 +166,22 @@
             />
           </el-select>
 
-          <!-- 门店名称显示（店长） -->
+          <!-- 门店名称显示（店长） - 移动端简化显示 -->
           <div 
             v-if="showStoreSelector && currentUser?.role === 'manager'"
             class="current-store-display"
-            style="width: 180px; text-align: right; padding-right: 20px;"
+            :style="isMobile ? 'width: auto; padding-right: 10px;' : 'width: 180px; text-align: right; padding-right: 20px;'"
           >
-            <span class="store-label">{{ userStoreName || '我的门店' }}</span>
+            <span class="store-label">{{ isMobile ? '' : (userStoreName || '我的门店') }}</span>
           </div>
 
           <!-- 用户信息和登出 -->
           <el-dropdown @command="handleUserCommand" class="user-dropdown">
             <span class="user-info">
               <el-icon><Avatar /></el-icon>
-              <span class="username">{{ currentUser?.username || '未登录' }}</span>
-              <span class="user-role" v-if="currentUser">({{ currentUser.role === 'admin' ? '管理员' : '店长' }})</span>
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              <span v-if="!isMobile" class="username">{{ currentUser?.username || '未登录' }}</span>
+              <span v-if="!isMobile && currentUser" class="user-role">({{ currentUser.role === 'admin' ? '管理员' : '店长' }})</span>
+              <el-icon v-if="!isMobile" class="el-icon--right"><ArrowDown /></el-icon>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
@@ -126,12 +204,12 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, watch, onMounted } from 'vue'
+import { ref, computed, provide, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listStores } from '@/api/store'
 import { logout } from '@/api/auth'
-import { Avatar, ArrowDown, SwitchButton } from '@element-plus/icons-vue'
+import { Avatar, ArrowDown, SwitchButton, Menu } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -139,6 +217,29 @@ const isCollapse = ref(false)
 const currentStore = ref('all')
 const stores = ref([])
 const currentUser = ref(null)
+const mobileMenuVisible = ref(false)
+const isMobile = ref(false)
+
+// 检测是否为移动设备
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+  // 移动端自动折叠侧边栏
+  if (isMobile.value) {
+    isCollapse.value = true
+  }
+}
+
+// 监听窗口大小变化
+const handleResize = () => {
+  checkMobile()
+}
+
+// 移动端菜单选择后关闭抽屉
+const handleMobileMenuSelect = () => {
+  if (isMobile.value) {
+    mobileMenuVisible.value = false
+  }
+}
 
 // 创建简单的事件发射器
 const eventEmitter = {
@@ -297,8 +398,28 @@ const showStoreSelector = computed(() => route.meta?.hideStoreSelector !== true)
 // 组件挂载时加载数据
 onMounted(() => {
   loadStores()
+  checkMobile()
+  window.addEventListener('resize', handleResize)
+})
+
+// 组件卸载时移除监听
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
 })
 </script>
+
+<style lang="scss">
+// 移动端抽屉样式覆盖 - 放置在非 scoped 样式块中以确保样式生效
+.mobile-drawer {
+  --el-drawer-padding-primary: 0; // 使用变量去除内边距
+  --el-drawer-bg-color: #1a1a2e; // 设置背景色避免边缘白边
+  
+  .el-drawer__body {
+    padding: 0 !important;
+    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  }
+}
+</style>
 
 <style lang="scss" scoped>
 .main-layout {
@@ -365,7 +486,20 @@ onMounted(() => {
       }
     }
   }
+
+  &.mobile-aside {
+    height: 100%;
+    width: 100%;
+  }
 }
+
+// 移除旧的 scoped 样式，因为已移至全局样式块
+// 移动端抽屉样式
+// .mobile-drawer {
+//   :deep(.el-drawer__body) {
+//     padding: 0;
+//   }
+// }
 
 .header {
   display: flex;
@@ -388,6 +522,16 @@ onMounted(() => {
       &:hover {
         color: #409eff;
       }
+
+      &.menu-btn {
+        font-size: 24px;
+      }
+    }
+
+    .mobile-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: #303133;
     }
   }
 
@@ -434,6 +578,51 @@ onMounted(() => {
   background: #f5f7fa;
   padding: 20px;
   overflow-y: auto;
+}
+
+// 移动端样式优化
+@media (max-width: 768px) {
+  .header {
+    padding: 0 12px;
+    height: 50px;
+
+    .header-left {
+      gap: 10px;
+      flex: 1;
+    }
+
+    .header-right {
+      gap: 8px;
+
+      .mobile-store-select {
+        :deep(.el-input__inner) {
+          font-size: 13px;
+        }
+      }
+
+      .user-dropdown .user-info {
+        padding: 6px 8px;
+      }
+    }
+  }
+
+  .main {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header {
+    padding: 0 10px;
+
+    .header-left .mobile-title {
+      font-size: 14px;
+    }
+  }
+
+  .main {
+    padding: 10px;
+  }
 }
 </style>
 
