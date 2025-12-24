@@ -58,13 +58,13 @@
       <div class="table-pagination">
         <el-pagination
           background
-          :layout="isSmallScreen ? 'sizes, prev, pager, next' : (isMobile ? 'total, sizes, prev, pager, next' : 'total, sizes, prev, pager, next, jumper')"
+          :layout="paginationLayout"
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
           :total="total"
           :disabled="loading"
-          :pager-count="isSmallScreen ? 3 : (isMobile ? 5 : 7)"
+          :pager-count="pagerCount"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
@@ -83,6 +83,7 @@ import * as echarts from 'echarts'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
+import { usePagination } from '@/composables/usePagination'
 
 const loading = ref(false)
 const dateRange = ref([])
@@ -103,17 +104,10 @@ const pagination = reactive({
   pageSize: 20
 })
 
-// 根据屏幕宽度动态设置分页选项
-const isMobile = ref(false)
-const isSmallScreen = ref(false)
-const checkMobile = () => {
-  isMobile.value = window.innerWidth <= 768
-  isSmallScreen.value = window.innerWidth <= 480
-}
-
-const pageSizeOptions = computed(() => {
-  // 移动端只显示较少的选项，避免超出屏幕
-  return isMobile.value ? [20, 50] : [20, 50, 100]
+// 使用分页优化 Composable
+const { isMobile, pageSizeOptions, paginationLayout, pagerCount, checkDevice } = usePagination({
+  desktopPageSizes: [20, 50, 100],
+  mobilePageSizes: [20, 50]
 })
 
 const normalizeStaffRow = (item = {}) => ({
@@ -337,14 +331,13 @@ const handleDateChange = () => {
 }
 
 const handleResize = () => {
-  checkMobile()
+  checkDevice()
   chart?.resize()
   // 窗口大小变化时重新更新图表配置，确保移动端/桌面端配置正确
   updateChart()
 }
 
 onMounted(async () => {
-  checkMobile()
   initChart()
   const saved = readSessionJSON(dateRangeStorageKey, null)
   if (isValidDateRange(saved)) {

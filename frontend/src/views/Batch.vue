@@ -106,8 +106,8 @@
           v-model:page-size="pagination.pageSize"
           :total="total"
           :page-sizes="pageSizeOptions"
-          :layout="isSmallScreen ? 'sizes, prev, pager, next' : (isMobile ? 'total, sizes, prev, pager, next' : 'total, sizes, prev, pager, next, jumper')"
-          :pager-count="isSmallScreen ? 3 : (isMobile ? 5 : 7)"
+          :layout="paginationLayout"
+          :pager-count="pagerCount"
           @size-change="loadBatches"
           @current-change="loadBatches"
         />
@@ -172,10 +172,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount, inject, watch } from 'vue'
+import { ref, reactive, onMounted, inject, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listBatches, getBatchDetail, deleteBatch } from '@/api/batch'
 import { listStores } from '@/api/store'
+import { usePagination } from '@/composables/usePagination'
 
 // 状态
 const loading = ref(false)
@@ -201,17 +202,10 @@ const pagination = reactive({
   pageSize: 20,
 })
 
-// 根据屏幕宽度动态设置分页选项
-const isMobile = ref(false)
-const isSmallScreen = ref(false)
-const checkMobile = () => {
-  isMobile.value = window.innerWidth <= 768
-  isSmallScreen.value = window.innerWidth <= 480
-}
-
-const pageSizeOptions = computed(() => {
-  // 移动端只显示较少的选项，避免超出屏幕
-  return isMobile.value ? [10, 20, 50] : [10, 20, 50, 100]
+// 使用分页优化 Composable
+const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
+  desktopPageSizes: [10, 20, 50, 100],
+  mobilePageSizes: [10, 20, 50]
 })
 
 // 状态映射
@@ -336,15 +330,9 @@ const formatTime = (time) => {
 
 // 初始化
 onMounted(() => {
-  checkMobile()
-  window.addEventListener('resize', checkMobile)
   loadStores()
   // 手动触发一次数据加载
   loadBatches()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', checkMobile)
 })
 </script>
 

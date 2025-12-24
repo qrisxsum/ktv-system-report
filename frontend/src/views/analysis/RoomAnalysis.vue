@@ -89,13 +89,13 @@
       <div class="table-pagination">
         <el-pagination
           background
-          :layout="isSmallScreen ? 'sizes, prev, pager, next' : (isMobile ? 'total, sizes, prev, pager, next' : 'total, sizes, prev, pager, next, jumper')"
+          :layout="paginationLayout"
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
           :total="total"
           :disabled="loading"
-          :pager-count="isSmallScreen ? 3 : (isMobile ? 5 : 7)"
+          :pager-count="pagerCount"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
@@ -109,10 +109,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, inject, watch, reactive, nextTick } from 'vue'
+import { ref, onMounted, computed, inject, watch, reactive, nextTick } from 'vue'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
+import { usePagination } from '@/composables/usePagination'
 
 const loading = ref(false)
 const dateRange = ref([])
@@ -131,17 +132,10 @@ const pagination = reactive({
   pageSize: 20
 })
 
-// 根据屏幕宽度动态设置分页选项
-const isMobile = ref(false)
-const isSmallScreen = ref(false)
-const checkMobile = () => {
-  isMobile.value = window.innerWidth <= 768
-  isSmallScreen.value = window.innerWidth <= 480
-}
-
-const pageSizeOptions = computed(() => {
-  // 移动端只显示较少的选项，避免超出屏幕
-  return isMobile.value ? [20, 50] : [20, 50, 100]
+// 使用分页优化 Composable
+const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
+  desktopPageSizes: [20, 50, 100],
+  mobilePageSizes: [20, 50]
 })
 
 // 汇总统计
@@ -289,9 +283,6 @@ const handleDateChange = () => {
 }
 
 onMounted(async () => {
-  checkMobile()
-  window.addEventListener('resize', checkMobile)
-  
   const saved = readSessionJSON(dateRangeStorageKey, null)
   if (isValidDateRange(saved)) {
     dateRange.value = saved
@@ -302,10 +293,6 @@ onMounted(async () => {
     }
   }
   await fetchData()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', checkMobile)
 })
 </script>
 
