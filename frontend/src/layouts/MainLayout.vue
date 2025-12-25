@@ -202,7 +202,8 @@ const menuItems = [
       { index: '/analysis/staff', title: '人员风云榜' },
       { index: '/analysis/products', title: '商品销售' },
       { index: '/analysis/rooms', title: '包厢效能' },
-      { index: '/analysis/financial', title: '财务专项' }
+      { index: '/analysis/financial', title: '财务专项' },
+      { index: '/analysis/members', title: '会员变动' }
     ]
   },
   { index: '/users', icon: 'User', title: '账号管理', role: 'admin' }
