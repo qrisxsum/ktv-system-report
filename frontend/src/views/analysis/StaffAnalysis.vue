@@ -20,6 +20,83 @@
           </div>
         </div>
       </template>
+
+      <!-- TOP 3 荣誉领奖台 -->
+      <div class="top-three-podium" v-if="topThree.length > 0 && !loading">
+        <div class="podium-item second" v-if="topThree[1]">
+          <div class="rank-badge silver">🥈</div>
+          <div class="avatar">{{ topThree[1].name.slice(0, 1) }}</div>
+          <div class="name">{{ topThree[1].name }}</div>
+          <div class="metric-label">{{ rankMetricLabel }}</div>
+          <div class="amount">{{ formatMetricValue(topThree[1]) }}</div>
+          <div class="sub-info">
+            <span>订台 {{ topThree[1].booking_count }} 单</span>
+            <span>客单价 ¥{{ topThree[1].avgPerOrder.toFixed(0) }}</span>
+          </div>
+        </div>
+        <div class="podium-item first" v-if="topThree[0]">
+          <div class="crown">👑</div>
+          <div class="rank-badge gold">🥇</div>
+          <div class="avatar champion">{{ topThree[0].name.slice(0, 1) }}</div>
+          <div class="name">{{ topThree[0].name }}</div>
+          <div class="metric-label">{{ rankMetricLabel }}</div>
+          <div class="amount">{{ formatMetricValue(topThree[0]) }}</div>
+          <div class="sub-info">
+            <span>订台 {{ topThree[0].booking_count }} 单</span>
+            <span>客单价 ¥{{ topThree[0].avgPerOrder.toFixed(0) }}</span>
+          </div>
+        </div>
+        <div class="podium-item third" v-if="topThree[2]">
+          <div class="rank-badge bronze">🥉</div>
+          <div class="avatar">{{ topThree[2].name.slice(0, 1) }}</div>
+          <div class="name">{{ topThree[2].name }}</div>
+          <div class="metric-label">{{ rankMetricLabel }}</div>
+          <div class="amount">{{ formatMetricValue(topThree[2]) }}</div>
+          <div class="sub-info">
+            <span>订台 {{ topThree[2].booking_count }} 单</span>
+            <span>客单价 ¥{{ topThree[2].avgPerOrder.toFixed(0) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 排名维度切换 -->
+      <div class="rank-toggle-section">
+        <span class="toggle-label">排名依据：</span>
+        <el-radio-group v-model="rankMetric" size="small" @change="handleRankMetricChange">
+          <el-radio-button value="actual_amount">实收金额</el-radio-button>
+          <el-radio-button value="booking_count">订台数</el-radio-button>
+          <el-radio-button value="sales_amount">销售金额</el-radio-button>
+          <el-radio-button value="base_performance">基本业绩</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- 汇总统计卡片 -->
+      <el-row :gutter="16" class="summary-cards">
+        <el-col :xs="12" :sm="6">
+          <div class="summary-item primary">
+            <div class="label">总员工数</div>
+            <div class="value">{{ total }} 人</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="summary-item success">
+            <div class="label">总实收金额</div>
+            <div class="value">¥{{ summaryStats.totalActual.toLocaleString() }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="summary-item info">
+            <div class="label">总订台数</div>
+            <div class="value">{{ summaryStats.totalOrders }} 单</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="summary-item warning">
+            <div class="label">平均客单价</div>
+            <div class="value">¥{{ summaryStats.avgPerOrder.toFixed(0) }}</div>
+          </div>
+        </el-col>
+      </el-row>
       
       <div class="chart-container" ref="chartRef" v-loading="loading"></div>
       
@@ -30,28 +107,65 @@
         border
         style="margin-top: 20px"
         v-loading="loading"
+        :default-sort="{ prop: rankMetric, order: 'descending' }"
       >
-        <el-table-column type="index" label="排名" width="70" align="center" />
-        <el-table-column prop="name" label="姓名" width="150" />
-        <el-table-column prop="booking_count" label="订台数" width="120" align="right" />
-        <el-table-column prop="sales_amount" label="销售金额" width="140" align="right">
+        <el-table-column label="排名" width="70" align="center">
+          <template #default="{ $index }">
+            <span v-if="$index === 0" class="rank-icon gold">🥇</span>
+            <span v-else-if="$index === 1" class="rank-icon silver">🥈</span>
+            <span v-else-if="$index === 2" class="rank-icon bronze">🥉</span>
+            <span v-else class="rank-number">{{ $index + 1 }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="name" label="姓名" min-width="100">
+          <template #default="{ row, $index }">
+            <div class="name-cell">
+              <span class="staff-name">{{ row.name }}</span>
+              <el-tag v-if="$index === 0" size="small" type="warning" effect="dark" class="top-tag">TOP</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="booking_count" label="订台数" width="90" align="right" sortable />
+        <el-table-column prop="sales_amount" label="销售金额" width="120" align="right" sortable>
           <template #default="{ row }">
             ¥{{ (row.sales_amount || 0).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column prop="actual_amount" label="实收金额" width="140" align="right">
+        <el-table-column prop="actual_amount" label="实收金额" width="120" align="right" sortable>
           <template #default="{ row }">
-            ¥{{ (row.actual_amount || 0).toLocaleString() }}
+            <span class="highlight-value">¥{{ (row.actual_amount || 0).toLocaleString() }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="base_performance" label="基本业绩" width="140" align="right">
+        <el-table-column label="客单价" width="90" align="right">
           <template #default="{ row }">
-            ¥{{ (row.base_performance || 0).toLocaleString() }}
+            ¥{{ row.avgPerOrder.toFixed(0) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_amount" label="赠送金额" align="right">
+        <el-table-column label="转化率" width="80" align="center">
           <template #default="{ row }">
-            ¥{{ (row.gift_amount || 0).toFixed(2) }}
+            <span :class="getConversionClass(row.conversionRate)">
+              {{ row.conversionRate.toFixed(1) }}%
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="贡献占比" min-width="130">
+          <template #default="{ row }">
+            <div class="contribution-cell">
+              <el-progress 
+                :percentage="row.contributionPct" 
+                :stroke-width="10"
+                :color="getProgressColor(row.contributionPct)"
+                :show-text="false"
+              />
+              <span class="pct-text">{{ row.contributionPct.toFixed(1) }}%</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="gift_amount" label="赠送金额" width="100" align="right">
+          <template #default="{ row }">
+            <span :class="{ 'text-danger': row.gift_amount > 500 }">
+              ¥{{ (row.gift_amount || 0).toFixed(0) }}
+            </span>
           </template>
         </el-table-column>
       </el-table>
@@ -93,6 +207,18 @@ const tableRef = ref(null)
 let chart = null
 const dateRangeStorageKey = 'viewState:StaffAnalysis:dateRange'
 
+// 排名维度
+const rankMetric = ref('actual_amount')
+const rankMetricLabel = computed(() => {
+  const labels = {
+    actual_amount: '实收金额',
+    booking_count: '订台数',
+    sales_amount: '销售金额',
+    base_performance: '基本业绩'
+  }
+  return labels[rankMetric.value] || '实收金额'
+})
+
 // 注入门店选择状态
 const currentStore = inject('currentStore', ref('all'))
 
@@ -120,17 +246,89 @@ const normalizeStaffRow = (item = {}) => ({
   gift_amount: item.gift_amount || 0
 })
 
-// 处理后的员工数据（按实收金额排序）
+// 汇总统计
+const summaryStats = computed(() => {
+  const source = chartRows.value.map(normalizeStaffRow)
+  const totalActual = source.reduce((sum, i) => sum + i.actual_amount, 0)
+  const totalOrders = source.reduce((sum, i) => sum + i.booking_count, 0)
+  return {
+    totalActual,
+    totalOrders,
+    avgPerOrder: totalOrders > 0 ? totalActual / totalOrders : 0
+  }
+})
+
+// 增强员工数据（添加客单价、转化率、贡献占比）
+const enhanceStaffData = (data) => {
+  const totalActual = data.reduce((sum, i) => sum + i.actual_amount, 0)
+  return data.map(item => ({
+    ...item,
+    avgPerOrder: item.booking_count > 0 ? item.actual_amount / item.booking_count : 0,
+    conversionRate: item.sales_amount > 0 ? (item.actual_amount / item.sales_amount) * 100 : 0,
+    contributionPct: totalActual > 0 ? (item.actual_amount / totalActual) * 100 : 0
+  }))
+}
+
+// 排序函数
+const sortByMetric = (data, metric) => {
+  return [...data].sort((a, b) => {
+    if (metric === 'booking_count') {
+      return b.booking_count - a.booking_count
+    } else if (metric === 'sales_amount') {
+      return b.sales_amount - a.sales_amount
+    } else if (metric === 'base_performance') {
+      return b.base_performance - a.base_performance
+    }
+    return b.actual_amount - a.actual_amount
+  })
+}
+
+// 处理后的员工数据（按选定维度排序）
 const staffData = computed(() => {
   const data = tableRows.value.map(normalizeStaffRow)
-  return data.sort((a, b) => b.actual_amount - a.actual_amount)
+  const enhanced = enhanceStaffData(data)
+  return sortByMetric(enhanced, rankMetric.value)
 })
 
 // 图表所用数据（不受分页影响）
 const chartStaffData = computed(() => {
   const data = chartRows.value.map(normalizeStaffRow)
-  return data.sort((a, b) => b.actual_amount - a.actual_amount)
+  const enhanced = enhanceStaffData(data)
+  return sortByMetric(enhanced, rankMetric.value)
 })
+
+// TOP 3 数据
+const topThree = computed(() => {
+  return chartStaffData.value.slice(0, 3)
+})
+
+// 格式化指标值
+const formatMetricValue = (item) => {
+  if (rankMetric.value === 'booking_count') {
+    return `${item.booking_count} 单`
+  }
+  const value = item[rankMetric.value] || 0
+  return `¥${value.toLocaleString()}`
+}
+
+// 转化率样式
+const getConversionClass = (rate) => {
+  if (rate >= 90) return 'conversion-high'
+  if (rate >= 70) return 'conversion-medium'
+  return 'conversion-low'
+}
+
+// 进度条颜色
+const getProgressColor = (pct) => {
+  if (pct >= 20) return '#667eea'
+  if (pct >= 10) return '#43e97b'
+  return '#909399'
+}
+
+// 排名维度切换
+const handleRankMetricChange = () => {
+  updateChart()
+}
 
 // 初始化日期范围（使用数据库中的最新日期）
 const initDateRange = async () => {
@@ -223,20 +421,30 @@ const updateChart = () => {
   if (!chart) return
   
   // 取前10名员工数据（不受分页影响）
+  const isCountMetric = rankMetric.value === 'booking_count'
+  const metricKey = rankMetric.value
+  
   const data = chartStaffData.value
     .slice(0, 10)
-    .map(item => ({ name: item.name, value: item.actual_amount }))
+    .map(item => ({ 
+      name: item.name, 
+      value: item[metricKey] || 0,
+      actualAmount: item.actual_amount,
+      bookingCount: item.booking_count
+    }))
     .reverse() // 图表从下到上排列
   
   // 根据设备类型调整配置
   const gridConfig = isMobile.value 
-    ? { left: '20%', right: '5%', top: '5%', bottom: '10%' } // 移动端：减少右侧空间，增加底部空间给横坐标
+    ? { left: '20%', right: '5%', top: '5%', bottom: '10%' }
     : { left: '15%', right: '15%', top: '5%', bottom: '5%' }
   
   const xAxisLabelConfig = isMobile.value
     ? {
         formatter: (value) => {
-          // 移动端使用更简洁的格式
+          if (isCountMetric) {
+            return value + '单'
+          }
           if (value >= 10000) {
             return '¥' + (value / 10000).toFixed(1) + '万'
           } else if (value >= 1000) {
@@ -245,17 +453,37 @@ const updateChart = () => {
             return '¥' + value.toFixed(0)
           }
         },
-        fontSize: 10, // 移动端字体更小
-        margin: 8 // 增加标签与轴线的距离
+        fontSize: 10,
+        margin: 8
       }
     : {
-        formatter: (value) => '¥' + (value / 1000).toFixed(0) + 'K'
+        formatter: (value) => {
+          if (isCountMetric) {
+            return value + '单'
+          }
+          return '¥' + (value / 1000).toFixed(0) + 'K'
+        }
       }
+  
+  // 根据排名维度选择不同渐变色
+  const gradientColors = {
+    actual_amount: [{ offset: 0, color: '#667eea' }, { offset: 1, color: '#764ba2' }],
+    booking_count: [{ offset: 0, color: '#43e97b' }, { offset: 1, color: '#38f9d7' }],
+    sales_amount: [{ offset: 0, color: '#f093fb' }, { offset: 1, color: '#f5576c' }],
+    base_performance: [{ offset: 0, color: '#4facfe' }, { offset: 1, color: '#00f2fe' }]
+  }
   
   chart.setOption({
     tooltip: { 
       trigger: 'axis', 
-      formatter: '{b}: ¥{c}',
+      formatter: (params) => {
+        const d = params[0]
+        const dataItem = data[d.dataIndex]
+        if (isCountMetric) {
+          return `${d.name}<br/>订台数: ${d.value} 单<br/>实收: ¥${dataItem.actualAmount.toLocaleString()}`
+        }
+        return `${d.name}<br/>${rankMetricLabel.value}: ¥${d.value.toLocaleString()}<br/>订台: ${dataItem.bookingCount} 单`
+      },
       axisPointer: {
         type: 'shadow'
       }
@@ -270,22 +498,24 @@ const updateChart = () => {
       data: data.map(d => d.name),
       axisLabel: {
         interval: 0,
-        fontSize: isMobile.value ? 11 : undefined // 移动端Y轴标签也稍微缩小
+        fontSize: isMobile.value ? 11 : undefined
       }
     },
     series: [{
       type: 'bar',
       data: data.map(d => d.value),
       itemStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-          { offset: 0, color: '#667eea' },
-          { offset: 1, color: '#764ba2' }
-        ])
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, gradientColors[metricKey] || gradientColors.actual_amount)
       },
       label: {
-        show: !isMobile.value, // 移动端隐藏柱状图右侧的数值标签，避免拥挤
+        show: !isMobile.value,
         position: 'right',
-        formatter: (params) => '¥' + params.value.toLocaleString()
+        formatter: (params) => {
+          if (isCountMetric) {
+            return params.value + '单'
+          }
+          return '¥' + params.value.toLocaleString()
+        }
       }
     }]
   })
@@ -389,9 +619,248 @@ onUnmounted(() => {
     width: 360px;
     max-width: 100%;
   }
+
+  // TOP 3 荣誉领奖台
+  .top-three-podium {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 20px;
+    padding: 30px 20px 20px;
+    background: linear-gradient(180deg, #f8f9ff 0%, #fff 100%);
+    border-radius: 12px;
+    margin-bottom: 20px;
+
+    .podium-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 15px;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.1);
+      transition: transform 0.3s ease;
+      position: relative;
+      min-width: 140px;
+
+      &:hover {
+        transform: translateY(-5px);
+      }
+
+      &.first {
+        order: 2;
+        padding: 25px 20px;
+        min-width: 160px;
+        background: linear-gradient(135deg, #fff9e6 0%, #fff 100%);
+        box-shadow: 0 6px 20px rgba(255, 193, 7, 0.25);
+        
+        .crown {
+          position: absolute;
+          top: -20px;
+          font-size: 32px;
+          animation: bounce 2s infinite;
+        }
+
+        .avatar {
+          width: 70px;
+          height: 70px;
+          font-size: 28px;
+        }
+
+        .amount {
+          font-size: 20px;
+        }
+      }
+
+      &.second {
+        order: 1;
+        background: linear-gradient(135deg, #f8f9ff 0%, #fff 100%);
+      }
+
+      &.third {
+        order: 3;
+        background: linear-gradient(135deg, #fff5f0 0%, #fff 100%);
+      }
+
+      .rank-badge {
+        font-size: 24px;
+        margin-bottom: 8px;
+      }
+
+      .avatar {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        font-weight: 600;
+        margin-bottom: 10px;
+
+        &.champion {
+          background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+        }
+      }
+
+      .name {
+        font-size: 16px;
+        font-weight: 600;
+        color: #303133;
+        margin-bottom: 4px;
+      }
+
+      .metric-label {
+        font-size: 12px;
+        color: #909399;
+        margin-bottom: 2px;
+      }
+
+      .amount {
+        font-size: 18px;
+        font-weight: bold;
+        color: #667eea;
+      }
+
+      .sub-info {
+        display: flex;
+        gap: 10px;
+        margin-top: 8px;
+        font-size: 12px;
+        color: #909399;
+      }
+    }
+  }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+
+  // 排名维度切换
+  .rank-toggle-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+
+    .toggle-label {
+      font-size: 14px;
+      color: #606266;
+      font-weight: 500;
+    }
+  }
+
+  // 汇总统计卡片
+  .summary-cards {
+    margin-bottom: 20px;
+
+    .summary-item {
+      border-radius: 10px;
+      padding: 16px;
+      color: #fff;
+      text-align: center;
+
+      .label {
+        font-size: 13px;
+        opacity: 0.9;
+        margin-bottom: 6px;
+      }
+
+      .value {
+        font-size: 20px;
+        font-weight: bold;
+      }
+
+      &.primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+      &.success {
+        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+      }
+      &.info {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+      }
+      &.warning {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+      }
+    }
+  }
   
   .chart-container {
     height: 400px;
+  }
+
+  // 表格增强样式
+  .rank-icon {
+    font-size: 18px;
+    
+    &.gold { filter: drop-shadow(0 2px 3px rgba(255, 193, 7, 0.4)); }
+    &.silver { filter: drop-shadow(0 2px 3px rgba(192, 192, 192, 0.4)); }
+    &.bronze { filter: drop-shadow(0 2px 3px rgba(205, 127, 50, 0.4)); }
+  }
+
+  .rank-number {
+    font-weight: 600;
+    color: #606266;
+  }
+
+  .name-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    .staff-name {
+      font-weight: 500;
+    }
+
+    .top-tag {
+      font-size: 10px;
+      padding: 0 4px;
+      height: 18px;
+      line-height: 18px;
+    }
+  }
+
+  .highlight-value {
+    font-weight: 600;
+    color: #667eea;
+  }
+
+  .conversion-high {
+    color: #67c23a;
+    font-weight: 600;
+  }
+  .conversion-medium {
+    color: #e6a23c;
+    font-weight: 500;
+  }
+  .conversion-low {
+    color: #909399;
+  }
+
+  .contribution-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    :deep(.el-progress) {
+      flex: 1;
+    }
+
+    .pct-text {
+      font-size: 12px;
+      color: #606266;
+      min-width: 40px;
+      text-align: right;
+    }
+  }
+
+  .text-danger {
+    color: #f56c6c;
   }
 
   .table-pagination {
@@ -430,7 +899,7 @@ onUnmounted(() => {
       width: 100%;
     }
 
-    // 时间范围选择器样式优化（与财务专项一致）
+    // 时间范围选择器样式优化
     :deep(.el-date-editor--daterange) {
       width: 100% !important;
       padding: 3px 5px;
@@ -453,6 +922,105 @@ onUnmounted(() => {
       }
     }
 
+    // TOP 3 领奖台移动端
+    .top-three-podium {
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 20px 10px;
+
+      .podium-item {
+        min-width: 100px;
+        padding: 15px 10px;
+
+        &.first {
+          min-width: 120px;
+          padding: 18px 12px;
+
+          .crown {
+            font-size: 24px;
+            top: -15px;
+          }
+
+          .avatar {
+            width: 55px;
+            height: 55px;
+            font-size: 22px;
+          }
+
+          .amount {
+            font-size: 16px;
+          }
+        }
+
+        .rank-badge {
+          font-size: 20px;
+        }
+
+        .avatar {
+          width: 45px;
+          height: 45px;
+          font-size: 18px;
+        }
+
+        .name {
+          font-size: 14px;
+        }
+
+        .amount {
+          font-size: 15px;
+        }
+
+        .sub-info {
+          flex-direction: column;
+          gap: 2px;
+          font-size: 11px;
+        }
+      }
+    }
+
+    // 排名切换移动端
+    .rank-toggle-section {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+
+      :deep(.el-radio-group) {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+
+        .el-radio-button {
+          flex: 1;
+          min-width: 0;
+
+          .el-radio-button__inner {
+            width: 100%;
+            padding: 8px 6px;
+            font-size: 12px;
+          }
+        }
+      }
+    }
+
+    // 汇总卡片移动端
+    .summary-cards {
+      :deep(.el-col) {
+        margin-bottom: 10px;
+      }
+
+      .summary-item {
+        padding: 12px;
+
+        .label {
+          font-size: 12px;
+        }
+
+        .value {
+          font-size: 16px;
+        }
+      }
+    }
+
     .chart-container {
       height: 300px;
     }
@@ -466,14 +1034,21 @@ onUnmounted(() => {
       }
     }
 
+    .contribution-cell {
+      .pct-text {
+        font-size: 11px;
+        min-width: 35px;
+      }
+    }
+
     .table-pagination {
       justify-content: center !important;
       margin-top: 10px;
-      overflow-x: auto; // 允许横向滚动作为后备方案
+      overflow-x: auto;
       -webkit-overflow-scrolling: touch;
 
       :deep(.el-pagination) {
-        flex-wrap: wrap; // 允许换行
+        flex-wrap: wrap;
         justify-content: center;
         font-size: 12px;
 
@@ -502,7 +1077,6 @@ onUnmounted(() => {
           }
         }
 
-        // 每页条数选择器优化
         .el-pagination__sizes {
           .el-select {
             .el-input {
@@ -516,7 +1090,6 @@ onUnmounted(() => {
           }
         }
 
-        // 跳转输入框优化
         .el-pagination__jump {
           .el-input {
             .el-input__inner {
@@ -540,8 +1113,98 @@ onUnmounted(() => {
       padding: 12px;
     }
 
+    // TOP 3 极小屏幕
+    .top-three-podium {
+      padding: 15px 8px;
+
+      .podium-item {
+        min-width: 85px;
+        padding: 12px 8px;
+
+        &.first {
+          min-width: 95px;
+          padding: 14px 10px;
+
+          .crown {
+            font-size: 20px;
+            top: -12px;
+          }
+
+          .avatar {
+            width: 45px;
+            height: 45px;
+            font-size: 18px;
+          }
+
+          .amount {
+            font-size: 14px;
+          }
+        }
+
+        .rank-badge {
+          font-size: 16px;
+          margin-bottom: 4px;
+        }
+
+        .avatar {
+          width: 38px;
+          height: 38px;
+          font-size: 15px;
+          margin-bottom: 6px;
+        }
+
+        .name {
+          font-size: 12px;
+        }
+
+        .metric-label {
+          font-size: 10px;
+        }
+
+        .amount {
+          font-size: 13px;
+        }
+
+        .sub-info {
+          font-size: 10px;
+          margin-top: 4px;
+        }
+      }
+    }
+
+    .summary-cards {
+      .summary-item {
+        padding: 10px;
+
+        .label {
+          font-size: 11px;
+        }
+
+        .value {
+          font-size: 14px;
+        }
+      }
+    }
+
     .chart-container {
       height: 250px;
+    }
+
+    .rank-icon {
+      font-size: 15px;
+    }
+
+    .name-cell {
+      .staff-name {
+        font-size: 12px;
+      }
+
+      .top-tag {
+        font-size: 9px;
+        padding: 0 3px;
+        height: 16px;
+        line-height: 16px;
+      }
     }
 
     :deep(.el-table) {
@@ -558,7 +1221,7 @@ onUnmounted(() => {
 
       :deep(.el-pagination) {
         font-size: 11px;
-        gap: 4px; // 元素间距更小
+        gap: 4px;
 
         .el-pagination__total {
           font-size: 11px;
