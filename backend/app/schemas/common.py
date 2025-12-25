@@ -29,6 +29,7 @@ class Dimension(StrEnum):
     ROOM = "room"
     ROOM_TYPE = "room_type"
     PRODUCT = "product"
+    CATEGORY = "category"
 
 
 class TableType(StrEnum):
