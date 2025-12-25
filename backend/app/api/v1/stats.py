@@ -41,6 +41,7 @@ def _convert_dimension_to_string(dimension: Dimension) -> str:
         Dimension.STORE: "store",
         Dimension.EMPLOYEE: "employee",
         Dimension.PRODUCT: "product",
+        Dimension.CATEGORY: "category",
         Dimension.ROOM: "room",
         Dimension.ROOM_TYPE: "room_type",
     }

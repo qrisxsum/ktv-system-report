@@ -5,7 +5,26 @@
         <div class="card-header">
           <span class="header-title">🍺 商品销售分析</span>
           <div class="header-right">
-            <span class="filter-label">时间范围</span>
+            <el-input
+              v-model="searchKeyword"
+              placeholder="搜索商品..."
+              class="search-input"
+              clearable
+              @clear="handleSearch"
+              @input="handleSearch"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+            <el-switch
+              class="exception-switch"
+              v-model="showExceptionOnly"
+              inline-prompt
+              active-text="仅看滞销/异常"
+              inactive-text="全部商品"
+              @change="handleExceptionToggle"
+            />
             <el-date-picker
               class="date-range"
               v-model="dateRange"
@@ -21,47 +40,133 @@
         </div>
       </template>
       
+      <div
+        v-if="chartProductData.length"
+        class="ranking-row"
+      >
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="12" :md="8">
+            <el-card class="chart-card">
+              <template #header>
+                <span class="chart-title">🔥 爆款榜 (销售额 Top 10)</span>
+              </template>
+              <div class="chart-wrapper">
+                <div ref="salesChartRef" class="chart-container"></div>
+                <div
+                  v-if="!topSalesData.length"
+                  class="chart-empty"
+                >
+                  暂无数据
+                </div>
+              </div>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :sm="12" :md="8">
+            <el-card class="chart-card">
+              <template #header>
+                <span class="chart-title">💰 盈利榜 (毛利额 Top 10)</span>
+              </template>
+              <div class="chart-wrapper">
+                <div ref="profitChartRef" class="chart-container"></div>
+                <div
+                  v-if="!topProfitData.length"
+                  class="chart-empty"
+                >
+                  暂无数据
+                </div>
+              </div>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :sm="12" :md="8">
+            <el-card class="chart-card">
+              <template #header>
+                <span class="chart-title">⚠️ 损耗榜 (赠送金额 Top 10)</span>
+              </template>
+              <div class="chart-wrapper">
+                <div ref="giftChartRef" class="chart-container"></div>
+                <div
+                  v-if="!topGiftData.length"
+                  class="chart-empty"
+                >
+                  暂无数据
+                </div>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+      </div>
+
+      <div
+        v-if="chartProductData.length"
+        class="category-structure"
+      >
+        <el-row :gutter="16">
+          <el-col :xs="24" :md="12">
+            <el-card class="chart-card">
+              <template #header>
+                <span class="chart-title">📦 品类销售占比</span>
+              </template>
+              <div class="chart-wrapper">
+                <div ref="categoryChartRef" class="chart-container"></div>
+                <div
+                  v-if="!categoryChartData.length"
+                  class="chart-empty"
+                >
+                  暂无数据
+                </div>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+      </div>
+
       <el-table
         ref="tableRef"
-        :data="productData"
+        :data="tableProductData"
         stripe
         border
         v-loading="loading"
+        :row-class-name="getRowClass"
       >
         <el-table-column prop="product_name" label="商品名称" min-width="150" />
         <el-table-column prop="sales_qty" label="销售数量" min-width="100" align="right">
           <template #default="{ row }">
-            {{ row.sales_qty || 0 }}
+            {{ formatInteger(row.sales_qty) }}
           </template>
         </el-table-column>
         <el-table-column prop="sales_amount" label="销售金额" min-width="120" align="right">
           <template #default="{ row }">
-            ¥{{ (row.sales_amount || 0).toFixed(2) }}
+            {{ formatCurrency(row.sales_amount) }}
           </template>
         </el-table-column>
         <el-table-column prop="gift_qty" label="赠送数量" min-width="100" align="right">
           <template #default="{ row }">
-            {{ row.gift_qty || 0 }}
+            {{ formatInteger(row.gift_qty) }}
           </template>
         </el-table-column>
         <el-table-column prop="gift_amount" label="赠送金额" min-width="120" align="right">
           <template #default="{ row }">
-            ¥{{ (row.gift_amount || 0).toFixed(2) }}
+            {{ formatCurrency(row.gift_amount) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="gift_rate" label="赠送率" min-width="120" align="right">
+          <template #default="{ row }">
+            {{ formatPercent(row.gift_rate) }}
           </template>
         </el-table-column>
         <el-table-column prop="cost" label="成本" min-width="120" align="right">
           <template #default="{ row }">
-            ¥{{ (row.cost || 0).toFixed(2) }}
+            {{ formatCurrency(row.cost) }}
           </template>
         </el-table-column>
         <el-table-column prop="profit" label="利润" min-width="120" align="right">
           <template #default="{ row }">
-            ¥{{ (row.profit || 0).toFixed(2) }}
+            {{ formatCurrency(row.profit) }}
           </template>
         </el-table-column>
-        <el-table-column prop="profit_rate" label="利润率" min-width="100" align="right">
+        <el-table-column prop="profit_rate" label="成本利润率" min-width="110" align="right">
           <template #default="{ row }">
-            {{ row.profit_rate ? row.profit_rate.toFixed(2) : '0.00' }}%
+            {{ formatPercent(row.profit_rate) }}
           </template>
         </el-table-column>
       </el-table>
@@ -73,7 +178,7 @@
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
-          :total="total"
+          :total="tableTotal"
           :disabled="loading"
           :pager-count="pagerCount"
           @current-change="handlePageChange"
@@ -81,15 +186,17 @@
         />
       </div>
       
-      <div v-if="!productData.length && !loading" class="empty-hint">
-        暂无数据，请先上传商品销售数据
+      <div v-if="!tableProductData.length && !loading" class="empty-hint">
+        {{ showExceptionOnly ? '暂无滞销或异常赠送商品' : '暂无数据，请先上传商品销售数据' }}
       </div>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, inject, watch, reactive, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, inject, watch, reactive, nextTick } from 'vue'
+import * as echarts from 'echarts'
+import { Search } from '@element-plus/icons-vue'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
@@ -97,6 +204,8 @@ import { usePagination } from '@/composables/usePagination'
 
 const loading = ref(false)
 const dateRange = ref([])
+const showExceptionOnly = ref(false)
+const searchKeyword = ref('')
 const tableRef = ref(null)
 const dateRangeStorageKey = 'viewState:ProductAnalysis:dateRange'
 
@@ -105,6 +214,11 @@ const currentStore = inject('currentStore', ref('all'))
 
 const tableRows = ref([])
 const total = ref(0)
+const fullRows = ref([])
+const fullDataLoading = ref(false)
+const lastFullQueryKey = ref('')
+const FULL_DATA_PAGE_SIZE = 200
+let pendingFullFetch = null
 
 const pagination = reactive({
   page: 1,
@@ -117,26 +231,379 @@ const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
   mobilePageSizes: [20, 50]
 })
 
-// 处理后的商品数据
-const productData = computed(() => {
-  return tableRows.value.map(item => {
-    const salesAmount = item.sales_amount || 0
-    const cost = item.cost ?? item.cost_total ?? 0
-    const profit = item.profit || 0
-    const profitRate = item.profit_rate || 0  // 直接使用后端返回的利润率（成本利润率）
-    
-    return {
-      product_name: item.dimension_label || '未知商品',
-      sales_qty: item.sales_qty || 0,
-      sales_amount: salesAmount,
-      gift_qty: item.gift_qty || 0,
-      gift_amount: item.gift_amount || 0,
-      cost: cost,
-      profit: profit,
-      profit_rate: profitRate
-    }
-  }).sort((a, b) => b.sales_amount - a.sales_amount) // 按销售额降序排列
+const toSafeNumber = (value) => {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : 0
+}
+
+const calcProfitRate = (profit, cost) => {
+  if (!cost) return 0
+  const ratio = profit / cost
+  return Number.isFinite(ratio) ? ratio : 0
+}
+
+const calcGiftRate = (giftQty, salesQty) => {
+  const total = giftQty + salesQty
+  if (!total) return 0
+  const ratio = giftQty / total
+  return Number.isFinite(ratio) ? ratio : 0
+}
+
+const formatCurrency = (value) => {
+  return `¥${toSafeNumber(value).toFixed(2)}`
+}
+
+const formatInteger = (value) => {
+  return toSafeNumber(value)
+}
+
+const formatPercent = (value) => {
+  return `${(toSafeNumber(value) * 100).toFixed(2)}%`
+}
+
+const formatAxisLabel = (value) => {
+  const num = toSafeNumber(value)
+  if (!Number.isFinite(num)) return '¥0'
+  return `¥${num.toLocaleString('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  })}`
+}
+
+const formatDimensionLabel = (value) => {
+  const label = value ?? '--'
+  const text = typeof label === 'string' ? label : String(label)
+  return text.length > 12 ? `${text.slice(0, 11)}…` : text
+}
+
+const normalizeCategoryLabel = (value) => {
+  if (value === null || value === undefined) return '其他'
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length ? trimmed : '其他'
+  }
+  const stringified = String(value)
+  return stringified.length ? stringified : '其他'
+}
+
+const mapRowToProduct = (item) => {
+  const salesQty = toSafeNumber(item.sales_qty)
+  const giftQty = toSafeNumber(item.gift_qty)
+  const salesAmount = toSafeNumber(item.sales_amount)
+  const giftAmount = toSafeNumber(item.gift_amount)
+  const cost = toSafeNumber(item.cost ?? item.cost_total)
+  const profit = toSafeNumber(item.profit)
+
+  const profitRate = calcProfitRate(profit, cost)
+  const giftRate = calcGiftRate(giftQty, salesQty)
+
+  const category = normalizeCategoryLabel(
+    item.category ??
+      item.product_category ??
+      item.dimension_category ??
+      item.category_name
+  )
+
+  return {
+    product_name: item.dimension_label || '未知商品',
+    sales_qty: salesQty,
+    sales_amount: salesAmount,
+    gift_qty: giftQty,
+    gift_amount: giftAmount,
+    cost,
+    profit,
+    profit_rate: profitRate,
+    gift_rate: giftRate,
+    category
+  }
+}
+
+const buildProductList = (rows = []) => {
+  return rows
+    .map(item => mapRowToProduct(item))
+    .sort((a, b) => b.sales_amount - a.sales_amount)
+}
+
+const pagedProductData = computed(() => buildProductList(tableRows.value))
+const fullProductData = computed(() => buildProductList(fullRows.value))
+
+const baseProductData = computed(() => {
+  return fullProductData.value.length ? fullProductData.value : pagedProductData.value
 })
+
+const exceptionProductData = computed(() => {
+  return baseProductData.value.filter(item => {
+    // 滞销预警：销量为 0 且有赠送（目前的 Fact 表局限性），或赠送率超过 30%
+    const isStagnant = item.sales_qty === 0
+    const isGiftAbnormal = item.gift_rate > 0.3
+    return isStagnant || isGiftAbnormal
+  })
+})
+
+const chartProductData = computed(() => {
+  let data = showExceptionOnly.value ? exceptionProductData.value : baseProductData.value
+  if (searchKeyword.value) {
+    const kw = searchKeyword.value.toLowerCase()
+    data = data.filter(item => 
+      item.product_name.toLowerCase().includes(kw) || 
+      item.category.toLowerCase().includes(kw)
+    )
+  }
+  return data
+})
+
+const tableProductData = computed(() => {
+  const data = chartProductData.value
+  const start = (pagination.page - 1) * pagination.pageSize
+  const end = start + pagination.pageSize
+  
+  if (showExceptionOnly.value || searchKeyword.value) {
+    return data.slice(start, end)
+  }
+  return pagedProductData.value
+})
+
+const tableTotal = computed(() => {
+  return chartProductData.value.length
+})
+
+const getTopData = (rows, key) => {
+  return [...rows]
+    .sort((a, b) => toSafeNumber(b[key]) - toSafeNumber(a[key]))
+    .slice(0, 10)
+    .reverse()
+}
+
+const topSalesData = computed(() => chartProductData.value.slice(0, 10).reverse())
+const topProfitData = computed(() => getTopData(chartProductData.value, 'profit'))
+const topGiftData = computed(() => getTopData(chartProductData.value, 'gift_amount'))
+
+const categoryChartData = computed(() => {
+  if (!chartProductData.value.length) return []
+  const buckets = chartProductData.value.reduce((acc, item) => {
+    const key = item.category || '其他'
+    acc[key] = (acc[key] || 0) + toSafeNumber(item.sales_amount)
+    return acc
+  }, {})
+  
+  const sortedEntries = Object.entries(buckets)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+
+  if (sortedEntries.length <= 10) {
+    return sortedEntries
+  }
+
+  // 取前 10 名，其余合并为“其他品类”
+  const top10 = sortedEntries.slice(0, 10)
+  const othersValue = sortedEntries.slice(10).reduce((sum, item) => sum + item.value, 0)
+  
+  return [...top10, { name: '其他品类', value: othersValue }]
+})
+
+const salesChartRef = ref(null)
+const profitChartRef = ref(null)
+const giftChartRef = ref(null)
+const categoryChartRef = ref(null)
+
+const chartInstances = reactive({
+  sales: null,
+  profit: null,
+  gift: null,
+  category: null
+})
+
+const chartColorMap = {
+  sales: '#409EFF',
+  profit: '#67C23A',
+  gift: '#E6A23C'
+}
+
+const chartRefMap = {
+  sales: salesChartRef,
+  profit: profitChartRef,
+  gift: giftChartRef,
+  category: categoryChartRef
+}
+
+const buildBarOption = (data, valueKey, color) => {
+  if (!data.length) {
+    return null
+  }
+
+  const names = data.map(item => item.product_name || '未知商品')
+  const values = data.map(item => toSafeNumber(item[valueKey]))
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params) => {
+        const first = Array.isArray(params) ? params[0] : params
+        if (!first) return ''
+        return `${first.name}<br/>${first.marker}${formatCurrency(first.value)}`
+      }
+    },
+    grid: {
+      top: 10,
+      bottom: 10,
+      left: 10,
+      right: 20,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'value',
+      axisLabel: {
+        formatter: formatAxisLabel
+      },
+      splitLine: {
+        lineStyle: { type: 'dashed' }
+      }
+    },
+    yAxis: {
+      type: 'category',
+      data: names,
+      axisLabel: {
+        formatter: formatDimensionLabel
+      }
+    },
+    series: [
+      {
+        type: 'bar',
+        data: values,
+        barMaxWidth: 20,
+        itemStyle: {
+          color
+        },
+        label: {
+          show: true,
+          position: 'right',
+          formatter: ({ value }) => formatCurrency(value)
+        }
+      }
+    ]
+  }
+}
+
+const buildCategoryPieOption = (data) => {
+  if (!data.length) {
+    return null
+  }
+  return {
+    tooltip: {
+      trigger: 'item',
+      formatter: ({ name, value, percent }) => {
+        const ratio = Number(percent)
+        const percentText = Number.isFinite(ratio) ? `${ratio.toFixed(2)}%` : '--'
+        return `${name}<br/>销售额：${formatCurrency(value)}<br/>占比：${percentText}`
+      }
+    },
+    legend: {
+      orient: 'vertical',
+      right: 0,
+      top: 'middle'
+    },
+    series: [
+      {
+        name: '品类销售占比',
+        type: 'pie',
+        roseType: 'radius',
+        radius: ['35%', '65%'],
+        center: ['40%', '50%'],
+        data: data.map(item => ({
+          name: item.name,
+          value: toSafeNumber(item.value)
+        })),
+        emphasis: {
+          scale: true,
+          scaleSize: 8
+        },
+        label: {
+          formatter: '{b}\n{d}%'
+        }
+      }
+    ]
+  }
+}
+
+const ensureChartInstance = (type) => {
+  if (chartInstances[type]) {
+    return chartInstances[type]
+  }
+  const el = chartRefMap[type]?.value
+  if (!el) {
+    return null
+  }
+  chartInstances[type] = echarts.init(el)
+  
+  // 添加点击联动
+  chartInstances[type].on('click', (params) => {
+    if (params.name) {
+      searchKeyword.value = params.name
+      pagination.page = 1
+      handleSearch()
+    }
+  })
+  
+  return chartInstances[type]
+}
+
+const disposeChartInstance = (type) => {
+  if (chartInstances[type]) {
+    chartInstances[type].dispose()
+    chartInstances[type] = null
+  }
+}
+
+const disposeAllCharts = () => {
+  disposeChartInstance('sales')
+  disposeChartInstance('profit')
+  disposeChartInstance('gift')
+  disposeChartInstance('category')
+}
+
+const updateChart = (type, data, valueKey) => {
+  const instance = ensureChartInstance(type)
+  if (!instance) return
+  if (!data.length) {
+    instance.clear()
+    return
+  }
+  const option = buildBarOption(data, valueKey, chartColorMap[type])
+  if (option) {
+    instance.setOption(option, true)
+  }
+}
+
+const updateCategoryChart = (data) => {
+  const instance = ensureChartInstance('category')
+  if (!instance) return
+  if (!data.length) {
+    instance.clear()
+    return
+  }
+  const option = buildCategoryPieOption(data)
+  if (option) {
+    instance.setOption(option, true)
+  }
+}
+
+const updateAllCharts = () => {
+  if (!chartProductData.value.length) {
+    disposeAllCharts()
+    return
+  }
+  updateChart('sales', topSalesData.value, 'sales_amount')
+  updateChart('profit', topProfitData.value, 'profit')
+  updateChart('gift', topGiftData.value, 'gift_amount')
+  updateCategoryChart(categoryChartData.value)
+}
+
+const handleChartResize = () => {
+  Object.values(chartInstances).forEach(instance => {
+    instance?.resize()
+  })
+}
 
 // 初始化日期范围（使用数据库中的最新日期）
 const initDateRange = async () => {
@@ -173,27 +640,17 @@ const fetchData = async () => {
   loading.value = true
   
   try {
-    const [startDate, endDate] = dateRange.value
-
-    const params = {
-      table: 'sales',
-      start_date: startDate,
-      end_date: endDate,
-      dimension: 'product',
-      granularity: 'day',
+    const baseParams = buildBaseParams()
+    if (!baseParams) {
+      tableRows.value = []
+      total.value = 0
+      return
+    }
+    const response = await queryStats({
+      ...baseParams,
       page: pagination.page,
       page_size: pagination.pageSize
-    }
-
-    // 根据当前门店选择设置store_id参数
-    if (currentStore.value && currentStore.value !== 'all') {
-      const parsedStoreId = parseInt(currentStore.value, 10)
-      if (Number.isFinite(parsedStoreId)) {
-        params.store_id = parsedStoreId
-      }
-    }
-
-    const response = await queryStats(params)
+    })
 
     if (response.success && response.data) {
       const rows = Array.isArray(response.data.rows) ? response.data.rows : []
@@ -204,6 +661,8 @@ const fetchData = async () => {
       tableRows.value = []
       total.value = 0
     }
+
+    ensureFullDataset(baseParams)
   } catch (error) {
     console.error('获取商品分析数据失败:', error)
     ElMessage.error('获取商品分析数据失败')
@@ -220,6 +679,24 @@ watch(currentStore, () => {
   fetchData()
 })
 
+watch(
+  chartProductData,
+  (rows) => {
+    nextTick(() => {
+      if (!rows.length) {
+        disposeAllCharts()
+        return
+      }
+      ensureChartInstance('sales')
+      ensureChartInstance('profit')
+      ensureChartInstance('gift')
+      ensureChartInstance('category')
+      updateAllCharts()
+    })
+  },
+  { deep: true, immediate: true }
+)
+
 const scrollTableToTop = () => {
   nextTick(() => {
     if (tableRef.value?.setScrollTop) {
@@ -228,13 +705,130 @@ const scrollTableToTop = () => {
   })
 }
 
+const parseStoreId = () => {
+  if (currentStore.value && currentStore.value !== 'all') {
+    const parsedStoreId = parseInt(currentStore.value, 10)
+    if (Number.isFinite(parsedStoreId)) {
+      return parsedStoreId
+    }
+  }
+  return null
+}
+
+const buildBaseParams = () => {
+  if (!dateRange.value || dateRange.value.length !== 2) {
+    return null
+  }
+  const [startDate, endDate] = dateRange.value
+  const baseParams = {
+    table: 'sales',
+    start_date: startDate,
+    end_date: endDate,
+    dimension: 'product',
+    granularity: 'day'
+  }
+  const storeId = parseStoreId()
+  if (storeId !== null) {
+    baseParams.store_id = storeId
+  }
+  return baseParams
+}
+
+const buildFullQueryKey = (params) => {
+  if (!params) return ''
+  const storeKey = params.store_id ?? 'all'
+  return `${params.start_date}|${params.end_date}|${storeKey}`
+}
+
+const ensureFullDataset = async (baseParams, force = false) => {
+  if (!baseParams) return
+  const queryKey = buildFullQueryKey(baseParams)
+  const keyChanged = lastFullQueryKey.value !== queryKey
+  if (!force && !keyChanged) {
+    if (fullRows.value.length) {
+      return
+    }
+    if (pendingFullFetch) {
+      return pendingFullFetch
+    }
+  }
+  lastFullQueryKey.value = queryKey
+  if (force || keyChanged) {
+    fullRows.value = []
+  }
+  fullDataLoading.value = true
+  const fetchPromise = (async () => {
+    const aggregated = []
+    let page = 1
+    try {
+      while (true) {
+        const resp = await queryStats({
+          ...baseParams,
+          page,
+          page_size: FULL_DATA_PAGE_SIZE
+        })
+        if (!resp.success || !resp.data) {
+          break
+        }
+        const rows = Array.isArray(resp.data.rows) ? resp.data.rows : []
+        if (!rows.length) {
+          break
+        }
+        aggregated.push(...rows)
+        const totalCount = Number(resp.data.total)
+        if (
+          (Number.isFinite(totalCount) && aggregated.length >= totalCount) ||
+          rows.length < FULL_DATA_PAGE_SIZE
+        ) {
+          break
+        }
+        page += 1
+      }
+      fullRows.value = aggregated
+    } catch (error) {
+      console.error('获取全量商品数据失败:', error)
+      fullRows.value = aggregated
+    } finally {
+      fullDataLoading.value = false
+      pendingFullFetch = null
+    }
+  })()
+  pendingFullFetch = fetchPromise
+  return fetchPromise
+}
+
+const handleExceptionToggle = async () => {
+  pagination.page = 1
+  if (showExceptionOnly.value) {
+    const baseParams = buildBaseParams()
+    await ensureFullDataset(baseParams)
+  }
+  scrollTableToTop()
+}
+
+const handleSearch = () => {
+  pagination.page = 1
+  scrollTableToTop()
+}
+
 const handlePageChange = async (page) => {
+  if (showExceptionOnly.value) {
+    pagination.page = page
+    scrollTableToTop()
+    return
+  }
   pagination.page = page
   await fetchData()
   scrollTableToTop()
 }
 
 const handlePageSizeChange = async (size) => {
+  if (showExceptionOnly.value) {
+    pagination.pageSize = size
+    pagination.page = 1
+    scrollTableToTop()
+    return
+  }
   pagination.pageSize = size
   pagination.page = 1
   await fetchData()
@@ -249,6 +843,11 @@ const handleDateChange = () => {
   fetchData()
 }
 
+const getRowClass = ({ row }) => {
+  if (!row) return ''
+  return row.gift_rate > 0.3 ? 'warning-row' : ''
+}
+
 onMounted(async () => {
   const saved = readSessionJSON(dateRangeStorageKey, null)
   if (isValidDateRange(saved)) {
@@ -260,6 +859,12 @@ onMounted(async () => {
     }
   }
   await fetchData()
+  window.addEventListener('resize', handleChartResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleChartResize)
+  disposeAllCharts()
 })
 </script>
 
@@ -292,6 +897,10 @@ onMounted(async () => {
   .date-range {
     width: 360px;
     max-width: 100%;
+  }
+
+  .search-input {
+    width: 200px;
   }
 
   @media (max-width: 768px) {
@@ -517,6 +1126,55 @@ onMounted(async () => {
     justify-content: flex-end;
     margin-top: 12px;
     width: 100%;
+  }
+
+  .exception-switch {
+    min-width: 120px;
+  }
+
+  :deep(.warning-row) {
+    background-color: rgba(245, 108, 108, 0.08);
+  }
+
+  :deep(.warning-row .cell) {
+    color: #F56C6C;
+    font-weight: 600;
+  }
+
+  .ranking-row,
+  .category-structure {
+    margin-bottom: 20px;
+
+    .chart-card {
+      height: 100%;
+    }
+
+    .chart-title {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .chart-wrapper {
+      position: relative;
+      height: 300px;
+    }
+
+    .chart-container {
+      width: 100%;
+      height: 100%;
+    }
+
+    .chart-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #c0c4cc;
+      font-size: 14px;
+      background-color: rgba(255, 255, 255, 0.85);
+      border: 1px dashed #ebeef5;
+    }
   }
 }
 </style>

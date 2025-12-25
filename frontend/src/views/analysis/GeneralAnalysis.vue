@@ -87,14 +87,24 @@
         </div>
 
         <div class="toolbar-actions">
-          <el-button
-            type="primary"
-            plain
-            size="small"
-            @click="handleFinancialDailyPreset"
-          >
-            财务日报
-          </el-button>
+          <el-button-group>
+            <el-button
+              type="primary"
+              plain
+              size="small"
+              @click="handleFinancialDailyPreset"
+            >
+              财务日报
+            </el-button>
+            <el-button
+              type="success"
+              plain
+              size="small"
+              @click="handleProductDailyPreset"
+            >
+              商品日报
+            </el-button>
+          </el-button-group>
         </div>
 
         <!-- 自动查询：选满条件后自动触发，无需手动“查询”按钮 -->
@@ -232,6 +242,7 @@
 
 <script setup>
 import { reactive, computed, watch, ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { queryStats } from '@/api/stats'
@@ -257,6 +268,7 @@ const queryParams = reactive({
 const generalAnalysisStateKey = 'viewState:GeneralAnalysis:state'
 // 兼容旧版本仅保存 dateRange 的 key
 const legacyDateRangeStorageKey = 'viewState:GeneralAnalysis:dateRange'
+const route = useRoute()
 
 const pagination = reactive({
   page: PAGINATION_CONFIG.defaultPage,
@@ -273,7 +285,8 @@ const DIMENSION_OPTIONS_MAP = {
   sales: [
     { label: '日期', value: 'date' },
     { label: '门店', value: 'store' },
-    { label: '商品', value: 'product' }
+    { label: '商品', value: 'product' },
+    { label: '商品类别', value: 'category' }
   ],
   booking: [
     { label: '日期', value: 'date' },
@@ -304,7 +317,8 @@ const DIMENSION_COLUMN_MAP = {
   date: { label: '日期', prop: 'dimension_value', minWidth: 140 },
   store: { label: '门店', prop: 'dimension_value', minWidth: 160 },
   employee: { label: '员工', prop: 'dimension_value', minWidth: 160 },
-  product: { label: '商品', prop: 'dimension_value', minWidth: 160 },
+  product: { label: '商品名称', prop: 'dimension_value', minWidth: 160 },
+  category: { label: '商品类别', prop: 'dimension_value', minWidth: 160 },
   room: { label: '包厢', prop: 'dimension_value', minWidth: 140 },
   room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160 }
 }
@@ -338,9 +352,14 @@ const COLUMN_CONFIG = {
   sales: [
     { prop: 'sales_qty', label: '销量', align: 'right', minWidth: 100 },
     { prop: 'sales_amount', label: '销售额', align: 'right', minWidth: 120 },
+    { prop: 'actual_amount', label: '实收金额', align: 'right', minWidth: 120 },
     { prop: 'gift_amount', label: '赠送金额', align: 'right', minWidth: 120 },
+    { prop: 'gift_rate', label: '赠送率', align: 'right', minWidth: 120, format: 'percent' },
     { prop: 'cost', label: '成本', align: 'right', minWidth: 100 },
-    { prop: 'profit', label: '毛利', align: 'right', minWidth: 100 }
+    { prop: 'profit', label: '毛利', align: 'right', minWidth: 100 },
+    { prop: 'unit_profit', label: '单品毛利', align: 'right', minWidth: 120 },
+    { prop: 'profit_rate', label: '成本利润率', align: 'right', minWidth: 140, format: 'percent' },
+    { prop: 'actual_rate', label: '实收转化率', align: 'right', minWidth: 140, format: 'percent' }
   ],
   room: [
     { prop: 'orders', label: '开台数', align: 'right', minWidth: 100 },
@@ -569,6 +588,27 @@ const withBookingDerivedMetrics = (row) => {
   }
 }
 
+const withSalesDerivedMetrics = (row) => {
+  const profit = toFiniteNumber(row.profit)
+  const cost = toFiniteNumber(row.cost ?? row.cost_total)
+  const salesAmount = toFiniteNumber(row.sales_amount)
+  const salesQty = toFiniteNumber(row.sales_qty)
+  const giftQty = toFiniteNumber(row.gift_qty)
+  const totalQty = salesQty + giftQty
+  const actualAmount = toFiniteNumber(row.actual ?? row.actual_amount, salesAmount)
+  const billTotal = toFiniteNumber(row.bill_total ?? row.sales_amount, salesAmount)
+
+  return {
+    ...row,
+    cost,
+    actual_amount: actualAmount,
+    gift_rate: computeRatio(giftQty, totalQty, 4),
+    profit_rate: computeRatio(profit, cost, 4),
+    unit_profit: computeAverage(profit, salesQty, 2),
+    actual_rate: computeRatio(actualAmount, billTotal, 4)
+  }
+}
+
 const normalizeRow = (item, table) => {
   const baseRow = {
     ...item,
@@ -576,6 +616,9 @@ const normalizeRow = (item, table) => {
   }
   if (table === 'booking') {
     return withBookingDerivedMetrics(baseRow)
+  }
+  if (table === 'sales') {
+    return withSalesDerivedMetrics(baseRow)
   }
   return baseRow
 }
@@ -1133,14 +1176,42 @@ const scheduleAutoQuery = ({ resetPage = true, source = 'auto' } = {}) => {
   }, 250)
 }
 
-const handleFinancialDailyPreset = () => {
+const handleFinancialDailyPreset = ({ triggerQuery = true, source = 'preset:financial' } = {}) => {
   suppressAutoQuery.value = true
   queryParams.table = 'booking'
   queryParams.dimension = 'employee'
+  queryParams.granularity = 'day'
   nextTick(() => {
     suppressAutoQuery.value = false
-    scheduleAutoQuery({ resetPage: true, source: 'preset:financial' })
+    if (triggerQuery) {
+      scheduleAutoQuery({ resetPage: true, source })
+    }
   })
+}
+
+const handleProductDailyPreset = ({ triggerQuery = true, source = 'preset:product' } = {}) => {
+  suppressAutoQuery.value = true
+  queryParams.table = 'sales'
+  queryParams.dimension = 'product'
+  queryParams.granularity = 'day'
+  nextTick(() => {
+    suppressAutoQuery.value = false
+    if (triggerQuery) {
+      scheduleAutoQuery({ resetPage: true, source })
+    }
+  })
+}
+
+const applyRoutePresetIfNeeded = () => {
+  if (route.query?.preset === 'financial_daily') {
+    handleFinancialDailyPreset({ source: 'preset:financial:route' })
+    return true
+  }
+  if (route.query?.preset === 'product_daily') {
+    handleProductDailyPreset({ source: 'preset:product:route' })
+    return true
+  }
+  return false
 }
 
 onMounted(() => {
@@ -1150,13 +1221,18 @@ onMounted(() => {
     applyViewState(savedState)
     nextTick(() => {
       suppressAutoQuery.value = false
-      scheduleAutoQuery({ resetPage: true, source: 'restore' })
+      if (!applyRoutePresetIfNeeded()) {
+        scheduleAutoQuery({ resetPage: true, source: 'restore' })
+      }
     })
   } else {
     const legacyRange = readSessionJSON(legacyDateRangeStorageKey, null)
     if (isValidDateRange(legacyRange)) {
       queryParams.dateRange = legacyRange
     }
+    nextTick(() => {
+      applyRoutePresetIfNeeded()
+    })
   }
   loadCurrentUser()
   fetchStoreOptions()
@@ -1179,6 +1255,17 @@ watch(
   () => selectedMetric.value,
   () => {
     writeSessionJSON(generalAnalysisStateKey, buildViewState())
+  }
+)
+
+watch(
+  () => route.query?.preset,
+  (preset, previous) => {
+    if (preset === 'financial_daily' && preset !== previous) {
+      handleFinancialDailyPreset({ source: 'preset:financial:navigate' })
+    } else if (preset === 'product_daily' && preset !== previous) {
+      handleProductDailyPreset({ source: 'preset:product:navigate' })
+    }
   }
 )
 

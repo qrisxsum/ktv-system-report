@@ -60,6 +60,9 @@ class StatsService:
         elif dimension == "product":
             if hasattr(model, "product_id"):
                 return model.product_id.label("dimension_key")
+        elif dimension == "category":
+            if model is FactSales:
+                return DimProduct.category.label("dimension_key")
         elif dimension == "room":
             if hasattr(model, "room_id"):
                 return model.room_id.label("dimension_key")
@@ -83,7 +86,10 @@ class StatsService:
             return 0.0
 
     def _merge_payment_payload(
-        self, target: Dict[str, float], payload: Optional[Dict[str, Any]], only_prefixed: bool
+        self,
+        target: Dict[str, float],
+        payload: Optional[Dict[str, Any]],
+        only_prefixed: bool,
     ):
         """将 payload 中的支付金额累加到 target"""
         if not isinstance(payload, dict):
@@ -115,14 +121,11 @@ class StatsService:
             return {}
 
         dim_expr = self._get_dimension_expr(model, dimension, granularity)
-        query = (
-            self.db.query(
-                dim_expr.label("dimension_key"),
-                model.extra_payments,
-                model.extra_info,
-            )
-            .filter(model.biz_date.between(start_date, end_date))
-        )
+        query = self.db.query(
+            dim_expr.label("dimension_key"),
+            model.extra_payments,
+            model.extra_info,
+        ).filter(model.biz_date.between(start_date, end_date))
         if store_id is not None:
             query = query.filter(model.store_id == store_id)
 
@@ -135,7 +138,9 @@ class StatsService:
         return aggregates
 
     @staticmethod
-    def _inject_extra_payments(records: List[Dict[str, Any]], aggregates: Dict[Any, Dict[str, float]]):
+    def _inject_extra_payments(
+        records: List[Dict[str, Any]], aggregates: Dict[Any, Dict[str, float]]
+    ):
         """将聚合好的支付方式注入结果行"""
         if not records or not aggregates:
             return
@@ -190,6 +195,7 @@ class StatsService:
                 ("gift_qty", func.sum(model.gift_qty)),
                 ("gift_amount", func.sum(model.gift_amount)),
                 ("cost_total", func.sum(model.cost_total)),
+                ("cost", func.sum(model.cost_total)),
                 ("profit", func.sum(model.profit)),
                 ("profit_rate", func.avg(model.profit_rate)),  # 利润率取平均值
             ]
@@ -197,14 +203,20 @@ class StatsService:
             return [
                 ("recharge_real_income", self._safe_sum(model.recharge_real_income)),
                 ("room_amount_principal", self._safe_sum(model.room_amount_principal)),
-                ("drink_amount_principal", self._safe_sum(model.drink_amount_principal)),
+                (
+                    "drink_amount_principal",
+                    self._safe_sum(model.drink_amount_principal),
+                ),
                 ("room_amount_gift", self._safe_sum(model.room_amount_gift)),
                 ("drink_amount_gift", self._safe_sum(model.drink_amount_gift)),
                 ("balance_total", self._safe_sum(model.balance_total)),
                 ("points_delta", self._safe_sum(model.points_delta)),
                 ("growth_delta", self._safe_sum(model.growth_delta)),
                 # 使用 CASE WHEN 替代 FILTER，兼容 MySQL
-                ("recharge_count", func.sum(case((model.change_type.like("%充值%"), 1), else_=0))),
+                (
+                    "recharge_count",
+                    func.sum(case((model.change_type.like("%充值%"), 1), else_=0)),
+                ),
             ]
         raise ValueError("未知表类型")
 
@@ -227,24 +239,36 @@ class StatsService:
                 DimStore,
                 model.store_id == DimStore.id,
                 DimStore.store_name.label("dimension_label"),
+                [],
             )
         if dimension == "employee" and hasattr(model, "employee_id"):
             return (
                 DimEmployee,
                 model.employee_id == DimEmployee.id,
                 DimEmployee.name.label("dimension_label"),
+                [],
             )
         if dimension == "product" and hasattr(model, "product_id"):
+            extra_columns = [DimProduct.category.label("dimension_category")]
             return (
                 DimProduct,
                 model.product_id == DimProduct.id,
                 DimProduct.name.label("dimension_label"),
+                extra_columns,
+            )
+        if dimension == "category" and hasattr(model, "product_id"):
+            return (
+                DimProduct,
+                model.product_id == DimProduct.id,
+                DimProduct.category.label("dimension_label"),
+                [],
             )
         if dimension == "room" and hasattr(model, "room_id"):
             return (
                 DimRoom,
                 model.room_id == DimRoom.id,
                 DimRoom.room_no.label("dimension_label"),
+                [],
             )
         if dimension == "room_type":
             if model is not FactRoom:
@@ -253,8 +277,9 @@ class StatsService:
                 DimRoom,
                 model.room_id == DimRoom.id,
                 DimRoom.room_type.label("dimension_label"),
+                [],
             )
-        return (None, None, None)
+        return (None, None, None, [])
 
     def _build_group_stmt(
         self,
@@ -274,11 +299,18 @@ class StatsService:
             metric_columns[name] = labeled
             select_columns.append(labeled)
 
-        join_model, join_condition, dim_label_expr = self._get_dimension_join_config(
-            model, dimension
-        )
+        (
+            join_model,
+            join_condition,
+            dim_label_expr,
+            extra_columns,
+        ) = self._get_dimension_join_config(model, dimension)
         if dim_label_expr is not None:
             select_columns.append(dim_label_expr)
+        extra_column_names: List[str] = []
+        for extra_col in extra_columns:
+            select_columns.append(extra_col)
+            extra_column_names.append(extra_col.key)
 
         stmt = select(*select_columns)
         if join_model is not None:
@@ -289,18 +321,31 @@ class StatsService:
         stmt = stmt.group_by(dim_expr)
         if dim_label_expr is not None:
             stmt = stmt.group_by(dim_label_expr)
+        for extra_col in extra_columns:
+            stmt = stmt.group_by(extra_col)
         stmt = stmt.order_by(dim_expr)
-        return stmt, dim_expr, dim_label_expr is not None, metric_columns
+        return (
+            stmt,
+            dim_expr,
+            dim_label_expr is not None,
+            metric_columns,
+            extra_column_names,
+        )
 
     def _count_group_rows(self, stmt):
         subquery = stmt.order_by(None).subquery()
         return self.db.execute(select(func.count()).select_from(subquery)).scalar() or 0
 
     def _fetch_rows(
-        self, stmt, metrics: List[Tuple[str, Any]], has_label: bool
+        self,
+        stmt,
+        metrics: List[Tuple[str, Any]],
+        has_label: bool,
+        extra_column_names: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         rows = self.db.execute(stmt).all()
         result: List[Dict[str, Any]] = []
+        extra_column_names = extra_column_names or []
         for row in rows:
             mapping = row._mapping
             record = {"dimension_key": mapping["dimension_key"]}
@@ -310,6 +355,9 @@ class StatsService:
                 record["dimension_label"] = mapping["dimension_label"]
             else:
                 record["dimension_label"] = str(mapping["dimension_key"])
+            for extra_name in extra_column_names:
+                if extra_name in mapping:
+                    record[extra_name] = mapping.get(extra_name)
             result.append(record)
         return result
 
@@ -372,7 +420,7 @@ class StatsService:
 
         metrics = self._get_metrics_exprs(model)
 
-        rows_stmt, _, has_label_rows, _ = self._build_group_stmt(
+        rows_stmt, _, has_label_rows, _, extra_column_names = self._build_group_stmt(
             model=model,
             dimension=dimension,
             granularity=granularity,
@@ -385,7 +433,9 @@ class StatsService:
         total = self._count_group_rows(rows_stmt)
         offset = (page - 1) * page_size
         paginated_stmt = rows_stmt.offset(offset).limit(page_size)
-        rows = self._fetch_rows(paginated_stmt, metrics, has_label_rows)
+        rows = self._fetch_rows(
+            paginated_stmt, metrics, has_label_rows, extra_column_names
+        )
 
         series_granularity = granularity
         auto_adjusted = False
@@ -418,7 +468,13 @@ class StatsService:
                     f"数据点过多，已自动调整为按 {series_granularity} 聚合"
                 )
 
-            series_stmt, _, has_label_series, _ = self._build_group_stmt(
+            (
+                series_stmt,
+                _,
+                has_label_series,
+                _,
+                extra_column_names_series,
+            ) = self._build_group_stmt(
                 model=model,
                 dimension=dimension,
                 granularity=series_granularity,
@@ -427,18 +483,24 @@ class StatsService:
                 end_date=end_date,
                 store_id=store_id,
             )
-            series_rows = self._fetch_rows(series_stmt, metrics, has_label_series)
+            series_rows = self._fetch_rows(
+                series_stmt, metrics, has_label_series, extra_column_names_series
+            )
         else:
-            series_stmt, dim_expr_series, has_label_series, metric_columns = (
-                self._build_group_stmt(
-                    model=model,
-                    dimension=dimension,
-                    granularity=granularity,
-                    metrics=metrics,
-                    start_date=start_date,
-                    end_date=end_date,
-                    store_id=store_id,
-                )
+            (
+                series_stmt,
+                dim_expr_series,
+                has_label_series,
+                metric_columns,
+                extra_column_names_series,
+            ) = self._build_group_stmt(
+                model=model,
+                dimension=dimension,
+                granularity=granularity,
+                metrics=metrics,
+                start_date=start_date,
+                end_date=end_date,
+                store_id=store_id,
             )
             primary_metric_name = self._determine_primary_metric(metric_columns)
             primary_metric_expr = metric_columns[primary_metric_name]
@@ -446,7 +508,9 @@ class StatsService:
                 primary_metric_expr.desc(), dim_expr_series
             )
             series_stmt = series_stmt.limit(top_n)
-            series_rows = self._fetch_rows(series_stmt, metrics, has_label_series)
+            series_rows = self._fetch_rows(
+                series_stmt, metrics, has_label_series, extra_column_names_series
+            )
             if total > len(series_rows):
                 is_truncated = True
                 suggestions.append(
@@ -484,10 +548,12 @@ class StatsService:
 
         # 计算全局汇总 (Grand Total)
         summary_selects = [expr.label(name) for name, expr in metrics]
-        summary_stmt = select(*summary_selects).where(model.biz_date.between(start_date, end_date))
+        summary_stmt = select(*summary_selects).where(
+            model.biz_date.between(start_date, end_date)
+        )
         if store_id is not None:
             summary_stmt = summary_stmt.where(model.store_id == store_id)
-        
+
         summary_row = self.db.execute(summary_stmt).one_or_none()
         summary_data = {}
         if summary_row:
