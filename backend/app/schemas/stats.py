@@ -143,7 +143,7 @@ class DashboardSummary(BaseModel):
     yesterday_change: float = Field(0, description="当日环比变化率")
     
     month_actual: float = Field(0, description="本月实收累计")
-    month_change: float = Field(0, description="本月同比变化率")
+    month_change: float = Field(0, description="本月环比变化率")
     month_cost: float = Field(0, description="本月成本累计")
     
     month_profit: float = Field(0, description="本月毛利累计")
