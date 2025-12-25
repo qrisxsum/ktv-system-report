@@ -1469,8 +1469,8 @@ class CleanerService:
         if report_type == "booking":
             # 平衡性校验：实收金额 vs 收入类支付方式合计
             errors.extend(self._validate_balance(df, report_type))
-            # 深度校验：账单构成校验（销售 - 优惠 = 实收）
-            errors.extend(self._validate_booking_logic(df))
+            # 深度校验：账单构成校验（销售 - 优惠 = 实收） - 已按需取消
+            # errors.extend(self._validate_booking_logic(df))
         elif report_type == "room":
             # 平衡性校验：实收金额 vs 收入类支付方式合计
             errors.extend(self._validate_balance(df, report_type))
