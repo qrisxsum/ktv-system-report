@@ -126,7 +126,7 @@ async def get_dashboard_summary(
 
     包含:
     - 当日实收 & 环比
-    - 本月实收 & 同比
+    - 本月实收 & 环比
     - 毛利率
     - 赠送率
     - 近12个月营收趋势
@@ -157,16 +157,20 @@ async def get_dashboard_summary(
     day_before_yesterday = yesterday - timedelta(days=1)
     month_start = yesterday.replace(day=1)
     
-    # 上月同期（基于 reference 的“今天/昨天”）
-    if today.month == 1:
-        last_month_start = today.replace(year=today.year - 1, month=12, day=1)
-        last_month_end = today.replace(year=today.year - 1, month=12, day=min(yesterday.day, 31))
+    # 上月同期（基于 yesterday 所在月份的上一个月，而不是 today）
+    if yesterday.month == 1:
+        last_month_start = yesterday.replace(year=yesterday.year - 1, month=12, day=1)
+        _, days_in_last_month = monthrange(last_month_start.year, last_month_start.month)
+        last_month_end = yesterday.replace(year=yesterday.year - 1, month=12, day=min(yesterday.day, days_in_last_month))
     else:
-        last_month_start = today.replace(month=today.month - 1, day=1)
+        last_month_start = yesterday.replace(month=yesterday.month - 1, day=1)
+        _, days_in_last_month = monthrange(last_month_start.year, last_month_start.month)
         try:
-            last_month_end = yesterday.replace(month=today.month - 1)
+            last_month_end = yesterday.replace(month=yesterday.month - 1)
         except ValueError:
-            last_month_end = last_month_start.replace(day=28)
+            # 如果上个月没有这一天（例如3月31日 -> 2月没有31日），取上个月最后一天
+            last_month_end = last_month_start.replace(day=days_in_last_month)
+
     
     # 初始化数据
     yesterday_actual = 0.0
