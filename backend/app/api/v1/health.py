@@ -4,8 +4,8 @@
 提供数据完整度/健康度查询功能
 """
 
-from datetime import date, datetime
-from typing import Optional, List, Dict, Any
+from datetime import date, datetime, timedelta
+from typing import Optional, List, Dict, Any, Set
 from sqlalchemy import func, distinct
 from sqlalchemy.orm import Session
 from fastapi import APIRouter, Query, Depends, HTTPException
@@ -52,6 +52,127 @@ REPORT_TYPE_NAMES = {
 }
 
 
+def _get_all_dates_in_range(start_date: date, end_date: date) -> Set[date]:
+    """获取日期范围内的所有日期"""
+    dates = set()
+    current = start_date
+    while current <= end_date:
+        dates.add(current)
+        current += timedelta(days=1)
+    return dates
+
+
+def _batch_get_coverage_data(
+    db: Session,
+    store_ids: List[int],
+    table_type: str,
+    start_date: date,
+    end_date: date
+) -> Dict[int, Dict[str, Any]]:
+    """
+    批量获取多个门店的数据覆盖情况（优化版本，减少数据库查询）
+    
+    Returns:
+        Dict[store_id, coverage_info]
+    """
+    table_info = TABLE_TYPE_MAP.get(TableType(table_type))
+    if not table_info:
+        return {sid: {
+            "status": "missing",
+            "row_count": 0,
+            "date_range": {"start": None, "end": None},
+            "coverage_days": 0,
+            "expected_days": 0,
+            "latest_upload": None,
+            "missing_dates": []
+        } for sid in store_ids}
+    
+    model = table_info["model"]
+    expected_days = (end_date - start_date).days + 1
+    all_dates = _get_all_dates_in_range(start_date, end_date)
+    
+    # 批量查询：按门店分组获取统计数据
+    stats_query = db.query(
+        model.store_id,
+        func.min(model.biz_date).label("min_date"),
+        func.max(model.biz_date).label("max_date"),
+        func.count(distinct(model.biz_date)).label("coverage_days"),
+        func.count(model.id).label("row_count")
+    ).filter(
+        model.store_id.in_(store_ids),
+        model.biz_date >= start_date,
+        model.biz_date <= end_date
+    ).group_by(model.store_id)
+    
+    stats_results = {r.store_id: r for r in stats_query.all()}
+    
+    # 批量查询：获取每个门店实际覆盖的日期列表
+    covered_dates_query = db.query(
+        model.store_id,
+        model.biz_date
+    ).filter(
+        model.store_id.in_(store_ids),
+        model.biz_date >= start_date,
+        model.biz_date <= end_date
+    ).distinct()
+    
+    # 按门店分组覆盖的日期
+    covered_dates_map: Dict[int, Set[date]] = {sid: set() for sid in store_ids}
+    for row in covered_dates_query.all():
+        covered_dates_map[row.store_id].add(row.biz_date)
+    
+    # 批量查询：获取最新上传时间
+    latest_batch_subquery = db.query(
+        MetaFileBatch.store_id,
+        func.max(MetaFileBatch.created_at).label("latest_upload")
+    ).filter(
+        MetaFileBatch.table_type == table_type,
+        MetaFileBatch.status == "success",
+        MetaFileBatch.store_id.in_(store_ids)
+    ).group_by(MetaFileBatch.store_id).subquery()
+    
+    batch_results = {
+        r.store_id: r.latest_upload 
+        for r in db.query(latest_batch_subquery).all()
+    }
+    
+    # 构建结果
+    result = {}
+    for store_id in store_ids:
+        stats = stats_results.get(store_id)
+        covered_dates = covered_dates_map.get(store_id, set())
+        missing_dates = all_dates - covered_dates
+        
+        row_count = stats.row_count if stats else 0
+        coverage_days = stats.coverage_days if stats else 0
+        min_date = stats.min_date if stats else None
+        max_date = stats.max_date if stats else None
+        latest_upload = batch_results.get(store_id)
+        
+        # 判断状态
+        if row_count == 0:
+            status = "missing"
+        elif coverage_days < expected_days:
+            status = "partial"
+        else:
+            status = "complete"
+        
+        result[store_id] = {
+            "status": status,
+            "row_count": row_count,
+            "date_range": {
+                "start": min_date.isoformat() if min_date else None,
+                "end": max_date.isoformat() if max_date else None
+            },
+            "coverage_days": coverage_days,
+            "expected_days": expected_days,
+            "latest_upload": latest_upload.isoformat() if latest_upload else None,
+            "missing_dates": sorted([d.isoformat() for d in missing_dates])
+        }
+    
+    return result
+
+
 def _get_data_coverage(
     db: Session,
     store_id: Optional[int],
@@ -61,19 +182,38 @@ def _get_data_coverage(
 ) -> Dict[str, Any]:
     """
     获取指定门店、报表类型、日期范围的数据覆盖情况
+    
+    注意：建议使用 _batch_get_coverage_data 批量查询以提升性能
     """
+    # 复用批量查询方法
+    if store_id:
+        result = _batch_get_coverage_data(db, [store_id], table_type, start_date, end_date)
+        return result.get(store_id, {
+            "status": "missing",
+            "row_count": 0,
+            "date_range": {"start": None, "end": None},
+            "coverage_days": 0,
+            "expected_days": 0,
+            "latest_upload": None,
+            "missing_dates": []
+        })
+    
+    # 全部门店汇总查询
     table_info = TABLE_TYPE_MAP.get(TableType(table_type))
     if not table_info:
         return {
             "status": "missing",
             "row_count": 0,
-            "date_range": None,
+            "date_range": {"start": None, "end": None},
             "coverage_days": 0,
             "expected_days": 0,
-            "latest_upload": None
+            "latest_upload": None,
+            "missing_dates": []
         }
     
     model = table_info["model"]
+    expected_days = (end_date - start_date).days + 1
+    all_dates = _get_all_dates_in_range(start_date, end_date)
     
     # 构建查询
     query = db.query(
@@ -81,30 +221,31 @@ def _get_data_coverage(
         func.max(model.biz_date).label("max_date"),
         func.count(distinct(model.biz_date)).label("coverage_days"),
         func.count(model.id).label("row_count")
-    )
-    
-    if store_id:
-        query = query.filter(model.store_id == store_id)
-    
-    query = query.filter(
+    ).filter(
         model.biz_date >= start_date,
         model.biz_date <= end_date
     )
     
     result = query.first()
     
+    # 获取覆盖的日期列表
+    covered_dates_query = db.query(
+        model.biz_date
+    ).filter(
+        model.biz_date >= start_date,
+        model.biz_date <= end_date
+    ).distinct()
+    
+    covered_dates = {row.biz_date for row in covered_dates_query.all()}
+    missing_dates = all_dates - covered_dates
+    
     # 获取最新上传时间
     batch_query = db.query(MetaFileBatch).filter(
         MetaFileBatch.table_type == table_type,
         MetaFileBatch.status == "success"
     )
-    if store_id:
-        batch_query = batch_query.filter(MetaFileBatch.store_id == store_id)
     
     latest_batch = batch_query.order_by(MetaFileBatch.created_at.desc()).first()
-    
-    # 计算期望天数
-    expected_days = (end_date - start_date).days + 1
     
     # 处理查询结果
     row_count = result.row_count or 0 if result else 0
@@ -129,7 +270,8 @@ def _get_data_coverage(
         },
         "coverage_days": coverage_days,
         "expected_days": expected_days,
-        "latest_upload": latest_batch.created_at.isoformat() if latest_batch else None
+        "latest_upload": latest_batch.created_at.isoformat() if latest_batch else None,
+        "missing_dates": sorted([d.isoformat() for d in missing_dates])
     }
 
 
@@ -189,6 +331,8 @@ async def get_data_coverage(
     if store_id:
         store_query = store_query.filter(DimStore.id == store_id)
     stores = store_query.filter(DimStore.is_active == True).all()
+    store_ids = [s.id for s in stores]
+    store_name_map = {s.id: s.store_name for s in stores}
     
     # 汇总统计
     total_stores = len(stores)
@@ -197,38 +341,43 @@ async def get_data_coverage(
     missing_count = 0
     partial_count = 0
     
-    # 构建详情列表
+    # 构建详情列表 - 使用批量查询优化性能
     details = []
     
-    for store in stores:
-        for table_type in table_types:
-            coverage = _get_data_coverage(
-                db=db,
-                store_id=store.id,
-                table_type=table_type.value,
-                start_date=start_date,
-                end_date=end_date
-            )
+    # 按报表类型批量查询（减少查询次数：从 N*M 次降为 M 次）
+    for table_type in table_types:
+        coverage_map = _batch_get_coverage_data(
+            db=db,
+            store_ids=store_ids,
+            table_type=table_type.value,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        for store_id_item in store_ids:
+            coverage = coverage_map.get(store_id_item, {})
             
             # 更新统计
-            if coverage["status"] == "complete":
+            status = coverage.get("status", "missing")
+            if status == "complete":
                 complete_count += 1
-            elif coverage["status"] == "missing":
+            elif status == "missing":
                 missing_count += 1
-            elif coverage["status"] == "partial":
+            elif status == "partial":
                 partial_count += 1
             
             details.append({
-                "store_id": store.id,
-                "store_name": store.store_name,
+                "store_id": store_id_item,
+                "store_name": store_name_map.get(store_id_item, ""),
                 "report_type": table_type.value,
                 "report_type_name": REPORT_TYPE_NAMES.get(table_type, table_type.value),
-                "status": coverage["status"],
-                "latest_upload": coverage["latest_upload"],
-                "row_count": coverage["row_count"],
-                "date_range": coverage["date_range"],
-                "coverage_days": coverage["coverage_days"],
-                "expected_days": coverage["expected_days"]
+                "status": status,
+                "latest_upload": coverage.get("latest_upload"),
+                "row_count": coverage.get("row_count", 0),
+                "date_range": coverage.get("date_range", {"start": None, "end": None}),
+                "coverage_days": coverage.get("coverage_days", 0),
+                "expected_days": coverage.get("expected_days", 0),
+                "missing_dates": coverage.get("missing_dates", [])
             })
     
     return {

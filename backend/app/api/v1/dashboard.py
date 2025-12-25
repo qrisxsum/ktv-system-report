@@ -67,14 +67,16 @@ def build_month_keys(start_month: date, count: int) -> List[str]:
 # 辅助函数 - 衍生指标计算
 # ============================================================
 
-def calculate_change_rate(current: float, previous: float) -> float:
+def calculate_change_rate(current: float, previous: float) -> Optional[float]:
     """
     计算环比/同比变化率
     
     公式: (当前值 - 上期值) / 上期值
+    
+    当上期值为0时返回None（表示无法计算有效环比）
     """
     if previous == 0:
-        return 0.0 if current == 0 else 1.0
+        return None  # 上期为0时无法计算有效的环比增长率
     return round((current - previous) / previous, 4)
 
 
@@ -126,7 +128,7 @@ async def get_dashboard_summary(
 
     包含:
     - 当日实收 & 环比
-    - 本月实收 & 同比
+    - 本月实收 & 环比
     - 毛利率
     - 赠送率
     - 近12个月营收趋势
@@ -157,16 +159,20 @@ async def get_dashboard_summary(
     day_before_yesterday = yesterday - timedelta(days=1)
     month_start = yesterday.replace(day=1)
     
-    # 上月同期（基于 reference 的“今天/昨天”）
-    if today.month == 1:
-        last_month_start = today.replace(year=today.year - 1, month=12, day=1)
-        last_month_end = today.replace(year=today.year - 1, month=12, day=min(yesterday.day, 31))
+    # 上月同期（基于 yesterday 所在月份的上一个月，而不是 today）
+    if yesterday.month == 1:
+        last_month_start = yesterday.replace(year=yesterday.year - 1, month=12, day=1)
+        _, days_in_last_month = monthrange(last_month_start.year, last_month_start.month)
+        last_month_end = yesterday.replace(year=yesterday.year - 1, month=12, day=min(yesterday.day, days_in_last_month))
     else:
-        last_month_start = today.replace(month=today.month - 1, day=1)
+        last_month_start = yesterday.replace(month=yesterday.month - 1, day=1)
+        _, days_in_last_month = monthrange(last_month_start.year, last_month_start.month)
         try:
-            last_month_end = yesterday.replace(month=today.month - 1)
+            last_month_end = yesterday.replace(month=yesterday.month - 1)
         except ValueError:
-            last_month_end = last_month_start.replace(day=28)
+            # 如果上个月没有这一天（例如3月31日 -> 2月没有31日），取上个月最后一天
+            last_month_end = last_month_start.replace(day=days_in_last_month)
+
     
     # 初始化数据
     yesterday_actual = 0.0

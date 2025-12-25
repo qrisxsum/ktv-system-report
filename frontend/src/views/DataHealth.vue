@@ -236,7 +236,8 @@ const eventEmitter = inject('eventEmitter', null)
 const reportTypes = [
   { value: 'booking', label: '预订汇总' },
   { value: 'room', label: '包厢开台分析' },
-  { value: 'sales', label: '酒水销售分析' }
+  { value: 'sales', label: '酒水销售分析' },
+  { value: 'member_change', label: '连锁会员变动明细' }
 ]
 
 // 计算矩阵数据
@@ -412,8 +413,24 @@ const formatTime = (time) => {
   }
 }
 
-// 计算缺失日期
+// 计算缺失日期 - 现在直接使用后端返回的准确缺失日期
 const getMissingDays = (detail) => {
+  // 优先使用后端返回的准确缺失日期列表
+  if (detail.missing_dates && Array.isArray(detail.missing_dates)) {
+    const missing = detail.missing_dates
+    
+    if (missing.length === 0) {
+      return '无缺失'
+    }
+    
+    if (missing.length <= 5) {
+      return missing.join(', ')
+    }
+    
+    return `${missing.slice(0, 5).join(', ')} 等 ${missing.length} 天`
+  }
+  
+  // 向后兼容：如果后端没有返回 missing_dates，则使用旧的计算方式
   if (!detail.date_range?.start || !dateRange.value) {
     return '无法计算'
   }

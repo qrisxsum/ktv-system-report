@@ -140,10 +140,10 @@ class DashboardSummary(BaseModel):
     
     # 核心指标卡片
     yesterday_actual: float = Field(0, description="当日实收")
-    yesterday_change: float = Field(0, description="当日环比变化率")
+    yesterday_change: Optional[float] = Field(None, description="当日环比变化率，None表示无对比数据")
     
     month_actual: float = Field(0, description="本月实收累计")
-    month_change: float = Field(0, description="本月同比变化率")
+    month_change: Optional[float] = Field(None, description="本月环比变化率，None表示无对比数据")
     month_cost: float = Field(0, description="本月成本累计")
     
     month_profit: float = Field(0, description="本月毛利累计")
