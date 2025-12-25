@@ -67,14 +67,16 @@ def build_month_keys(start_month: date, count: int) -> List[str]:
 # 辅助函数 - 衍生指标计算
 # ============================================================
 
-def calculate_change_rate(current: float, previous: float) -> float:
+def calculate_change_rate(current: float, previous: float) -> Optional[float]:
     """
     计算环比/同比变化率
     
     公式: (当前值 - 上期值) / 上期值
+    
+    当上期值为0时返回None（表示无法计算有效环比）
     """
     if previous == 0:
-        return 0.0 if current == 0 else 1.0
+        return None  # 上期为0时无法计算有效的环比增长率
     return round((current - previous) / previous, 4)
 
 
