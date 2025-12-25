@@ -143,7 +143,7 @@ const financialKpis = computed(() => {
   if (!data) {
     return [
       { title: '当日实收', value: '-', change: '-', trend: 'up', icon: 'Money', color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', valueColor: '#303133' },
-      { title: '本月实收', value: '-', change: '-', trend: 'up', icon: 'TrendCharts', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', valueColor: '#303133' },
+      { title: '本月累计实收', value: '-', change: '-', trend: 'up', icon: 'TrendCharts', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', valueColor: '#303133' },
       { title: '本月成本', value: '-', change: '-', trend: 'down', icon: 'WalletFilled', color: 'linear-gradient(135deg, #ffd86f 0%, #fc6262 100%)', valueColor: '#303133' },
       { title: '毛利率', value: '-', change: '-', trend: 'up', icon: 'PieChart', color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', valueColor: '#303133' },
     ]
@@ -160,9 +160,9 @@ const financialKpis = computed(() => {
       valueColor: '#303133'
     },
     { 
-      title: '本月实收', 
+      title: '本月累计实收', 
       value: formatCurrency(data.month_actual), 
-      change: buildRangeWrappedText(`同比 ${formatPercent(data.month_change)}`), 
+      change: buildRangeWrappedText(`环比 ${formatPercent(data.month_change)}`), 
       trend: data.month_change >= 0 ? 'up' : 'down',
       icon: 'TrendCharts', 
       color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
