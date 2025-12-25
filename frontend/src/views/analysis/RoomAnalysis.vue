@@ -1,6 +1,6 @@
 <template>
   <div class="room-analysis">
-    <el-card>
+    <el-card shadow="never">
       <template #header>
         <div class="card-header">
           <span class="header-title">🎤 包厢效能分析</span>
@@ -20,67 +20,175 @@
           </div>
         </div>
       </template>
-      
+
       <el-row :gutter="20" class="summary-cards">
-        <el-col :xs="24" :sm="12" :md="6" :span="6">
+        <el-col
+          v-for="card in summaryCards"
+          :key="card.key"
+          :xs="24"
+          :sm="12"
+          :md="8"
+          :lg="6"
+          :xl="4"
+        >
           <div class="summary-item">
-            <div class="label">总开台数</div>
-            <div class="value">{{ summary.totalOrders }}</div>
-          </div>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="6" :span="6">
-          <div class="summary-item">
-            <div class="label">总GMV</div>
-            <div class="value">¥{{ summary.totalGmv.toLocaleString() }}</div>
-          </div>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="6" :span="6">
-          <div class="summary-item">
-            <div class="label">总实收</div>
-            <div class="value">¥{{ summary.totalActual.toLocaleString() }}</div>
-          </div>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="6" :span="6">
-          <div class="summary-item">
-            <div class="label">平均实收</div>
-            <div class="value">¥{{ summary.avgActual.toFixed(2) }}</div>
+            <div class="label">
+              <span>{{ card.label }}</span>
+              <el-tooltip
+                v-if="card.tooltip"
+                :content="card.tooltip"
+                placement="top"
+                effect="dark"
+              >
+                <el-icon class="label-icon">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </div>
+            <div class="value">{{ card.display }}</div>
+            <div v-if="card.helper" class="helper-text">{{ card.helper }}</div>
           </div>
         </el-col>
       </el-row>
-      
+
+      <div class="time-slot-container">
+        <div class="time-slot-header">
+          <div>
+            <p class="time-slot-title">24 小时开台负荷分析</p>
+            <p class="time-slot-subtitle">按小时洞察不同场次的开台峰谷与利用率</p>
+          </div>
+          <el-tag effect="plain" size="small" type="info">
+            {{ activeRoomCountText }}
+          </el-tag>
+        </div>
+        <div class="time-slot-chart-wrapper" v-loading="chartLoading">
+          <div ref="timeSlotChartRef" class="time-slot-chart"></div>
+          <div v-if="!hasTimeSlotData && !chartLoading" class="chart-empty">
+            暂无时段数据，请调整时间或门店筛选条件
+          </div>
+        </div>
+      </div>
+
       <el-table
         ref="tableRef"
         :data="roomData"
         stripe
         border
-        style="margin-top: 20px"
+        class="room-table"
         v-loading="loading"
       >
         <el-table-column prop="room_name" label="包厢名称" min-width="150" />
-        <el-table-column prop="order_count" label="开台次数" min-width="100" align="right" />
-        <el-table-column prop="gmv" label="GMV（应收金额）" min-width="120" align="right">
+        <el-table-column
+          prop="order_count"
+          label="开台次数"
+          min-width="100"
+          align="right"
+        />
+        <el-table-column
+          prop="gmv"
+          label="GMV（应收）"
+          min-width="130"
+          align="right"
+        >
           <template #default="{ row }">
-            ¥{{ (row.gmv || 0).toLocaleString() }}
+            {{ formatCurrencyValue(row.gmv, 0) }}
           </template>
         </el-table-column>
-        <el-table-column prop="actual" label="实收金额" min-width="120" align="right">
+        <el-table-column
+          prop="bill_total"
+          label="账单合计"
+          min-width="130"
+          align="right"
+        >
           <template #default="{ row }">
-            ¥{{ (row.actual || 0).toLocaleString() }}
+            {{ formatCurrencyValue(row.bill_total, 0) }}
           </template>
         </el-table-column>
-        <el-table-column prop="room_discount" label="包厢折扣" min-width="120" align="right">
+        <el-table-column
+          prop="actual"
+          label="实收金额"
+          min-width="130"
+          align="right"
+        >
           <template #default="{ row }">
-            ¥{{ (row.room_discount || 0).toFixed(2) }}
+            {{ formatCurrencyValue(row.actual, 0) }}
           </template>
         </el-table-column>
-        <el-table-column prop="beverage_discount" label="酒水折扣" min-width="120" align="right">
+        <el-table-column
+          prop="min_consumption"
+          label="最低消费"
+          min-width="120"
+          align="right"
+        >
           <template #default="{ row }">
-            ¥{{ (row.beverage_discount || 0).toFixed(2) }}
+            {{ row.min_consumption ? formatCurrencyValue(row.min_consumption, 0) : '--' }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_amount" label="赠送金额" min-width="120" align="right">
+        <el-table-column
+          prop="low_consume_diff"
+          label="低消差额"
+          min-width="120"
+          align="right"
+        >
           <template #default="{ row }">
-            ¥{{ (row.gift_amount || 0).toFixed(2) }}
+            {{ formatCurrencyValue(row.low_consume_diff, 0) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="low_consume_rate"
+          label="低消达成率"
+          min-width="130"
+          align="right"
+        >
+          <template #default="{ row }">
+            <span class="percent-text">
+              {{ row.low_consume_rate !== null ? formatPercentValue(row.low_consume_rate, 1) : '--' }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="room_discount"
+          label="包厢折扣"
+          min-width="120"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatCurrencyValue(row.room_discount) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="beverage_discount"
+          label="酒水折扣"
+          min-width="120"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatCurrencyValue(row.beverage_discount) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="gift_amount"
+          label="赠送金额"
+          min-width="120"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatCurrencyValue(row.gift_amount) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="gift_ratio"
+          label="赠送比例"
+          min-width="120"
+          align="right"
+        >
+          <template #default="{ row }">
+            <span
+              class="percent-text"
+              :class="{ 'is-warning': row.gift_ratio_warn }"
+            >
+              {{ row.gift_ratio !== null ? formatPercentValue(row.gift_ratio, 1) : '--' }}
+            </span>
           </template>
         </el-table-column>
       </el-table>
@@ -99,7 +207,7 @@
           @size-change="handlePageSizeChange"
         />
       </div>
-      
+
       <div v-if="!roomData.length && !loading" class="empty-hint">
         暂无数据，请先上传包厢消费数据
       </div>
@@ -108,191 +216,613 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, inject, watch, reactive, nextTick } from 'vue'
-import { queryStats, getDateRange } from '@/api/stats'
+import { ref, reactive, computed, inject, watch, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
+import { QuestionFilled } from '@element-plus/icons-vue'
+import { queryStats, getDateRange } from '@/api/stats'
+import { useChart, chartColors } from '@/components/charts/useChart'
 import { usePagination } from '@/composables/usePagination'
+import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
 
-const loading = ref(false)
-const dateRange = ref([])
-const tableRef = ref(null)
-const dateRangeStorageKey = 'viewState:RoomAnalysis:dateRange'
+const formatCurrencyValue = (value, digits = 2) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return '--'
+  }
+  return `¥${numeric.toLocaleString('zh-CN', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`
+}
 
-// 注入门店选择状态
-const currentStore = inject('currentStore', ref('all'))
+const formatPercentValue = (value, digits = 1) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return '--'
+  }
+  return `${(numeric * 100).toFixed(digits)}%`
+}
 
-const tableRows = ref([])
-const summaryRows = ref([])
-const total = ref(0)
+const formatDurationValue = (minutes) => {
+  const numeric = Number(minutes)
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return '--'
+  }
+  const hours = Math.floor(numeric / 60)
+  const mins = Math.round(numeric % 60)
+  if (hours === 0) {
+    return `${mins} 分钟`
+  }
+  if (mins === 0) {
+    return `${hours} 小时`
+  }
+  return `${hours} 小时 ${mins} 分`
+}
 
-const pagination = reactive({
-  page: 1,
-  pageSize: 20
-})
+const toNumber = (value) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : 0
+}
 
-// 使用分页优化 Composable
-const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
-  desktopPageSizes: [20, 50, 100],
-  mobilePageSizes: [20, 50]
-})
+const extractActiveRoomCount = (meta = {}, summary = {}) => {
+  const keys = ['active_room_count', 'room_count', 'total_rooms']
+  for (const key of keys) {
+    const candidate = meta?.[key] ?? summary?.[key]
+    const numeric = Number(candidate)
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric
+    }
+  }
+  const fallback = Number(meta?.count)
+  if (Number.isFinite(fallback) && fallback > 0) {
+    return fallback
+  }
+  return 0
+}
 
-// 汇总统计
-const summary = computed(() => {
-  const source = summaryRows.value.length ? summaryRows.value : tableRows.value
-  const totalOrders = source.reduce((sum, item) => sum + (item.orders || 0), 0)
-  const totalGmv = source.reduce((sum, item) => sum + (item.gmv || 0), 0)
-  const totalActual = source.reduce((sum, item) => sum + (item.actual || 0), 0)
+const resolveHourFromKey = (key) => {
+  if (key === null || key === undefined || String(key).toLowerCase() === 'null' || String(key).trim() === '') {
+    return null
+  }
+  if (typeof key === 'number' && key >= 0) return key
+  const match = String(key).match(/(\d{1,2})/)
+  if (!match) return null
+  const hour = Number(match[1])
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23) return null
+  return hour
+}
+
+const getBusinessSlotLabel = (hour) => {
+  if (hour >= 18) return '晚场'
+  if (hour >= 12) return '下午场'
+  if (hour >= 6) return '上午场'
+  return '凌晨场'
+}
+
+const getDateRangeDaySpan = (range) => {
+  if (!Array.isArray(range) || range.length < 2) {
+    return 1
+  }
+  const [start, end] = range
+  if (!start || !end) return 1
+  const startDate = new Date(`${start}T00:00:00`)
+  const endDate = new Date(`${end}T00:00:00`)
+  if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) {
+    return 1
+  }
+  if (!(endDate instanceof Date) || Number.isNaN(endDate.getTime())) {
+    return 1
+  }
+  const diffDays = Math.floor((endDate - startDate) / (24 * 60 * 60 * 1000))
+  return Math.max(diffDays + 1, 1)
+}
+
+const buildTimeSlotDataset = (rows, activeRooms, range) => {
+  const hours = Array.from({ length: 24 }, (_, index) => index)
+  const hourMap = new Map()
+  rows.forEach((row) => {
+    const hour = resolveHourFromKey(row.dimension_key)
+    if (hour === null) return
+    const current = hourMap.get(hour) || 0
+    hourMap.set(hour, current + toNumber(row.orders ?? row.order_count ?? 0))
+  })
+
+  const labels = hours.map((hour) => `${String(hour).padStart(2, '0')}:00`)
+  const orders = hours.map((hour) => hourMap.get(hour) || 0)
+  const daySpan = getDateRangeDaySpan(range)
+  const capacity = Math.max(activeRooms * daySpan, 0)
+  const utilization = hours.map((hour) => {
+    if (!capacity) return 0
+    const slotOrders = hourMap.get(hour) || 0
+    return Number(((slotOrders / capacity) * 100).toFixed(1))
+  })
+  const scenes = hours.map((hour) => getBusinessSlotLabel(hour))
+
+  return { labels, orders, utilization, scenes }
+}
+
+const buildTimeSlotChartOption = (dataset) => {
+  if (!dataset) return null
+  const maxUtilization = Math.max(...dataset.utilization, 0)
+  const utilizationMax = maxUtilization > 0 ? Math.min(100, Math.max(maxUtilization * 1.2, 25)) : 25
+  return {
+    color: [chartColors.primary, chartColors.warning],
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params) => {
+        if (!params?.length) return ''
+        const index = params[0].dataIndex
+        const hourLabel = dataset.labels[index]
+        const scene = dataset.scenes[index]
+        const orders = dataset.orders[index]
+        const utilizationValue = dataset.utilization[index]
+        const isMultiDay = dateRange.value?.[0] !== dateRange.value?.[1]
+        const periodText = isMultiDay ? '期间累计' : '当日'
+
+        return [
+          `<strong>${hourLabel} (${scene})</strong>`,
+          `${periodText}开台次数：${orders.toLocaleString('zh-CN')} 单`,
+          `时段利用率：${utilizationValue.toFixed(1)}%`,
+          isMultiDay ? '<span style="font-size: 11px; color: #999;">* 多日周期展示各时段的累计负荷</span>' : '',
+        ]
+          .filter(Boolean)
+          .join('<br/>')
+      },
+    },
+    grid: {
+      top: 40,
+      left: 50,
+      right: 40,
+      bottom: 40,
+      containLabel: true,
+    },
+    xAxis: {
+      type: 'category',
+      data: dataset.labels,
+      axisLabel: {
+        color: '#606266',
+        formatter: (value, idx) => `${value}\n${dataset.scenes[idx]}`,
+      },
+      axisLine: { lineStyle: { color: '#E0E6ED' } },
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: '开台次数',
+        axisLabel: { color: '#909399' },
+        splitLine: { lineStyle: { color: '#F2F3F5' } },
+      },
+      {
+        type: 'value',
+        name: '时段利用率',
+        min: 0,
+        max: utilizationMax,
+        axisLabel: {
+          color: '#909399',
+          formatter: (val) => `${Number(val).toFixed(0)}%`,
+        },
+        splitLine: { show: false },
+      },
+    ],
+    series: [
+      {
+        name: '开台次数',
+        type: 'bar',
+        barWidth: '45%',
+        data: dataset.orders,
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
+      },
+      {
+        name: '时段利用率',
+        type: 'line',
+        yAxisIndex: 1,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 8,
+        data: dataset.utilization,
+        itemStyle: { color: chartColors.warning },
+      },
+    ],
+  }
+}
+
+const computeSummaryMetrics = (summaryData, summaryRows, tableRows) => {
+  const pickValue = (key) => {
+    if (summaryData && summaryData[key] !== undefined) {
+      return toNumber(summaryData[key])
+    }
+    if (summaryRows?.length) {
+      return summaryRows.reduce((sum, item) => sum + toNumber(item[key]), 0)
+    }
+    return tableRows.reduce((sum, item) => sum + toNumber(item[key]), 0)
+  }
+
+  const totalOrders = pickValue('orders')
+  const totalGmv = pickValue('gmv')
+  const totalActual = pickValue('actual')
+  const totalDuration = pickValue('duration')
   const avgActual = totalOrders > 0 ? totalActual / totalOrders : 0
-  
+  const avgDurationMinutes = totalOrders > 0 ? totalDuration / totalOrders : 0
+
   return {
     totalOrders,
     totalGmv,
     totalActual,
-    avgActual
+    avgActual,
+    avgDurationMinutes,
   }
-})
+}
 
-// 处理后的包厢数据
-const roomData = computed(() => {
-  return tableRows.value.map(item => ({
-    room_name: item.dimension_label || '未知包厢',
-    order_count: item.orders || 0,
-    gmv: item.gmv || 0,
-    actual: item.actual || 0,
-    room_discount: item.room_discount || 0,
-    beverage_discount: item.beverage_discount || 0,
-    gift_amount: item.gift_amount || 0
-  }))
-})
+const buildSummaryCards = (metrics, activeRooms) => {
+  const turnoverRate =
+    activeRooms > 0 && metrics.totalOrders > 0
+      ? metrics.totalOrders / activeRooms
+      : null
+  return [
+    {
+      key: 'totalOrders',
+      label: '总开台数',
+      display: metrics.totalOrders
+        ? metrics.totalOrders.toLocaleString('zh-CN')
+        : '--',
+      tooltip: '统计周期内所有包厢的开台次数',
+    },
+    {
+      key: 'totalGmv',
+      label: '总GMV',
+      display: formatCurrencyValue(metrics.totalGmv, 0),
+      tooltip: '账单合计（应收金额）总和',
+    },
+    {
+      key: 'totalActual',
+      label: '总实收',
+      display: formatCurrencyValue(metrics.totalActual, 0),
+      tooltip: '实收金额（扣除折扣与赠送后）总和',
+    },
+    {
+      key: 'avgActual',
+      label: '平均实收',
+      display: formatCurrencyValue(metrics.avgActual, 2),
+      tooltip: '平均每单实收 = 总实收 / 总开台数',
+    },
+    {
+      key: 'turnoverRate',
+      label: '平均翻台率',
+      display: turnoverRate !== null ? formatPercentValue(turnoverRate, 1) : '--',
+      tooltip:
+        activeRooms > 0
+          ? `= 总开台数 (${metrics.totalOrders}) ÷ 活跃包厢数 (${activeRooms} 间)`
+          : '由于未关联到包厢基础信息，无法获取活跃包厢总数，暂无法计算翻台率',
+      helper: activeRooms > 0 ? `活跃包厢：${activeRooms} 间` : '缺少包厢档案数据',
+    },
+    {
+      key: 'avgDuration',
+      label: '平均消费时长',
+      display: formatDurationValue(metrics.avgDurationMinutes),
+      tooltip: '将总时长（分钟）转换为小时 + 分钟形式展示',
+      helper:
+        metrics.avgDurationMinutes > 0
+          ? `≈ ${metrics.avgDurationMinutes.toFixed(1)} 分钟/单`
+          : '',
+    },
+  ]
+}
 
-// 初始化日期范围（使用数据库中的最新日期）
-const initDateRange = async () => {
-  try {
-    const rangeRes = await getDateRange('room')
-    if (rangeRes.success && rangeRes.suggested_start && rangeRes.suggested_end) {
-      dateRange.value = [rangeRes.suggested_start, rangeRes.suggested_end]
-    } else {
-      // 如果没有数据，使用当前月份
+const transformRoomRows = (rows) =>
+  rows.map((item) => {
+    const gmv = toNumber(item.gmv ?? item.bill_total)
+    const billTotal = toNumber(item.bill_total ?? item.gmv)
+    const minConsumption = toNumber(item.min_consumption)
+    const minDiff = toNumber(item.min_consumption_diff)
+    const giftAmount = toNumber(item.gift_amount)
+    const giftRatio =
+      billTotal > 0
+        ? giftAmount / billTotal
+        : giftAmount > 0
+        ? 1
+        : minConsumption > 0
+        ? 0
+        : null
+    const lowConsumeRate =
+      minConsumption > 0 ? billTotal / minConsumption : null
+    return {
+      room_name: item.dimension_label || '未知包厢',
+      order_count: toNumber(item.orders ?? item.order_count),
+      gmv,
+      bill_total: billTotal,
+      actual: toNumber(item.actual),
+      min_consumption: minConsumption,
+      low_consume_diff: minDiff,
+      low_consume_rate: lowConsumeRate,
+      room_discount: toNumber(item.room_discount),
+      beverage_discount: toNumber(item.beverage_discount),
+      gift_amount: giftAmount,
+      gift_ratio: giftRatio,
+      gift_ratio_warn: giftRatio !== null && giftRatio > 0.2,
+    }
+  })
+
+const dateRangeStorageKey = 'viewState:RoomAnalysis:dateRange'
+const currentStore = inject('currentStore', ref('all'))
+
+function useRoomAnalysis(storeRef) {
+  const loading = ref(false)
+  const chartLoading = ref(false)
+  const dateRange = ref([])
+  const tableRef = ref(null)
+  const pagination = reactive({ page: 1, pageSize: 20 })
+  const tableRows = ref([])
+  const summaryRows = ref([])
+  const summaryData = ref(null)
+  const total = ref(0)
+  const timeSlotRows = ref([])
+  const activeRoomCount = ref(0)
+
+  const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
+    desktopPageSizes: [20, 50, 100],
+    mobilePageSizes: [20, 50],
+  })
+
+  const timeSlotChartRef = ref(null)
+  const timeSlotChartData = computed(() =>
+    buildTimeSlotDataset(timeSlotRows.value, activeRoomCount.value, dateRange.value)
+  )
+  const { updateChart: updateTimeSlotChart } = useChart(
+    timeSlotChartRef,
+    () => buildTimeSlotChartOption(timeSlotChartData.value)
+  )
+  watch(
+    timeSlotChartData,
+    (data) => {
+      const option = buildTimeSlotChartOption(data)
+      if (option) {
+        updateTimeSlotChart(option, true)
+      }
+    },
+    { deep: true }
+  )
+
+  const summaryMetrics = computed(() =>
+    computeSummaryMetrics(summaryData.value, summaryRows.value, tableRows.value)
+  )
+  const summaryCards = computed(() =>
+    buildSummaryCards(summaryMetrics.value, activeRoomCount.value)
+  )
+  const roomData = computed(() => transformRoomRows(tableRows.value))
+  const hasTimeSlotData = computed(() =>
+    timeSlotChartData.value.orders.some((value) => value > 0)
+  )
+  const activeRoomCountText = computed(() =>
+    activeRoomCount.value > 0
+      ? `活跃包厢 ${activeRoomCount.value} 间`
+      : '活跃包厢数待确认'
+  )
+
+  const resolveStoreId = () => {
+    if (!storeRef.value || storeRef.value === 'all') {
+      return null
+    }
+    const parsed = Number(storeRef.value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const fetchRoomTable = async (showLoading = true) => {
+    if (!isValidDateRange(dateRange.value)) {
+      return
+    }
+    if (showLoading) {
+      loading.value = true
+    }
+    try {
+      const [startDate, endDate] = dateRange.value
+      const params = {
+        table: 'room',
+        start_date: startDate,
+        end_date: endDate,
+        dimension: 'room',
+        granularity: 'day',
+        page: pagination.page,
+        page_size: pagination.pageSize,
+      }
+      const storeId = resolveStoreId()
+      if (storeId) {
+        params.store_id = storeId
+      }
+      const response = await queryStats(params)
+      if (response.success && response.data) {
+        const { rows, series_rows, summary, total: totalCount, meta } = response.data
+        tableRows.value = Array.isArray(rows) ? rows : []
+        summaryRows.value = Array.isArray(series_rows) ? series_rows : []
+        summaryData.value = summary || null
+        const parsedTotal = Number(totalCount)
+        total.value = Number.isFinite(parsedTotal)
+          ? parsedTotal
+          : tableRows.value.length
+        activeRoomCount.value = extractActiveRoomCount(meta || {}, summary || {})
+      } else {
+        tableRows.value = []
+        summaryRows.value = []
+        summaryData.value = null
+        total.value = 0
+        activeRoomCount.value = 0
+      }
+    } catch (error) {
+      console.error('获取包厢分析数据失败:', error)
+      ElMessage.error('获取包厢分析数据失败')
+      tableRows.value = []
+      summaryRows.value = []
+      summaryData.value = null
+      total.value = 0
+      activeRoomCount.value = 0
+    } finally {
+      if (showLoading) {
+        loading.value = false
+      }
+    }
+  }
+
+  const fetchTimeSlotSeries = async () => {
+    if (!isValidDateRange(dateRange.value)) {
+      timeSlotRows.value = []
+      return
+    }
+    chartLoading.value = true
+    try {
+      const [startDate, endDate] = dateRange.value
+      const params = {
+        table: 'room',
+        start_date: startDate,
+        end_date: endDate,
+        dimension: 'time_slot',
+        granularity: 'day',
+        page: 1,
+        page_size: 48,
+        top_n: 48,
+      }
+      const storeId = resolveStoreId()
+      if (storeId) {
+        params.store_id = storeId
+      }
+      const response = await queryStats(params)
+      if (response.success && response.data) {
+        const rows =
+          (Array.isArray(response.data.rows) && response.data.rows.length
+            ? response.data.rows
+            : null) ??
+          (Array.isArray(response.data.series_rows)
+            ? response.data.series_rows
+            : [])
+        timeSlotRows.value = rows || []
+      } else {
+        timeSlotRows.value = []
+      }
+    } catch (error) {
+      console.error('获取开台时段数据失败:', error)
+      ElMessage.error('获取开台时段数据失败')
+      timeSlotRows.value = []
+    } finally {
+      chartLoading.value = false
+    }
+  }
+
+  const fetchData = async () => {
+    await Promise.all([fetchRoomTable(true), fetchTimeSlotSeries()])
+  }
+
+  const scrollTableToTop = () => {
+    nextTick(() => {
+      if (tableRef.value?.setScrollTop) {
+        tableRef.value.setScrollTop(0)
+      }
+    })
+  }
+
+  const handlePageChange = async (page) => {
+    pagination.page = page
+    await fetchRoomTable(true)
+    scrollTableToTop()
+  }
+
+  const handlePageSizeChange = async (size) => {
+    pagination.pageSize = size
+    pagination.page = 1
+    await fetchRoomTable(true)
+    scrollTableToTop()
+  }
+
+  const handleDateChange = () => {
+    pagination.page = 1
+    if (isValidDateRange(dateRange.value)) {
+      writeSessionJSON(dateRangeStorageKey, dateRange.value)
+      fetchData()
+    }
+  }
+
+  const initDateRange = async () => {
+    try {
+      const rangeRes = await getDateRange('room')
+      if (rangeRes.success && rangeRes.suggested_start && rangeRes.suggested_end) {
+        dateRange.value = [rangeRes.suggested_start, rangeRes.suggested_end]
+      } else {
+        const today = new Date()
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1)
+        dateRange.value = [
+          firstDay.toISOString().split('T')[0],
+          today.toISOString().split('T')[0],
+        ]
+      }
+    } catch (error) {
+      console.error('获取日期范围失败:', error)
       const today = new Date()
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1)
       dateRange.value = [
         firstDay.toISOString().split('T')[0],
-        today.toISOString().split('T')[0]
+        today.toISOString().split('T')[0],
       ]
     }
-  } catch (error) {
-    console.error('获取日期范围失败:', error)
-    const today = new Date()
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1)
-    dateRange.value = [
-      firstDay.toISOString().split('T')[0],
-      today.toISOString().split('T')[0]
-    ]
   }
-}
 
-// 获取数据
-const fetchData = async () => {
-  if (!dateRange.value || dateRange.value.length !== 2) {
-    return
-  }
-  
-  loading.value = true
-  
-  try {
-    const [startDate, endDate] = dateRange.value
+  watch(storeRef, () => {
+    pagination.page = 1
+    fetchData()
+  })
 
-    const params = {
-      table: 'room',
-      start_date: startDate,
-      end_date: endDate,
-      dimension: 'room',
-      granularity: 'day',
-      page: pagination.page,
-      page_size: pagination.pageSize
-    }
-
-    // 根据当前门店选择设置store_id参数
-    if (currentStore.value && currentStore.value !== 'all') {
-      const parsedStoreId = parseInt(currentStore.value, 10)
-      if (Number.isFinite(parsedStoreId)) {
-        params.store_id = parsedStoreId
+  onMounted(async () => {
+    const saved = readSessionJSON(dateRangeStorageKey, null)
+    if (isValidDateRange(saved)) {
+      dateRange.value = saved
+    } else {
+      await initDateRange()
+      if (isValidDateRange(dateRange.value)) {
+        writeSessionJSON(dateRangeStorageKey, dateRange.value)
       }
     }
-
-    const response = await queryStats(params)
-
-    if (response.success && response.data) {
-      const rows = Array.isArray(response.data.rows) ? response.data.rows : []
-      const seriesRows = Array.isArray(response.data.series_rows) ? response.data.series_rows : []
-      tableRows.value = rows
-      summaryRows.value = seriesRows
-      const parsedTotal = Number(response.data.total)
-      total.value = Number.isFinite(parsedTotal) ? parsedTotal : rows.length
-    } else {
-      tableRows.value = []
-      summaryRows.value = []
-      total.value = 0
-    }
-  } catch (error) {
-    console.error('获取包厢分析数据失败:', error)
-    ElMessage.error('获取包厢分析数据失败')
-    tableRows.value = []
-    summaryRows.value = []
-    total.value = 0
-  } finally {
-    loading.value = false
-  }
-}
-
-// 监听门店变化，重新获取数据
-watch(currentStore, () => {
-  pagination.page = 1
-  fetchData()
-})
-
-const scrollTableToTop = () => {
-  nextTick(() => {
-    if (tableRef.value?.setScrollTop) {
-      tableRef.value.setScrollTop(0)
+    if (isValidDateRange(dateRange.value)) {
+      await fetchData()
     }
   })
-}
 
-const handlePageChange = async (page) => {
-  pagination.page = page
-  await fetchData()
-  scrollTableToTop()
-}
-
-const handlePageSizeChange = async (size) => {
-  pagination.pageSize = size
-  pagination.page = 1
-  await fetchData()
-  scrollTableToTop()
-}
-
-const handleDateChange = () => {
-  pagination.page = 1
-  if (isValidDateRange(dateRange.value)) {
-    writeSessionJSON(dateRangeStorageKey, dateRange.value)
+  return {
+    loading,
+    chartLoading,
+    dateRange,
+    tableRef,
+    pagination,
+    pageSizeOptions,
+    paginationLayout,
+    pagerCount,
+    total,
+    summaryCards,
+    roomData,
+    hasTimeSlotData,
+    activeRoomCountText,
+    timeSlotChartRef,
+    handlePageChange,
+    handlePageSizeChange,
+    handleDateChange,
   }
-  fetchData()
 }
 
-onMounted(async () => {
-  const saved = readSessionJSON(dateRangeStorageKey, null)
-  if (isValidDateRange(saved)) {
-    dateRange.value = saved
-  } else {
-    await initDateRange()
-    if (isValidDateRange(dateRange.value)) {
-      writeSessionJSON(dateRangeStorageKey, dateRange.value)
-    }
-  }
-  await fetchData()
-})
+const {
+  loading,
+  chartLoading,
+  dateRange,
+  tableRef,
+  pagination,
+  pageSizeOptions,
+  paginationLayout,
+  pagerCount,
+  total,
+  summaryCards,
+  roomData,
+  hasTimeSlotData,
+  activeRoomCountText,
+  timeSlotChartRef,
+  handlePageChange,
+  handlePageSizeChange,
+  handleDateChange,
+} = useRoomAnalysis(currentStore)
 </script>
 
 <style lang="scss" scoped>
@@ -326,329 +856,153 @@ onMounted(async () => {
     max-width: 100%;
   }
 
-  @media (max-width: 768px) {
-    .card-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
-    }
-
-    .header-right {
-      width: 100%;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 6px;
-    }
-
-    .filter-label {
-      font-size: 12px;
-    }
-
-    .date-range {
-      width: 100%;
-    }
-
-    // 时间范围选择器样式优化（与财务专项一致）
-    :deep(.el-date-editor--daterange) {
-      width: 100% !important;
-      padding: 3px 5px;
-      
-      .el-range-separator {
-        padding: 0 4px;
-        font-size: 12px;
-        width: auto;
-      }
-      
-      .el-range-input {
-        font-size: 12px;
-        width: 42%;
-      }
-
-      .el-range__icon,
-      .el-range__close-icon {
-        font-size: 12px;
-        width: 18px;
-      }
-    }
-  }
-  
   .summary-cards {
+    margin-bottom: 16px;
+
+    :deep(.el-col) {
+      margin-bottom: 16px;
+    }
+
     .summary-item {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       border-radius: 8px;
-      padding: 20px;
+      padding: 18px;
       color: #fff;
-      text-align: center;
-      
+      min-height: 110px;
+
       .label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         font-size: 14px;
-        opacity: 0.9;
+        opacity: 0.85;
         margin-bottom: 8px;
       }
-      
+
+      .label-icon {
+        font-size: 16px;
+        cursor: pointer;
+      }
+
       .value {
         font-size: 24px;
-        font-weight: bold;
+        font-weight: 600;
+      }
+
+      .helper-text {
+        margin-top: 6px;
+        font-size: 12px;
+        opacity: 0.85;
       }
     }
+  }
+
+  .time-slot-container {
+    border: 1px solid #ebeef5;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
+    background: #f9fafb;
+
+    .time-slot-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+
+      .time-slot-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: #303133;
+      }
+
+      .time-slot-subtitle {
+        margin: 4px 0 0;
+        font-size: 13px;
+        color: #909399;
+      }
+    }
+
+    .time-slot-chart-wrapper {
+      position: relative;
+      margin-top: 12px;
+      min-height: 320px;
+    }
+
+    .time-slot-chart {
+      width: 100%;
+      height: 320px;
+    }
+
+    .chart-empty {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #909399;
+    }
+  }
+
+  .room-table {
+    margin-top: 12px;
+  }
+
+  .percent-text {
+    display: inline-block;
+    min-width: 70px;
+    text-align: right;
+  }
+
+  .percent-text.is-warning {
+    color: #f56c6c;
+    font-weight: 600;
   }
 
   .table-pagination {
     display: flex;
     justify-content: flex-end;
     margin-top: 12px;
-    width: 100%;
   }
-  
+
   .empty-hint {
     text-align: center;
     padding: 40px 0;
     color: #999;
   }
 
-  // 移动端优化
   @media (max-width: 768px) {
     .card-header {
-      flex-wrap: wrap;
-      gap: 10px;
-
-      :deep(.el-date-editor) {
-        width: 100%;
-      }
+      flex-direction: column;
+      align-items: flex-start;
     }
 
-    .summary-cards {
-      // 移动端每个卡片占满一行，增加底部间距
-      :deep(.el-col) {
-        margin-bottom: 12px;
-      }
-
-      .summary-item {
-        padding: 15px;
-
-        .label {
-          font-size: 13px;
-        }
-
-        .value {
-          font-size: 20px;
-        }
-      }
+    .header-right {
+      width: 100%;
+      flex-direction: column;
+      align-items: flex-start;
     }
 
-    .metrics-row {
-      :deep(.el-col) {
-        margin-bottom: 12px;
-      }
-
-      .metric-card {
-        padding: 15px;
-
-        .label {
-          font-size: 13px;
-        }
-
-        .value {
-          font-size: 20px;
-        }
-      }
+    .date-range {
+      width: 100%;
     }
 
-    :deep(.el-table) {
-      font-size: 12px;
+    :deep(.el-date-editor--daterange) {
+      width: 100%;
+    }
 
-      .el-table__header th,
-      .el-table__body td {
-        padding: 8px 5px;
-      }
+    .time-slot-chart {
+      height: 260px;
+    }
+
+    .percent-text {
+      min-width: 50px;
     }
 
     .table-pagination {
-      justify-content: center !important;
-      margin-top: 10px;
-      overflow-x: auto; // 允许横向滚动作为后备方案
-      -webkit-overflow-scrolling: touch;
-
-      :deep(.el-pagination) {
-        flex-wrap: wrap; // 允许换行
-        justify-content: center;
-        font-size: 12px;
-
-        .el-pagination__total,
-        .el-pagination__sizes,
-        .el-pagination__jump {
-          margin-right: 8px;
-          font-size: 12px;
-        }
-
-        .btn-prev,
-        .btn-next {
-          min-width: 26px;
-          height: 26px;
-          line-height: 26px;
-          padding: 0 6px;
-        }
-
-        .el-pager {
-          li {
-            min-width: 26px;
-            height: 26px;
-            line-height: 26px;
-            font-size: 12px;
-            margin: 0 2px;
-          }
-        }
-
-        // 每页条数选择器优化
-        .el-pagination__sizes {
-          .el-select {
-            .el-input {
-              .el-input__inner {
-                height: 26px;
-                line-height: 26px;
-                font-size: 12px;
-                padding: 0 20px 0 8px;
-              }
-            }
-          }
-        }
-
-        // 跳转输入框优化
-        .el-pagination__jump {
-          .el-input {
-            .el-input__inner {
-              height: 26px;
-              line-height: 26px;
-              font-size: 12px;
-              width: 40px;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  @media (max-width: 480px) {
-    :deep(.el-card__header) {
-      padding: 12px 15px;
-    }
-
-    :deep(.el-card__body) {
-      padding: 12px;
-    }
-
-    .card-header {
-      font-size: 14px;
-    }
-
-    .summary-cards {
-      // 极小屏幕下确保每个卡片占满一行
-      :deep(.el-col) {
-        margin-bottom: 10px;
-      }
-
-      .summary-item {
-        padding: 12px;
-
-        .label {
-          font-size: 12px;
-        }
-
-        .value {
-          font-size: 18px;
-        }
-      }
-    }
-
-    .metrics-row {
-      .metric-card {
-        padding: 12px;
-
-        .label {
-          font-size: 12px;
-        }
-
-        .value {
-          font-size: 18px;
-        }
-      }
-    }
-
-    :deep(.el-table) {
-      font-size: 11px;
-
-      .el-table__header th,
-      .el-table__body td {
-        padding: 6px 3px;
-      }
-    }
-
-    .table-pagination {
-      margin-top: 8px;
-
-      :deep(.el-pagination) {
-        font-size: 11px;
-        gap: 4px; // 元素间距更小
-
-        .el-pagination__total {
-          font-size: 11px;
-          margin-right: 4px;
-        }
-
-        .el-pagination__sizes {
-          margin-right: 4px;
-          
-          .el-select {
-            .el-input {
-              .el-input__inner {
-                height: 24px;
-                line-height: 24px;
-                font-size: 11px;
-                padding: 0 18px 0 6px;
-              }
-            }
-          }
-        }
-
-        .btn-prev,
-        .btn-next {
-          min-width: 24px;
-          height: 24px;
-          line-height: 24px;
-          padding: 0 4px;
-        }
-
-        .el-pager {
-          li {
-            min-width: 24px;
-            height: 24px;
-            line-height: 24px;
-            font-size: 11px;
-            margin: 0 1px;
-          }
-        }
-
-        .el-pagination__jump {
-          margin-left: 4px;
-          font-size: 11px;
-          
-          .el-input {
-            .el-input__inner {
-              height: 24px;
-              line-height: 24px;
-              font-size: 11px;
-              width: 35px;
-            }
-          }
-        }
-      }
-    }
-
-    .empty-hint {
-      padding: 30px 0;
-      font-size: 14px;
+      justify-content: center;
     }
   }
 }
 </style>
-

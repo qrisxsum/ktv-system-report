@@ -41,6 +41,17 @@ class StatsService:
     def __init__(self, db: Session):
         self.db = db
 
+    def _build_room_time_expr(self, model):
+        """生成用于包厢时段计算的时间表达式"""
+        if model is not FactRoom:
+            raise ValueError("仅支持 FactRoom 生成时段时间表达式")
+        return func.coalesce(model.open_time, model.close_time)
+
+    def _build_room_hour_expr(self, model):
+        """基于开房/关房时间推断小时"""
+        time_expr = self._build_room_time_expr(model)
+        return func.hour(time_expr)
+
     def _get_dimension_expr(self, model, dimension: str, granularity: str):
         """根据维度和粒度返回分组表达式和标签"""
         if dimension == "date":
@@ -66,6 +77,17 @@ class StatsService:
         elif dimension == "room":
             if hasattr(model, "room_id"):
                 return model.room_id.label("dimension_key")
+        elif dimension == "sales_manager":
+            if hasattr(model, "sales_manager"):
+                return model.sales_manager.label("dimension_key")
+        elif dimension == "booker":
+            if hasattr(model, "booker"):
+                return model.booker.label("dimension_key")
+        elif dimension == "time_slot":
+            if model is FactRoom:
+                return self._build_room_hour_expr(model).label("dimension_key")
+            if hasattr(model, "time_slot"):
+                return model.time_slot.label("dimension_key")
         elif dimension == "room_type":
             if model is FactRoom:
                 return DimRoom.room_type.label("dimension_key")
@@ -181,8 +203,16 @@ class StatsService:
         if model is FactRoom:
             return [
                 ("gmv", self._safe_sum(model.receivable_amount)),
+                ("bill_total", self._safe_sum(model.bill_total)),
                 ("actual", self._safe_sum(model.actual_amount)),
+                ("min_consumption", self._safe_sum(model.min_consumption)),
+                (
+                    "min_consumption_diff",
+                    self._safe_sum(model.min_consumption_diff),
+                ),
                 ("gift_amount", self._safe_sum(model.gift_amount)),
+                ("free_amount", self._safe_sum(model.free_amount)),
+                ("credit_amount", self._safe_sum(model.credit_amount)),
                 ("room_discount", self._safe_sum(model.room_discount)),
                 ("beverage_discount", self._safe_sum(model.beverage_discount)),
                 ("duration", self._safe_sum(model.duration_min)),
@@ -279,6 +309,18 @@ class StatsService:
                 DimRoom.room_type.label("dimension_label"),
                 [],
             )
+        if dimension == "time_slot":
+            if model is FactRoom:
+                return (
+                    None,
+                    None,
+                    func.date_format(self._build_room_time_expr(model), "%H:00").label(
+                        "dimension_label"
+                    ),
+                    [],
+                )
+            if hasattr(model, "time_slot"):
+                return (None, None, model.time_slot.label("dimension_label"), [])
         return (None, None, None, [])
 
     def _build_group_stmt(
