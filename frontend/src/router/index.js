@@ -114,6 +114,12 @@ const routes = [
             name: 'FinancialAnalysis',
             component: () => import('@/views/analysis/FinancialAnalysis.vue'),
             meta: { title: '财务专项' }
+          },
+          {
+            path: 'members',
+            name: 'MemberAnalysis',
+            component: () => import('@/views/analysis/MemberAnalysis.vue'),
+            meta: { title: '会员变动' }
           }
         ]
       },
