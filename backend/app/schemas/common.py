@@ -30,6 +30,9 @@ class Dimension(StrEnum):
     ROOM_TYPE = "room_type"
     PRODUCT = "product"
     CATEGORY = "category"
+    BOOKER = "booker"
+    TIME_SLOT = "time_slot"
+    HOUR = "hour"
 
 
 class TableType(StrEnum):

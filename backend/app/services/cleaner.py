@@ -137,6 +137,7 @@ ROOM_MAPPING: Dict[str, str] = {
     "关房时间": "close_time",
     "清洁时间": "clean_time",
     "营业日": "biz_date",
+    "订房人": "booker",
     "消费时长": "duration_min",
     "时段": "time_slot",
     "账单备注": "bill_remark",
