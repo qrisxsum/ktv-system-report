@@ -3,12 +3,6 @@
     <!-- 筛选区域 -->
     <el-card class="filter-card">
       <el-form :model="filters" inline>
-        <el-form-item label="当前门店筛选">
-          <el-tag type="info" size="large">
-            {{ getCurrentStoreName() }}
-          </el-tag>
-        </el-form-item>
-
         <el-form-item label="月份">
           <el-date-picker
             v-model="filters.data_month"
@@ -16,15 +10,13 @@
             placeholder="选择月份"
             format="YYYY-MM"
             value-format="YYYY-MM"
+            :editable="false"
             style="width: 150px"
             @change="loadData"
           />
         </el-form-item>
 
         <el-form-item>
-          <el-button type="primary" @click="loadData">
-            <el-icon><Search /></el-icon> 查询
-          </el-button>
           <el-button @click="resetFilters">
             <el-icon><Refresh /></el-icon> 重置
           </el-button>
@@ -210,16 +202,14 @@
 <script setup>
 import { ref, onMounted, computed, inject, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh } from '@element-plus/icons-vue'
+import { Refresh } from '@element-plus/icons-vue'
 import { getDataCoverage } from '@/api/health'
-import { listStores } from '@/api/store'
 
 // 状态
 const loading = ref(false)
 const summary = ref(null)
 const dateRange = ref(null)
 const details = ref([])
-const stores = ref([])
 const drawerVisible = ref(false)
 const selectedDetail = ref(null)
 
@@ -261,26 +251,6 @@ const matrixData = computed(() => {
   
   return Array.from(storeMap.values())
 })
-
-// 获取当前门店名称
-const getCurrentStoreName = () => {
-  if (currentStore.value === 'all') return '全部门店'
-  if (!stores.value || stores.value.length === 0) return '加载中...'
-  const store = stores.value.find(s => s.id.toString() === currentStore.value)
-  return store ? store.name : `门店ID: ${currentStore.value}`
-}
-
-// 加载门店列表（用于显示门店名称）
-const loadStores = async () => {
-  try {
-    const response = await listStores(true) // 只加载启用的门店
-    if (response.success) {
-      stores.value = response.data || []
-    }
-  } catch (error) {
-    console.error('加载门店列表失败:', error)
-  }
-}
 
 // 监听门店变化，自动重新加载数据
 watch(currentStore, (newStore) => {
@@ -464,7 +434,6 @@ const getMissingDays = (detail) => {
 
 // 初始化
 onMounted(() => {
-  loadStores()
   loadData()
 })
 </script>
@@ -548,13 +517,13 @@ onMounted(() => {
   @media (max-width: 768px) {
     .filter-card {
       :deep(.el-card__body) {
-        padding: 15px 12px 15px 12px;
+        padding: 12px;
       }
 
       :deep(.el-form) {
         display: flex;
-        flex-wrap: wrap;
-        gap: 14px;
+        align-items: flex-end;
+        gap: 12px;
 
         .el-form-item {
           display: flex;
@@ -562,21 +531,7 @@ onMounted(() => {
           align-items: flex-start;
           margin-right: 0;
           margin-bottom: 0;
-
-          // 当前门店筛选占满一行
-          &:first-child {
-            width: 100%;
-          }
-
-          // 月份选择和按钮组在同一行，各占一半
-          &:nth-child(2) {
-            width: calc(40% - 7px);
-          }
-
-          // 按钮组
-          &:last-child {
-            width: calc(60% - 7px);
-          }
+          flex: 1;
 
           .el-form-item__label {
             width: auto;
@@ -590,35 +545,27 @@ onMounted(() => {
             width: 100%;
             margin-left: 0 !important;
 
-            .el-select,
-            .el-tag {
-              width: 100%;
-            }
-
             :deep(.el-date-editor) {
               width: 100% !important;
+              height: 32px;
+            }
+            
+            .el-button {
+              width: 100%;
+              height: 32px;
+              margin-left: 0;
             }
           }
 
-          // 按钮组横向排列
+          // 重置按钮隐藏label
           &:last-child {
+            flex: 0 0 auto;
+            
             .el-form-item__label {
               visibility: hidden;
               height: 0;
               padding: 0;
               margin: 0;
-            }
-
-            .el-form-item__content {
-              display: flex;
-              gap: 8px;
-              height: 100%;
-              align-items: flex-end;
-
-              .el-button {
-                flex: 1;
-                margin-left: 0;
-              }
             }
           }
         }
