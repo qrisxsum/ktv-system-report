@@ -320,33 +320,45 @@ const getDateRangeDaySpan = (range) => {
 const buildTimeSlotDataset = (rows, activeRooms, range) => {
   const hours = Array.from({ length: 24 }, (_, index) => index)
   const hourMap = new Map()
+
   rows.forEach((row) => {
     const hour = resolveHourFromKey(row.dimension_key)
     if (hour === null) return
-    const current = hourMap.get(hour) || 0
-    hourMap.set(hour, current + toNumber(row.orders ?? row.order_count ?? 0))
+    const bucket = hourMap.get(hour) || { orders: 0, gmv: 0, occupiedMinutes: 0 }
+    bucket.orders += toNumber(row.orders ?? row.order_count ?? 0)
+    bucket.gmv += toNumber(row.gmv ?? row.bill_total ?? row.actual ?? 0)
+    bucket.occupiedMinutes += toNumber(row.occupied_minutes ?? row.duration ?? row.duration_min ?? 0)
+    hourMap.set(hour, bucket)
   })
 
   const labels = hours.map((hour) => `${String(hour).padStart(2, '0')}:00`)
-  const orders = hours.map((hour) => hourMap.get(hour) || 0)
-  const daySpan = getDateRangeDaySpan(range)
-  const capacity = Math.max(activeRooms * daySpan, 0)
-  const utilization = hours.map((hour) => {
-    if (!capacity) return 0
-    const slotOrders = hourMap.get(hour) || 0
-    return Number(((slotOrders / capacity) * 100).toFixed(1))
-  })
+  const orders = hours.map((hour) => hourMap.get(hour)?.orders || 0)
+  const gmv = hours.map((hour) => hourMap.get(hour)?.gmv || 0)
+  const occupiedMinutes = hours.map((hour) => hourMap.get(hour)?.occupiedMinutes || 0)
+  const daySpan = Math.max(getDateRangeDaySpan(range), 1)
+  const normalizedRoomCount = Math.max(activeRooms, 0)
   const scenes = hours.map((hour) => getBusinessSlotLabel(hour))
 
-  return { labels, orders, utilization, scenes }
+  const roomFactor = normalizedRoomCount > 0 ? normalizedRoomCount : 0
+  const utilizationRatio = occupiedMinutes.map((minutes) => {
+    if (!roomFactor) return 0
+    const ratio = minutes / (daySpan * roomFactor * 60)
+    return Number(Math.max(ratio, 0).toFixed(4))
+  })
+  const utilizationPercent = utilizationRatio.map((ratio) =>
+    Number((ratio * 100).toFixed(1))
+  )
+
+  return { labels, orders, gmv, occupiedMinutes, scenes, utilizationRatio, utilizationPercent }
 }
 
 const buildTimeSlotChartOption = (dataset) => {
   if (!dataset) return null
-  const maxUtilization = Math.max(...dataset.utilization, 0)
-  const utilizationMax = maxUtilization > 0 ? Math.min(100, Math.max(maxUtilization * 1.2, 25)) : 25
+  const maxUtilPercent = Math.max(...dataset.utilizationPercent, 0)
+  const yAxisMax =
+    maxUtilPercent > 0 ? Math.min(Math.max(maxUtilPercent * 1.2, 40), 150) : 40
   return {
-    color: [chartColors.primary, chartColors.warning],
+    color: [chartColors.primary],
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
@@ -356,25 +368,23 @@ const buildTimeSlotChartOption = (dataset) => {
         const hourLabel = dataset.labels[index]
         const scene = dataset.scenes[index]
         const orders = dataset.orders[index]
-        const utilizationValue = dataset.utilization[index]
-        const isMultiDay = dateRange.value?.[0] !== dateRange.value?.[1]
-        const periodText = isMultiDay ? '期间累计' : '当日'
-
+        const gmv = dataset.gmv[index]
+        const occupiedMinutes = dataset.occupiedMinutes?.[index] ?? 0
+        const utilizationRatio = dataset.utilizationRatio[index] || 0
         return [
           `<strong>${hourLabel} (${scene})</strong>`,
-          `${periodText}开台次数：${orders.toLocaleString('zh-CN')} 单`,
-          `时段利用率：${utilizationValue.toFixed(1)}%`,
-          isMultiDay ? '<span style="font-size: 11px; color: #999;">* 多日周期展示各时段的累计负荷</span>' : '',
-        ]
-          .filter(Boolean)
-          .join('<br/>')
+          `开台数：${orders.toLocaleString('zh-CN')} 单`,
+          `GMV：${formatCurrencyValue(gmv, 0)}`,
+          `占用时长：${formatDurationValue(occupiedMinutes)}`,
+          `时段利用率：${formatPercentValue(utilizationRatio, 1)}`,
+        ].join('<br/>')
       },
     },
     grid: {
       top: 40,
       left: 50,
-      right: 40,
-      bottom: 40,
+      right: 30,
+      bottom: 50,
       containLabel: true,
     },
     xAxis: {
@@ -386,42 +396,33 @@ const buildTimeSlotChartOption = (dataset) => {
       },
       axisLine: { lineStyle: { color: '#E0E6ED' } },
     },
-    yAxis: [
-      {
-        type: 'value',
-        name: '开台次数',
-        axisLabel: { color: '#909399' },
-        splitLine: { lineStyle: { color: '#F2F3F5' } },
+    yAxis: {
+      type: 'value',
+      name: '时段利用率 (%)',
+      min: 0,
+      max: yAxisMax,
+      axisLabel: {
+        color: '#909399',
+        formatter: (val) => `${Number(val).toFixed(0)}%`,
       },
-      {
-        type: 'value',
-        name: '时段利用率',
-        min: 0,
-        max: utilizationMax,
-        axisLabel: {
-          color: '#909399',
-          formatter: (val) => `${Number(val).toFixed(0)}%`,
-        },
-        splitLine: { show: false },
+      splitLine: { lineStyle: { color: '#F2F3F5' } },
+    },
+    visualMap: {
+      show: false,
+      min: 0,
+      max: Math.max(maxUtilPercent, 20),
+      inRange: {
+        color: ['#dbeafe', '#60a5fa', '#1d4ed8'],
       },
-    ],
+      seriesIndex: 0,
+    },
     series: [
       {
-        name: '开台次数',
-        type: 'bar',
-        barWidth: '45%',
-        data: dataset.orders,
-        itemStyle: { borderRadius: [4, 4, 0, 0] },
-      },
-      {
         name: '时段利用率',
-        type: 'line',
-        yAxisIndex: 1,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 8,
-        data: dataset.utilization,
-        itemStyle: { color: chartColors.warning },
+        type: 'bar',
+        barWidth: '55%',
+        data: dataset.utilizationPercent,
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
       },
     ],
   }
@@ -509,6 +510,12 @@ const buildSummaryCards = (metrics, activeRooms) => {
   ]
 }
 
+const formatRatio = (numerator, denominator) => {
+  if (!denominator) return null
+  const ratio = numerator / denominator
+  return Number.isFinite(ratio) ? Number(ratio.toFixed(4)) : null
+}
+
 const transformRoomRows = (rows) =>
   rows.map((item) => {
     const gmv = toNumber(item.gmv ?? item.bill_total)
@@ -516,30 +523,22 @@ const transformRoomRows = (rows) =>
     const minConsumption = toNumber(item.min_consumption)
     const minDiff = toNumber(item.min_consumption_diff)
     const giftAmount = toNumber(item.gift_amount)
-    const giftRatio =
-      billTotal > 0
-        ? giftAmount / billTotal
-        : giftAmount > 0
-        ? 1
-        : minConsumption > 0
-        ? 0
-        : null
-    const lowConsumeRate =
-      minConsumption > 0 ? billTotal / minConsumption : null
+    const giftRatio = formatRatio(giftAmount, billTotal)
+    const lowConsumeRate = formatRatio(billTotal, minConsumption)
     return {
       room_name: item.dimension_label || '未知包厢',
       order_count: toNumber(item.orders ?? item.order_count),
       gmv,
       bill_total: billTotal,
       actual: toNumber(item.actual),
-      min_consumption: minConsumption,
+      min_consumption: minConsumption || null,
       low_consume_diff: minDiff,
       low_consume_rate: lowConsumeRate,
       room_discount: toNumber(item.room_discount),
       beverage_discount: toNumber(item.beverage_discount),
       gift_amount: giftAmount,
       gift_ratio: giftRatio,
-      gift_ratio_warn: giftRatio !== null && giftRatio > 0.2,
+      gift_ratio_warn: Number.isFinite(giftRatio) && giftRatio > 0.2,
     }
   })
 
@@ -674,7 +673,7 @@ function useRoomAnalysis(storeRef) {
         table: 'room',
         start_date: startDate,
         end_date: endDate,
-        dimension: 'time_slot',
+        dimension: 'hour',
         granularity: 'day',
         page: 1,
         page_size: 48,

@@ -104,6 +104,14 @@
             >
               商品日报
             </el-button>
+            <el-button
+              type="warning"
+              plain
+              size="small"
+              @click="handleRoomDailyPreset"
+            >
+              包厢运营日报
+            </el-button>
           </el-button-group>
         </div>
 
@@ -192,8 +200,14 @@
               show-overflow-tooltip
             >
               <template #default="{ row }">
-                <span v-if="child.format === 'percent'">
-                  {{ formatPercentCell(row[child.prop]) }}
+                <span
+                  v-if="child.format === 'percent'"
+                  :class="buildPercentCellClass(child, row)"
+                >
+                  {{ formatPercentCell(row[child.prop], child.digits) }}
+                </span>
+                <span v-else-if="child.format === 'currency'">
+                  {{ formatCurrencyCell(row[child.prop], child.digits, child) }}
                 </span>
                 <span v-else>
                   {{ formatDefaultCell(row[child.prop]) }}
@@ -210,8 +224,14 @@
             show-overflow-tooltip
           >
             <template #default="{ row }">
-              <span v-if="column.format === 'percent'">
-                {{ formatPercentCell(row[column.prop]) }}
+              <span
+                v-if="column.format === 'percent'"
+                :class="buildPercentCellClass(column, row)"
+              >
+                {{ formatPercentCell(row[column.prop], column.digits) }}
+              </span>
+              <span v-else-if="column.format === 'currency'">
+                {{ formatCurrencyCell(row[column.prop], column.digits, column) }}
               </span>
               <span v-else>
                 {{ formatDefaultCell(row[column.prop]) }}
@@ -297,7 +317,9 @@ const DIMENSION_OPTIONS_MAP = {
     { label: '日期', value: 'date' },
     { label: '门店', value: 'store' },
     { label: '包厢', value: 'room' },
-    { label: '包厢类型', value: 'room_type' }
+    { label: '包厢类型', value: 'room_type' },
+    { label: '订房人', value: 'booker' },
+    { label: '业务时段', value: 'time_slot' }
   ]
 }
 
@@ -320,7 +342,9 @@ const DIMENSION_COLUMN_MAP = {
   product: { label: '商品名称', prop: 'dimension_value', minWidth: 160 },
   category: { label: '商品类别', prop: 'dimension_value', minWidth: 160 },
   room: { label: '包厢', prop: 'dimension_value', minWidth: 140 },
-  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160 }
+  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160 },
+  booker: { label: '订房人', prop: 'dimension_value', minWidth: 160 },
+  time_slot: { label: '业务时段', prop: 'dimension_value', minWidth: 140 }
 }
 
 const COLUMN_CONFIG = {
@@ -363,9 +387,51 @@ const COLUMN_CONFIG = {
   ],
   room: [
     { prop: 'orders', label: '开台数', align: 'right', minWidth: 100 },
-    { prop: 'gmv', label: 'GMV', align: 'right', minWidth: 120 },
-    { prop: 'actual', label: '实收', align: 'right', minWidth: 120 },
-    { prop: 'duration', label: '时长', align: 'right', minWidth: 100 } // 假设后端字段为 duration
+    { prop: 'gmv', label: 'GMV（应收）', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
+    { prop: 'bill_total', label: '账单合计', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
+    { prop: 'actual', label: '实收金额', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
+    {
+      prop: 'min_consumption',
+      label: '最低消费',
+      align: 'right',
+      minWidth: 140,
+      format: 'currency',
+      digits: 0,
+      nullWhenZero: true
+    },
+    {
+      prop: 'min_consumption_diff',
+      label: '低消差额',
+      align: 'right',
+      minWidth: 140,
+      format: 'currency',
+      digits: 0
+    },
+    {
+      prop: 'low_consume_rate',
+      label: '低消达成率',
+      align: 'right',
+      minWidth: 140,
+      format: 'percent',
+      digits: 2,
+      bold: true
+    },
+    { prop: 'gift_amount', label: '赠送金额', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
+    {
+      prop: 'gift_ratio',
+      label: '赠送比例',
+      align: 'right',
+      minWidth: 140,
+      format: 'percent',
+      digits: 2,
+      bold: true,
+      warnThreshold: 0.2
+    },
+    { prop: 'room_discount', label: '房费折扣', align: 'right', minWidth: 120, format: 'currency', digits: 0 },
+    { prop: 'beverage_discount', label: '酒水折扣', align: 'right', minWidth: 120, format: 'currency', digits: 0 },
+    { prop: 'free_amount', label: '免单金额', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
+    { prop: 'credit_amount', label: '挂账金额', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
+    { prop: 'duration', label: '时长 (分钟)', align: 'right', minWidth: 120 }
   ]
 }
 
@@ -609,6 +675,51 @@ const withSalesDerivedMetrics = (row) => {
   }
 }
 
+const withRoomDerivedMetrics = (row) => {
+  const billTotal = toFiniteNumber(row.bill_total ?? row.gmv ?? row.receivable_amount)
+  const hasMinConsumption = row.min_consumption !== null && row.min_consumption !== undefined
+  const minConsumption = hasMinConsumption ? toFiniteNumber(row.min_consumption) : null
+  const minDiffSource = row.min_consumption_diff ?? row.low_consume_diff
+  const computedDiff =
+    minConsumption !== null && minConsumption > 0
+      ? Number(Math.max(minConsumption - billTotal, 0).toFixed(2))
+      : 0
+  const minConsumptionDiff =
+    minDiffSource !== null && minDiffSource !== undefined
+      ? toFiniteNumber(minDiffSource)
+      : computedDiff
+  const giftAmount =
+    row.gift_amount !== null && row.gift_amount !== undefined
+      ? toFiniteNumber(row.gift_amount)
+      : 0
+  const freeAmount =
+    row.free_amount !== null && row.free_amount !== undefined
+      ? toFiniteNumber(row.free_amount)
+      : 0
+  const creditAmount =
+    row.credit_amount !== null && row.credit_amount !== undefined
+      ? toFiniteNumber(row.credit_amount)
+      : 0
+
+  return {
+    ...row,
+    bill_total: billTotal,
+    min_consumption: minConsumption,
+    min_consumption_diff: minConsumptionDiff,
+    low_consume_rate:
+      minConsumption !== null && minConsumption > 0
+        ? Number((billTotal / minConsumption).toFixed(4))
+        : null,
+    gift_amount: giftAmount,
+    gift_ratio:
+      billTotal > 0 && Number.isFinite(giftAmount)
+        ? Number((giftAmount / billTotal).toFixed(4))
+        : null,
+    free_amount: freeAmount,
+    credit_amount: creditAmount
+  }
+}
+
 const normalizeRow = (item, table) => {
   const baseRow = {
     ...item,
@@ -620,7 +731,29 @@ const normalizeRow = (item, table) => {
   if (table === 'sales') {
     return withSalesDerivedMetrics(baseRow)
   }
+  if (table === 'room') {
+    return withRoomDerivedMetrics(baseRow)
+  }
   return baseRow
+}
+
+const formatCurrencyValue = (value, digits = 2) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return '--'
+  }
+  return `¥${numeric.toLocaleString('zh-CN', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  })}`
+}
+
+const formatPercentValue = (value, digits = 2) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return '--'
+  }
+  return `${(numeric * 100).toFixed(digits)}%`
 }
 
 const formatDefaultCell = (value) => {
@@ -630,12 +763,45 @@ const formatDefaultCell = (value) => {
   return value
 }
 
-const formatPercentCell = (value) => {
+const shouldShowPlaceholder = (value, column) => {
+  if (value === null || value === undefined || value === '') {
+    return true
+  }
+  if (column?.nullWhenZero && Number(value) === 0) {
+    return true
+  }
+  return false
+}
+
+const formatCurrencyCell = (value, digits = 2, column) => {
+  if (shouldShowPlaceholder(value, column)) {
+    return '--'
+  }
+  const decimalDigits = Number.isFinite(Number(digits)) ? Number(digits) : 2
+  return formatCurrencyValue(value, decimalDigits)
+}
+
+const formatPercentCell = (value, digits = 2) => {
   const numeric = toFiniteNumber(value, NaN)
   if (!Number.isFinite(numeric)) {
     return '--'
   }
-  return `${(numeric * 100).toFixed(2)}%`
+  const decimalDigits = Number.isFinite(Number(digits)) ? Number(digits) : 2
+  return formatPercentValue(numeric, decimalDigits)
+}
+
+const buildPercentCellClass = (column, row) => {
+  const classes = ['percent-text']
+  if (column?.bold) {
+    classes.push('percent-strong')
+  }
+  if (column?.warnThreshold !== undefined) {
+    const numeric = toFiniteNumber(row?.[column.prop], NaN)
+    if (Number.isFinite(numeric) && numeric > column.warnThreshold) {
+      classes.push('is-warning')
+    }
+  }
+  return classes
 }
 
 const columnKey = (column) => {
@@ -652,10 +818,14 @@ const hasChartData = computed(
 
 const paginationDisabled = computed(() => !appliedParams.value || !isViewSynced.value)
 
-const currentMetricLabel = computed(() => {
-  const current = metricOptions.value.find((item) => item.prop === selectedMetric.value)
-  return current?.label || ''
-})
+  const currentMetricLabel = computed(() => {
+    const current = metricOptions.value.find((item) => item.prop === selectedMetric.value)
+    let label = current?.label || ''
+    if (queryParams.dimension === 'booker' && label) {
+      label += ' (已排除散户数据)'
+    }
+    return label
+  })
 
 const buildTableColumns = () => {
   const dimensionKey = queryParams.dimension
@@ -860,7 +1030,12 @@ const buildChartOption = () => {
     return null
   }
 
-  const sourceData = chartSourceRows.value
+  // 如果是订房人维度，过滤掉散户数据，避免大值淹没小值，方便对比员工能力
+  let sourceData = chartSourceRows.value
+  if (queryParams.dimension === 'booker') {
+    sourceData = sourceData.filter(item => item.dimension_value !== '散户')
+  }
+
   const xData = sourceData.map((item) => item.dimension_value ?? '--')
   const yData = sourceData.map((item) => Number(item[metric.prop]) || 0)
   const mode = chartMode.value
@@ -877,7 +1052,15 @@ const buildChartOption = () => {
     showSymbol,
     symbol: showSymbol ? 'circle' : 'none',
     symbolSize: showSymbol ? 6 : 0,
-    sampling
+    sampling,
+    barMinHeight: 5, // 确保小数值在柱状图中依然可见
+    label: {
+      show: xData.length <= 30, // 数据点较少时直接显示数值
+      position: 'top',
+      fontSize: 10,
+      color: '#909399',
+      formatter: (params) => params.value > 0 ? params.value : ''
+    }
   }
 
   if (isLine) {
@@ -942,6 +1125,8 @@ const buildChartOption = () => {
         }
       : undefined
 
+  const isCountMetric = ['orders', 'sales_qty', 'gift_qty'].includes(metric.prop)
+
   return {
     tooltip: {
       trigger: 'axis'
@@ -968,6 +1153,7 @@ const buildChartOption = () => {
     },
     yAxis: {
       type: 'value',
+      minInterval: isCountMetric ? 1 : undefined,
       splitLine: {
         lineStyle: {
           type: 'dashed'
@@ -1176,6 +1362,20 @@ const scheduleAutoQuery = ({ resetPage = true, source = 'auto' } = {}) => {
   }, 250)
 }
 
+const formatDateToYMD = (date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const getYesterdayDateRange = () => {
+  const today = new Date()
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  const formatted = formatDateToYMD(yesterday)
+  return [formatted, formatted]
+}
+
 const handleFinancialDailyPreset = ({ triggerQuery = true, source = 'preset:financial' } = {}) => {
   suppressAutoQuery.value = true
   queryParams.table = 'booking'
@@ -1202,6 +1402,20 @@ const handleProductDailyPreset = ({ triggerQuery = true, source = 'preset:produc
   })
 }
 
+const handleRoomDailyPreset = ({ triggerQuery = true, source = 'preset:room' } = {}) => {
+  suppressAutoQuery.value = true
+  queryParams.table = 'room'
+  queryParams.dimension = 'room'
+  queryParams.granularity = 'day'
+  queryParams.dateRange = getYesterdayDateRange()
+  nextTick(() => {
+    suppressAutoQuery.value = false
+    if (triggerQuery) {
+      scheduleAutoQuery({ resetPage: true, source })
+    }
+  })
+}
+
 const applyRoutePresetIfNeeded = () => {
   if (route.query?.preset === 'financial_daily') {
     handleFinancialDailyPreset({ source: 'preset:financial:route' })
@@ -1209,6 +1423,10 @@ const applyRoutePresetIfNeeded = () => {
   }
   if (route.query?.preset === 'product_daily') {
     handleProductDailyPreset({ source: 'preset:product:route' })
+    return true
+  }
+  if (route.query?.preset === 'room_daily') {
+    handleRoomDailyPreset({ source: 'preset:room:route' })
     return true
   }
   return false
@@ -1265,6 +1483,8 @@ watch(
       handleFinancialDailyPreset({ source: 'preset:financial:navigate' })
     } else if (preset === 'product_daily' && preset !== previous) {
       handleProductDailyPreset({ source: 'preset:product:navigate' })
+    } else if (preset === 'room_daily' && preset !== previous) {
+      handleRoomDailyPreset({ source: 'preset:room:navigate' })
     }
   }
 )
@@ -1412,6 +1632,20 @@ onBeforeUnmount(() => {
     margin-bottom: 16px;
   }
 
+  .percent-text {
+    display: inline-block;
+    min-width: 70px;
+    text-align: right;
+  }
+
+  .percent-strong {
+    font-weight: 600;
+  }
+
+  .percent-text.is-warning {
+    color: #f56c6c;
+  }
+
   .table-pagination {
     display: flex;
     justify-content: flex-end;
@@ -1503,6 +1737,10 @@ onBeforeUnmount(() => {
         line-height: 20px; // 优化多行文本显示
         white-space: normal; // 允许换行
         padding: 0 20px;
+      }
+
+      :deep(.percent-text) {
+        min-width: 50px;
       }
     }
 
@@ -1636,6 +1874,10 @@ onBeforeUnmount(() => {
         .el-table__header th,
         .el-table__body td {
           padding: 6px 3px;
+        }
+
+        .percent-text {
+          min-width: 40px;
         }
       }
 

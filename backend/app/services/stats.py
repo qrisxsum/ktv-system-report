@@ -4,11 +4,11 @@
 根据表类型、时间范围、维度和粒度进行实时聚合
 """
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import List, Dict, Any, Optional, Tuple
 
-from sqlalchemy import func, select, case
+from sqlalchemy import func, select, case, or_, and_
 from sqlalchemy.orm import Session
 
 from app.models.facts import FactBooking, FactRoom, FactSales, FactMemberChange
@@ -33,6 +33,8 @@ class StatsService:
         "member_change": FactMemberChange,
     }
 
+    MAX_HOURLY_UTILIZATION_DAY_SPAN = 62
+
     @staticmethod
     def _safe_sum(expr):
         """统一为 SUM 结果提供 0 兜底，避免返回 NULL"""
@@ -51,6 +53,25 @@ class StatsService:
         """基于开房/关房时间推断小时"""
         time_expr = self._build_room_time_expr(model)
         return func.hour(time_expr)
+
+    def _build_room_open_hour_expr(self, model):
+        """用于 24 小时分布的小时表达式（0-23）"""
+        if model is not FactRoom:
+            raise ValueError("仅支持 FactRoom 生成小时表达式")
+        return self._build_room_hour_expr(model)
+
+    def _build_room_slot_expr(self, model):
+        """将包厢开房时间映射为业务时段标签"""
+        if model is not FactRoom:
+            raise ValueError("仅支持 FactRoom 生成时段标签")
+        hour_expr = self._build_room_hour_expr(model)
+        return case(
+            (and_(hour_expr >= 6, hour_expr < 12), "上午场"),
+            (and_(hour_expr >= 12, hour_expr < 18), "下午场"),
+            (and_(hour_expr >= 18, hour_expr < 24), "晚场"),
+            (and_(hour_expr >= 0, hour_expr < 6), "凌晨场"),
+            else_="凌晨场",
+        )
 
     def _get_dimension_expr(self, model, dimension: str, granularity: str):
         """根据维度和粒度返回分组表达式和标签"""
@@ -82,12 +103,16 @@ class StatsService:
                 return model.sales_manager.label("dimension_key")
         elif dimension == "booker":
             if hasattr(model, "booker"):
-                return model.booker.label("dimension_key")
+                return func.coalesce(model.booker, "散户").label("dimension_key")
         elif dimension == "time_slot":
             if model is FactRoom:
-                return self._build_room_hour_expr(model).label("dimension_key")
+                return self._build_room_slot_expr(model).label("dimension_key")
             if hasattr(model, "time_slot"):
                 return model.time_slot.label("dimension_key")
+        elif dimension == "hour":
+            # 仅对 room 表开放：用于 24 小时开台负荷/利用率分析
+            if model is FactRoom:
+                return self._build_room_open_hour_expr(model).label("dimension_key")
         elif dimension == "room_type":
             if model is FactRoom:
                 return DimRoom.room_type.label("dimension_key")
@@ -143,13 +168,29 @@ class StatsService:
             return {}
 
         dim_expr = self._get_dimension_expr(model, dimension, granularity)
+        # 关键修复：
+        # dim_expr 可能来自维表字段（如 room_type => DimRoom.room_type、category => DimProduct.category）。
+        # 如果不 join 维表，SQLAlchemy 往往会生成无条件的 FROM (model, dim_table) 笛卡尔积，
+        # 在数据量稍大时会导致查询极慢甚至拖垮后续请求。
+        join_model, join_condition, _, _ = self._get_dimension_join_config(
+            model, dimension
+        )
+
         query = self.db.query(
             dim_expr.label("dimension_key"),
             model.extra_payments,
             model.extra_info,
-        ).filter(model.biz_date.between(start_date, end_date))
+        ).select_from(model)
+        if join_model is not None and join_condition is not None:
+            query = query.join(join_model, join_condition)
+
+        query = query.filter(model.biz_date.between(start_date, end_date))
         if store_id is not None:
             query = query.filter(model.store_id == store_id)
+        # 仅扫描确实包含动态支付信息的记录，避免无意义全表扫描
+        query = query.filter(
+            or_(model.extra_payments.isnot(None), model.extra_info.isnot(None))
+        )
 
         aggregates: Dict[Any, Dict[str, float]] = {}
         for dimension_key, extra_payments, extra_info in query:
@@ -201,6 +242,13 @@ class StatsService:
                 ("orders", self._safe_sum(model.booking_qty)),
             ]
         if model is FactRoom:
+            min_minus_bill = func.coalesce(model.min_consumption, 0) - func.coalesce(
+                model.bill_total, 0
+            )
+            min_consumption_diff_expr = case(
+                (min_minus_bill > 0, min_minus_bill),
+                else_=0,
+            )
             return [
                 ("gmv", self._safe_sum(model.receivable_amount)),
                 ("bill_total", self._safe_sum(model.bill_total)),
@@ -208,7 +256,7 @@ class StatsService:
                 ("min_consumption", self._safe_sum(model.min_consumption)),
                 (
                     "min_consumption_diff",
-                    self._safe_sum(model.min_consumption_diff),
+                    self._safe_sum(min_consumption_diff_expr),
                 ),
                 ("gift_amount", self._safe_sum(model.gift_amount)),
                 ("free_amount", self._safe_sum(model.free_amount)),
@@ -309,19 +357,155 @@ class StatsService:
                 DimRoom.room_type.label("dimension_label"),
                 [],
             )
+        if dimension == "booker":
+            label_expr = (
+                func.coalesce(model.booker, "散户").label("dimension_label")
+                if hasattr(model, "booker")
+                else None
+            )
+            return (None, None, label_expr, [])
         if dimension == "time_slot":
             if model is FactRoom:
-                return (
-                    None,
-                    None,
-                    func.date_format(self._build_room_time_expr(model), "%H:00").label(
-                        "dimension_label"
-                    ),
-                    [],
-                )
+                slot_label = self._build_room_slot_expr(model).label("dimension_label")
+                return (None, None, slot_label, [])
             if hasattr(model, "time_slot"):
                 return (None, None, model.time_slot.label("dimension_label"), [])
+        if dimension == "hour":
+            # hour 直接使用 dimension_key 作为 label
+            return (None, None, None, [])
         return (None, None, None, [])
+
+    def _get_active_room_count(self, store_id: Optional[int]) -> int:
+        stmt = self.db.query(func.count(DimRoom.id)).filter(DimRoom.is_active.is_(True))
+        if store_id is not None:
+            stmt = stmt.filter(DimRoom.store_id == store_id)
+        return int(stmt.scalar() or 0)
+
+    @staticmethod
+    def _coalesce_dt(*values: Any) -> Optional[datetime]:
+        for val in values:
+            if isinstance(val, datetime):
+                return val
+        return None
+
+    def _query_room_hourly_utilization(
+        self,
+        start_date: date,
+        end_date: date,
+        store_id: Optional[int],
+    ) -> Dict[str, Any]:
+        """
+        24 小时开台负荷/利用率（按小时）：
+        - orders：以开房时间（缺失则用关房时间）所在小时计数
+        - gmv：同上小时归属汇总
+        - occupied_minutes：基于 open_time/close_time（或 duration_min 兜底）将占用分钟按小时切片分摊
+        """
+        day_span = (end_date - start_date).days + 1
+        if day_span > self.MAX_HOURLY_UTILIZATION_DAY_SPAN:
+            raise ValueError(
+                f"小时利用率计算跨度过大（{day_span} 天），请缩小到 {self.MAX_HOURLY_UTILIZATION_DAY_SPAN} 天以内"
+            )
+
+        # 初始化 0-23 桶
+        buckets: Dict[int, Dict[str, float]] = {
+            h: {"orders": 0.0, "gmv": 0.0, "occupied_minutes": 0.0} for h in range(24)
+        }
+
+        # 1) orders / gmv：按“开房(或关房)时间所在小时”归属
+        hour_expr = func.hour(func.coalesce(FactRoom.open_time, FactRoom.close_time))
+        agg_stmt = self.db.query(
+            hour_expr.label("hour"),
+            func.count(FactRoom.id).label("orders"),
+            self._safe_sum(FactRoom.receivable_amount).label("gmv"),
+        ).filter(FactRoom.biz_date.between(start_date, end_date))
+        if store_id is not None:
+            agg_stmt = agg_stmt.filter(FactRoom.store_id == store_id)
+        agg_stmt = agg_stmt.group_by(hour_expr)
+        for row in agg_stmt.all():
+            hour = int(row.hour) if row.hour is not None else None
+            if hour is None or hour < 0 or hour > 23:
+                continue
+            buckets[hour]["orders"] = float(row.orders or 0)
+            buckets[hour]["gmv"] = float(row.gmv or 0.0)
+
+        # 2) occupied_minutes：按小时切片分摊
+        raw_stmt = self.db.query(
+            FactRoom.open_time, FactRoom.close_time, FactRoom.duration_min
+        ).filter(FactRoom.biz_date.between(start_date, end_date))
+        if store_id is not None:
+            raw_stmt = raw_stmt.filter(FactRoom.store_id == store_id)
+
+        def add_overlap_minutes(start_dt: datetime, end_dt: datetime):
+            if end_dt <= start_dt:
+                return
+            cursor = start_dt
+            # 从开始时间所在小时的整点开始切片
+            while cursor < end_dt:
+                hour_start = cursor.replace(minute=0, second=0, microsecond=0)
+                hour_end = hour_start + timedelta(hours=1)
+                overlap_start = max(start_dt, hour_start)
+                overlap_end = min(end_dt, hour_end)
+                if overlap_end > overlap_start:
+                    minutes = (overlap_end - overlap_start).total_seconds() / 60.0
+                    buckets[hour_start.hour]["occupied_minutes"] += float(minutes)
+                cursor = hour_end
+
+        for open_time, close_time, duration_min in raw_stmt.all():
+            start_dt = self._coalesce_dt(open_time, close_time)
+            if start_dt is None:
+                continue
+            end_dt = self._coalesce_dt(close_time)
+            if end_dt is None:
+                try:
+                    dur = int(duration_min or 0)
+                except (TypeError, ValueError):
+                    dur = 0
+                end_dt = start_dt + timedelta(minutes=max(dur, 0))
+            # 防御：异常数据导致关房早于开房时，直接跳过或兜底
+            if end_dt < start_dt:
+                continue
+            add_overlap_minutes(start_dt, end_dt)
+
+        rows: List[Dict[str, Any]] = []
+        for h in range(24):
+            rows.append(
+                {
+                    "dimension_key": h,
+                    "dimension_label": f"{h:02d}:00",
+                    "orders": int(round(buckets[h]["orders"])),
+                    "gmv": round(buckets[h]["gmv"], 2),
+                    "occupied_minutes": round(buckets[h]["occupied_minutes"], 2),
+                }
+            )
+
+        active_room_count = self._get_active_room_count(store_id)
+        return {
+            "rows": rows,
+            "series_rows": rows,
+            "summary": {
+                "orders": int(sum(r["orders"] for r in rows)),
+                "gmv": round(sum(float(r["gmv"] or 0) for r in rows), 2),
+                "occupied_minutes": round(
+                    sum(float(r["occupied_minutes"] or 0) for r in rows), 2
+                ),
+                "active_room_count": active_room_count,
+            },
+            "total": 24,
+            "meta": {
+                "table": "room",
+                "dimension": "hour",
+                "granularity": None,
+                "series_granularity": None,
+                "store_id": store_id,
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "count": 24,
+                "active_room_count": active_room_count,
+                "is_truncated": False,
+                "auto_adjusted": False,
+                "suggestions": [],
+            },
+        }
 
     def _build_group_stmt(
         self,
@@ -456,6 +640,12 @@ class StatsService:
         model = self.TABLE_MAP[table]
         if granularity not in self.GRANULARITY_ORDER:
             raise ValueError(f"不支持的粒度: {granularity}")
+
+        # 特殊：room + hour 用于 24 小时负荷/利用率（需要按小时切片分摊占用分钟）
+        if table == "room" and dimension == "hour":
+            return self._query_room_hourly_utilization(
+                start_date=start_date, end_date=end_date, store_id=store_id
+            )
 
         self._validate_pagination(page, page_size)
         top_n = self._clamp_top_n(top_n)
@@ -611,6 +801,10 @@ class StatsService:
                     global_extra[k] = global_extra.get(k, 0.0) + v
             summary_data["extra_payments"] = global_extra
 
+        # 补充：room 表提供活跃包厢数，便于前端计算翻台率/利用率
+        if table == "room":
+            summary_data["active_room_count"] = self._get_active_room_count(store_id)
+
         return {
             "rows": rows,
             "series_rows": series_rows,
@@ -627,6 +821,9 @@ class StatsService:
                 "start_date": str(start_date),
                 "end_date": str(end_date),
                 "count": total,
+                "active_room_count": (
+                    summary_data.get("active_room_count") if table == "room" else None
+                ),
                 "is_truncated": is_truncated,
                 "auto_adjusted": auto_adjusted,
                 "suggestions": suggestions,

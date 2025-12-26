@@ -44,7 +44,9 @@ def _convert_dimension_to_string(dimension: Dimension) -> str:
         Dimension.CATEGORY: "category",
         Dimension.ROOM: "room",
         Dimension.ROOM_TYPE: "room_type",
+        Dimension.BOOKER: "booker",
         Dimension.TIME_SLOT: "time_slot",
+        Dimension.HOUR: "hour",
     }
     return dimension_map.get(dimension, "date")
 
