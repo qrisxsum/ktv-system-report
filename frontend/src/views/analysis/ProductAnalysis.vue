@@ -147,44 +147,45 @@
         border
         v-loading="loading"
         :row-class-name="getRowClass"
+        :default-sort="{ prop: 'sales_amount', order: 'descending' }"
       >
         <el-table-column prop="product_name" label="商品名称" min-width="150" fixed="left" />
-        <el-table-column prop="sales_qty" label="销售数量" min-width="100" align="right">
+        <el-table-column prop="sales_qty" label="销售数量" min-width="100" align="right" sortable>
           <template #default="{ row }">
             {{ formatInteger(row.sales_qty) }}
           </template>
         </el-table-column>
-        <el-table-column prop="sales_amount" label="销售金额" min-width="120" align="right">
+        <el-table-column prop="sales_amount" label="销售金额" min-width="120" align="right" sortable>
           <template #default="{ row }">
             {{ formatCurrency(row.sales_amount) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_qty" label="赠送数量" min-width="100" align="right">
+        <el-table-column prop="gift_qty" label="赠送数量" min-width="100" align="right" sortable>
           <template #default="{ row }">
             {{ formatInteger(row.gift_qty) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_amount" label="赠送金额" min-width="120" align="right">
+        <el-table-column prop="gift_amount" label="赠送金额" min-width="120" align="right" sortable>
           <template #default="{ row }">
             {{ formatCurrency(row.gift_amount) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_rate" label="赠送率" min-width="120" align="right">
+        <el-table-column prop="gift_rate" label="赠送率" min-width="120" align="right" sortable>
           <template #default="{ row }">
             {{ formatPercent(row.gift_rate) }}
           </template>
         </el-table-column>
-        <el-table-column prop="cost" label="成本" min-width="120" align="right">
+        <el-table-column prop="cost" label="成本" min-width="120" align="right" sortable>
           <template #default="{ row }">
             {{ formatCurrency(row.cost) }}
           </template>
         </el-table-column>
-        <el-table-column prop="profit" label="利润" min-width="120" align="right">
+        <el-table-column prop="profit" label="利润" min-width="120" align="right" sortable>
           <template #default="{ row }">
             {{ formatCurrency(row.profit) }}
           </template>
         </el-table-column>
-        <el-table-column prop="profit_rate" label="成本利润率" min-width="110" align="right">
+        <el-table-column prop="profit_rate" label="成本利润率" min-width="110" align="right" sortable>
           <template #default="{ row }">
             {{ formatPercent(row.profit_rate) }}
           </template>

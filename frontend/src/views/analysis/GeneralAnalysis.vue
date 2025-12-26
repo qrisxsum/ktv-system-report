@@ -322,7 +322,9 @@ const DIMENSION_COLUMN_MAP = {
   product: { label: '商品名称', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
   category: { label: '商品类别', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
   room: { label: '包厢', prop: 'dimension_value', minWidth: 140, fixed: 'left' },
-  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160, fixed: 'left' }
+  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  booker: { label: '订房人', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  time_slot: { label: '业务时段', prop: 'dimension_value', minWidth: 140, fixed: 'left' }
 }
 
 const COLUMN_CONFIG = {

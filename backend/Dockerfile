@@ -20,6 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     default-libmysqlclient-dev \
     pkg-config \
     curl \
+    # 安装 LibreOffice 核心和表格组件（用于 Excel 修复转换）
+    libreoffice-calc \
+    libreoffice-java-common \
+    # 中文字体支持，确保转换过程不乱码
+    fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
 # ========================================
