@@ -17,6 +17,7 @@
 
 - [Docker](https://www.docker.com/) (v20.10+)
 - [Docker Compose](https://docs.docker.com/compose/) (v2.0+)
+- **LibreOffice (可选)**: 后端容器已集成 LibreOffice 用于自动修复损坏的 `.xls` 文件。
 
 ### 启动服务
 
@@ -28,27 +29,20 @@ cd ktv-system-report
 # 2. 配置环境变量
 cp env.example .env
 
-# 3. 启动
+# 3. 启动并构建 (已集成 LibreOffice 修复服务)
+# 注意：首次构建会下载约 500MB 依赖，请保持网络畅通
 docker compose up -d --build
 
-# 4. 初始化数据库
-#
+# 4. 验证 LibreOffice 服务是否就绪
+docker exec -it ktv-backend soffice --version
+
+# 5. 初始化数据库
 # Windows 本地运行时，如果遇到 alembic.ini 编码/locale 解码问题，
 # 可改用 ASCII-only 配置文件启动（不影响 env.py 覆盖 DATABASE_URL）：
 #   python -m alembic -c backend/alembic.ascii.ini upgrade head
 docker compose exec backend alembic upgrade head
 
-# 常见问题：Table already exists
-# - 原因：数据库里已经被其他方式建过表（例如旧版 init.sql 预建表），但 alembic_version 里没有版本号。
-# - 方案A（推荐，干净重建）：删除 MySQL volume 后重启再迁移
-#   docker compose down -v
-#   docker compose up -d
-#   docker compose exec backend alembic upgrade head
-# - 方案B（保留现有表/数据）：将现有结构“标记”为初始迁移版本，再升级到最新
-#   docker compose exec backend alembic stamp 628a6c05dd81
-#   docker compose exec backend alembic upgrade head
-
-# 5. 访问
+# 6. 访问
 # 前端: http://localhost:5173
 # API: http://localhost:8000/docs
 ```
@@ -105,11 +99,31 @@ ktv-system-report/
 
 ## 🔧 常见问题
 
+**构建失败 (网络/SSL 错误)**: 
+如果在 `docker compose up -d --build` 时遇到 pip 下载超时或 SSL 错误，请尝试：
+1. 修改 `backend/Dockerfile` 切换为阿里源并信任主机：
+   ```dockerfile
+   RUN pip install --no-cache-dir -r requirements.txt \
+       -i https://mirrors.aliyun.com/pypi/simple/ \
+       --trusted-host mirrors.aliyun.com
+   ```
+2. 检查 Docker Desktop 的代理设置。
+
 **后端无响应**: `docker compose logs backend` 查看错误
 
 **端口冲突**: 修改 `.env` 中的端口配置后 `docker compose up -d`
 
 **完全重置**: `docker compose down -v` (⚠️ 会删除数据库)
+
+# 常见问题：Table already exists
+# - 原因：数据库里已经被其他方式建过表（例如旧版 init.sql 预建表），但 alembic_version 里没有版本号。
+# - 方案A（推荐，干净重建）：删除 MySQL volume 后重启再迁移
+#   docker compose down -v
+#   docker compose up -d
+#   docker compose exec backend alembic upgrade head
+# - 方案B（保留现有表/数据）：将现有结构“标记”为初始迁移版本，再升级到最新
+#   docker compose exec backend alembic stamp 628a6c05dd81
+#   docker compose exec backend alembic upgrade head
 
 ---
 

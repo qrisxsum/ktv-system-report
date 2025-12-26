@@ -12,7 +12,11 @@ Author: Dev B (Data Specialist)
 """
 
 import io
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import numpy as np
 from typing import Union, Optional, List, Tuple, Iterator
 from zipfile import BadZipFile
@@ -48,6 +52,236 @@ class ParserError(ValueError):
     """Parser 模块统一异常"""
 
     pass
+
+
+_OLE_XLS_MAGIC = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"  # OLE2 / BIFF (xls)
+_ZIP_MAGIC = b"PK"  # zip container (xlsx)
+
+
+def _sniff_excel_container(file_content: bytes) -> str:
+    """
+    粗略识别 Excel 文件“容器类型”，用于给出更友好的错误提示。
+
+    Returns:
+        - "ole": 传统 .xls (OLE2/BIFF)
+        - "zip": .xlsx (zip container)
+        - "html": 很多系统导出的“伪 xls”（HTML 表格 + .xls 后缀）
+        - "unknown": 其他/无法识别
+    """
+    if not file_content:
+        return "unknown"
+
+    head = file_content[:4096]
+
+    # xls (OLE2)
+    if head.startswith(_OLE_XLS_MAGIC):
+        return "ole"
+
+    # xlsx (ZIP)
+    if head.startswith(_ZIP_MAGIC):
+        return "zip"
+
+    # HTML disguised as xls
+    try:
+        text_head = head.decode("utf-8", errors="ignore").lower()
+        if "<html" in text_head or "<table" in text_head or "<!doctype html" in text_head:
+            return "html"
+    except Exception:
+        pass
+
+    return "unknown"
+
+
+def _convert_excel_to_xlsx_via_libreoffice(file_content: bytes, filename: str) -> bytes:
+    """
+    使用 LibreOffice(soffice) 将 Excel 转换为 xlsx。
+    """
+    # 增加对 .com 的显式检查，并增加 Windows 默认路径硬探测
+    soffice = (
+        shutil.which("soffice") 
+        or shutil.which("soffice.exe") 
+        or shutil.which("soffice.com")
+    )
+    
+    # 兜底：如果环境变量找不到，直接探测 Windows 默认安装路径
+    if not soffice and os.name == "nt":
+        default_path = r"C:\Program Files\LibreOffice\program\soffice.com"
+        if os.path.exists(default_path):
+            soffice = default_path
+        else:
+            default_path_exe = r"C:\Program Files\LibreOffice\program\soffice.exe"
+            if os.path.exists(default_path_exe):
+                soffice = default_path_exe
+
+    if not soffice:
+        raise ParserError("服务器未安装 LibreOffice（soffice），或未将其加入环境变量 Path，无法自动修复损坏的 xls")
+
+    base = os.path.basename(filename or "upload.xls")
+    name, ext = os.path.splitext(base)
+    if not ext:
+        ext = ".xls"
+
+    with tempfile.TemporaryDirectory(prefix="ktv_xls_convert_") as tmpdir:
+        src_path = os.path.join(tmpdir, f"{name}{ext}")
+        out_dir = tmpdir
+
+        with open(src_path, "wb") as f:
+            f.write(file_content)
+
+        # LibreOffice 会把输出放到 --outdir，并使用相同文件名但后缀为 .xlsx
+        # 注：Windows 下同样可用；无需显示窗口，用 --headless
+        cmd = [
+            soffice,
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nolockcheck",
+            "--norestore",
+            "--convert-to",
+            "xlsx",
+            "--outdir",
+            out_dir,
+            src_path,
+        ]
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ParserError("LibreOffice 转换超时（60s），无法自动修复/转换该文件") from exc
+        except Exception as exc:
+            raise ParserError(f"调用 LibreOffice 转换失败: {exc}") from exc
+
+        out_path = os.path.join(out_dir, f"{name}.xlsx")
+        if not os.path.exists(out_path):
+            # 有些情况下 LO 会对文件名做清理；兜底扫描目录里最新的 xlsx
+            xlsx_candidates = [
+                os.path.join(out_dir, p)
+                for p in os.listdir(out_dir)
+                if p.lower().endswith(".xlsx")
+            ]
+            if xlsx_candidates:
+                # 取最新修改的那个
+                out_path = max(xlsx_candidates, key=lambda p: os.path.getmtime(p))
+            else:
+                stderr = (proc.stderr or "").strip()
+                stdout = (proc.stdout or "").strip()
+                raise ParserError(
+                    f"LibreOffice 未生成 xlsx 输出。stdout={stdout[:300]} stderr={stderr[:300]}"
+                )
+
+        try:
+            with open(out_path, "rb") as f:
+                return f.read()
+        except Exception as exc:
+            raise ParserError(f"读取 LibreOffice 转换结果失败: {exc}") from exc
+
+
+def _read_excel_with_fallback(
+    file_content: bytes,
+    filename: str,
+    *,
+    nrows: Optional[int] = None,
+    header: Union[int, List[int], None] = None,
+    skiprows: Optional[Union[int, List[int], range]] = None,
+) -> pd.DataFrame:
+    """
+    读取 Excel（.xls/.xlsx）并在引擎不匹配时自动 fallback。
+
+    背景：真实文件格式与扩展名不一致时（例如把 xlsx 重命名为 xls），
+    会导致 pandas+引擎抛出非 ValueError/BadZipFile 的异常（如 XLRDError），
+    进而冒泡成 500。这里统一将读取错误包装为 ParserError。
+    """
+    filename_lower = (filename or "").lower()
+    container = _sniff_excel_container(file_content)
+
+    # 优先顺序：先看“真实容器类型”，再看扩展名
+    if container == "ole":
+        engines = ["xlrd", "openpyxl"]
+    elif container == "zip":
+        engines = ["openpyxl", "xlrd"]
+    else:
+        if filename_lower.endswith(".xls"):
+            engines = ["xlrd", "openpyxl"]
+        elif filename_lower.endswith(".xlsx"):
+            engines = ["openpyxl", "xlrd"]
+        else:
+            engines = ["openpyxl", "xlrd"]
+
+    last_exc: Optional[BaseException] = None
+    engine_errors: List[str] = []
+    for engine in engines:
+        try:
+            stream = io.BytesIO(file_content)
+            stream.seek(0)
+            return pd.read_excel(
+                stream,
+                nrows=nrows,
+                header=header,
+                skiprows=skiprows,
+                engine=engine,
+            )
+        except ImportError as exc:
+            # 依赖缺失（例如未安装 xlrd/openpyxl）
+            last_exc = exc
+            engine_errors.append(f"{engine}: ImportError({exc})")
+            continue
+        except Exception as exc:
+            # 兼容 xlrd 的 XLRDError / openpyxl 的 zip 错误 / 其他读取异常
+            last_exc = exc
+            engine_errors.append(f"{engine}: {type(exc).__name__}({exc})")
+            continue
+
+    # 兜底策略：如果确认是传统 xls(OLE) 且报结构损坏，尝试用 LibreOffice 自动转换为 xlsx 再读取
+    err_text = " ".join(engine_errors).lower()
+    if container == "ole" and ("workbook corruption" in err_text or "compdocerror" in err_text):
+        try:
+            converted = _convert_excel_to_xlsx_via_libreoffice(file_content, filename)
+            # 转换后一定是 zip/xlsx，直接用 openpyxl 读取（减少再走 xlrd）
+            stream = io.BytesIO(converted)
+            stream.seek(0)
+            return pd.read_excel(
+                stream,
+                nrows=nrows,
+                header=header,
+                skiprows=skiprows,
+                engine="openpyxl",
+            )
+        except ParserError as exc:
+            # 保留原始错误信息，附加转换失败原因
+            engine_errors.append(f"libreoffice: ParserError({exc})")
+            last_exc = exc
+
+    # 生成更可操作的提示（不要求用户一定转换格式）
+    hint = ""
+    if container == "html":
+        hint = "检测到该文件更像是 HTML 表格（伪 .xls）。请用 Excel/WPS 打开后“另存为 .xlsx”，或从源系统导出真正的 Excel。"
+    elif filename_lower.endswith(".xls") and container == "zip":
+        hint = "文件名是 .xls，但内容更像 .xlsx（zip）。请把后缀改为 .xlsx 或另存为 .xlsx 后再上传。"
+    elif filename_lower.endswith(".xlsx") and container == "ole":
+        hint = "文件名是 .xlsx，但内容更像传统 .xls（OLE）。请把后缀改为 .xls 或另存为 .xlsx 后再上传。"
+    else:
+        hint = "请确认文件未损坏/未加密（密码保护的 Excel 无法解析），并尽量使用 Excel 另存为标准的 .xls 或 .xlsx。"
+
+    diag = f"filename={filename_lower or 'unknown'}, container={container}, tried={engines}, errors={engine_errors}"
+    # 针对 xls 常见“损坏/需修复”的场景给出明确操作指引
+    corruption_hint = ""
+    err_text = " ".join(engine_errors).lower()
+    if container == "ole" and ("workbook corruption" in err_text or "compdocerror" in err_text):
+        corruption_hint = (
+            "该文件被识别为传统 .xls，但内部结构已损坏/不完整，Python 解析库无法自动修复。"
+            "请用 Excel/WPS 执行“打开并修复”（或提示修复时选择修复），然后“另存为 .xlsx”后再上传；"
+            "如果连 Excel/WPS 也无法修复打开，请从源系统重新导出（优先选择导出 .xlsx）。"
+        )
+
+    final_hint = corruption_hint or hint
+    raise ParserError(f"无法读取 Excel 文件: {last_exc}。{final_hint}（诊断: {diag}）")
 
 
 def _normalize_text_for_match(text: str) -> str:
@@ -143,12 +377,11 @@ def find_header_row(file_content: bytes, filename: str, max_rows: int = 20) -> T
     else:
         # Excel 文件
         try:
-            file_stream.seek(0)
-            preview_df = pd.read_excel(
-                file_stream, nrows=max_rows, header=None, engine="openpyxl"
+            preview_df = _read_excel_with_fallback(
+                file_content, filename, nrows=max_rows, header=None
             )
-        except (ValueError, BadZipFile, OSError) as exc:
-            raise ParserError(f"无法读取 Excel 文件: {exc}") from exc
+        except ParserError:
+            raise
 
     # 提取日期
     detected_date = _extract_date_from_preview_df(preview_df)
@@ -278,13 +511,17 @@ def _detect_multi_level_header(
         else:
             return False
     else:
-        preview_df = pd.read_excel(
-            file_stream,
-            skiprows=range(0, header_row_index),
-            nrows=2,
-            header=None,
-            engine="openpyxl",
-        )
+        try:
+            preview_df = _read_excel_with_fallback(
+                file_content,
+                filename,
+                nrows=2,
+                header=None,
+                skiprows=range(0, header_row_index),
+            )
+        except ParserError:
+            # 无法读取则视为非多级表头，交由后续主读取报错
+            return False
 
     if len(preview_df) < 2:
         return False
@@ -550,13 +787,19 @@ def read_excel_file(
         else:
             # Excel 文件
             try:
-                file_stream.seek(0)
-                df = pd.read_excel(file_stream, header=header_rows, engine="openpyxl")
-            except (ValueError, BadZipFile, OSError) as exc:
-                raise ParserError(f"无法读取 Excel 文件: {exc}") from exc
+                df = _read_excel_with_fallback(
+                    contents,
+                    filename,
+                    header=header_rows,
+                )
+            except ParserError:
+                raise
     except ParserError:
         raise
     except (EmptyDataError, PandasParserError, ValueError, BadZipFile, OSError) as exc:
+        raise ParserError(f"解析文件失败: {exc}") from exc
+    except Exception as exc:
+        # 兜底：将非预期异常统一包装，避免上层直接 500
         raise ParserError(f"解析文件失败: {exc}") from exc
 
     # Step B2: 扁平化多级表头
