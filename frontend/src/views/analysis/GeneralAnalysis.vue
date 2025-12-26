@@ -172,8 +172,49 @@
           <div v-if="!hasChartData" class="chart-empty">
             暂无可视化数据，请先执行查询
           </div>
+          <!-- 移动端放大按钮 -->
+          <el-button
+            v-if="hasChartData && isMobile"
+            class="chart-fullscreen-btn"
+            type="primary"
+            circle
+            @click="openFullscreenChart"
+          >
+            <el-icon><FullScreen /></el-icon>
+          </el-button>
+          <!-- 移动端数据截断提示 -->
+          <div v-if="isMobile && isChartTruncated" class="chart-truncate-tip">
+            <el-tag type="info" size="small">
+              竖屏显示前 {{ MOBILE_CHART_LIMIT }} 项，点击放大查看全部
+            </el-tag>
+          </div>
         </div>
       </div>
+
+      <!-- 全屏横屏图表弹窗（CSS强制横屏） -->
+      <teleport to="body">
+        <div
+          v-if="showFullscreenChart"
+          class="fullscreen-chart-overlay"
+        >
+          <div class="fullscreen-chart-rotated">
+            <div class="fullscreen-chart-container">
+              <div class="fullscreen-chart-header">
+                <span class="fullscreen-chart-title">{{ currentMetricLabel }}</span>
+                <el-button
+                  type="danger"
+                  circle
+                  size="small"
+                  @click="closeFullscreenChart"
+                >
+                  <el-icon><Close /></el-icon>
+                </el-button>
+              </div>
+              <div ref="fullscreenChartRef" class="fullscreen-chart-body"></div>
+            </div>
+          </div>
+        </div>
+      </teleport>
 
       <el-table
         ref="tableRef"
@@ -198,6 +239,7 @@
               :min-width="child.minWidth || 120"
               :align="child.align || 'left'"
               show-overflow-tooltip
+              sortable
             >
               <template #default="{ row }">
                 <span
@@ -222,6 +264,7 @@
             :min-width="column.minWidth || 120"
             :align="column.align || 'left'"
             show-overflow-tooltip
+            :sortable="column.prop !== 'dimension_value' || queryParams.dimension === 'date'"
           >
             <template #default="{ row }">
               <span
@@ -265,6 +308,7 @@ import { reactive, computed, watch, ref, onMounted, onBeforeUnmount, nextTick } 
 import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
+import { FullScreen, Close } from '@element-plus/icons-vue'
 import { queryStats } from '@/api/stats'
 import { listStores } from '@/api/store'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
@@ -277,6 +321,10 @@ const PAGINATION_CONFIG = Object.freeze({
   pageSizeOptions: [20, 50, 100, 200],
   maxPageSize: 200
 })
+
+// 移动端图表限制配置
+const MOBILE_CHART_LIMIT = 15
+const MOBILE_BREAKPOINT = 768
 
 const queryParams = reactive({
   table: 'sales',
@@ -490,11 +538,17 @@ const loading = ref(false)
 const selectedMetric = ref('')
 const chartRef = ref(null)
 const tableRef = ref(null)
+const fullscreenChartRef = ref(null)
 let chartInstance = null
+let fullscreenChartInstance = null
 let activeQueryController = null
 let latestRequestToken = 0
 const storeOptions = ref([])
 const currentUser = ref(null)
+
+// 移动端相关状态
+const isMobile = ref(false)
+const showFullscreenChart = ref(false)
 
 // 获取当前用户信息
 const loadCurrentUser = () => {
@@ -521,6 +575,24 @@ const managerStoreName = computed(() => {
 })
 
 const chartType = computed(() => (queryParams.dimension === 'date' ? 'line' : 'bar'))
+
+// 移动端图表是否被截断
+const isChartTruncated = computed(() => {
+  return isMobile.value && chartSourceRows.value.length > MOBILE_CHART_LIMIT
+})
+
+// 移动端竖屏显示的数据（限制数量）
+const mobileChartData = computed(() => {
+  if (!isMobile.value) {
+    return chartSourceRows.value
+  }
+  return chartSourceRows.value.slice(0, MOBILE_CHART_LIMIT)
+})
+
+// 检测是否为移动设备
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= MOBILE_BREAKPOINT
+}
 
 const snapshotCurrentQuery = () => ({
   table: queryParams.table,
@@ -1015,12 +1087,16 @@ const fetchStoreOptions = async () => {
 
 const handleResize = () => {
   checkDevice()
+  checkMobile()
   if (chartInstance) {
     chartInstance.resize()
   }
+  if (fullscreenChartInstance) {
+    fullscreenChartInstance.resize()
+  }
 }
 
-const buildChartOption = () => {
+const buildChartOption = (isFullscreen = false) => {
   if (!hasChartData.value) {
     return null
   }
@@ -1034,6 +1110,11 @@ const buildChartOption = () => {
   let sourceData = chartSourceRows.value
   if (queryParams.dimension === 'booker') {
     sourceData = sourceData.filter(item => item.dimension_value !== '散户')
+  }
+
+  // 移动端竖屏（非全屏）时限制显示数量
+  if (isMobile.value && !isFullscreen) {
+    sourceData = sourceData.slice(0, MOBILE_CHART_LIMIT)
   }
 
   const xData = sourceData.map((item) => item.dimension_value ?? '--')
@@ -1087,7 +1168,9 @@ const buildChartOption = () => {
   })()
 
   const dataZoom = []
-  if (chartNeedsDataZoom.value) {
+  // 全屏模式或数据量较大时启用 dataZoom
+  const needsDataZoom = isFullscreen || chartNeedsDataZoom.value
+  if (needsDataZoom) {
     dataZoom.push({
       type: 'inside',
       moveOnMouseWheel: true,
@@ -1097,18 +1180,19 @@ const buildChartOption = () => {
     })
     const slider = {
       type: 'slider',
-      height: 18,
-      bottom: 6,
-      showDetail: false,
+      height: isFullscreen ? 24 : 18,
+      bottom: isFullscreen ? 10 : 6,
+      showDetail: isFullscreen,
       brushSelect: true,
-      handleSize: 10
+      handleSize: isFullscreen ? 16 : 10
     }
-    if (chartPointCount.value > CHART_CONFIG.sliderWindowThreshold) {
+    const totalPoints = xData.length
+    if (totalPoints > CHART_CONFIG.sliderWindowThreshold) {
       slider.startValue = Math.max(
         0,
-        chartPointCount.value - CHART_CONFIG.defaultWindowSize
+        totalPoints - CHART_CONFIG.defaultWindowSize
       )
-      slider.endValue = chartPointCount.value - 1
+      slider.endValue = totalPoints - 1
     }
     dataZoom.push(slider)
   }
@@ -1127,22 +1211,32 @@ const buildChartOption = () => {
 
   const isCountMetric = ['orders', 'sales_qty', 'gift_qty'].includes(metric.prop)
 
-  return {
-    tooltip: {
-      trigger: 'axis'
-    },
-    grid: {
-      left: 20,
-      right: 20,
-      top: 60,
-      bottom: 20,
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: xData,
-      boundaryGap: chartType.value === 'bar',
-      axisLabel: {
+  // 全屏模式下的配置调整
+  const gridConfig = isFullscreen
+    ? { left: 20, right: 20, top: 50, bottom: 60, containLabel: true }
+    : { left: 20, right: 20, top: 60, bottom: 20, containLabel: true }
+
+  // 全屏模式下标签显示更多
+  const fullscreenLabelInterval = (() => {
+    const count = xData.length
+    if (count <= 30) return 0
+    if (count <= 60) return 1
+    if (count <= 100) return 2
+    return Math.ceil(count / 40)
+  })()
+
+  const xAxisLabelConfig = isFullscreen
+    ? {
+        rotate: 45,
+        interval: fullscreenLabelInterval,
+        fontSize: 11,
+        formatter: (value) => {
+          // 全屏模式下显示更多字符
+          if (typeof value !== 'string') return String(value ?? '--')
+          return value.length > 12 ? `${value.slice(0, 10)}…` : value
+        }
+      }
+    : {
         rotate: 45,
         interval: axisLabelInterval,
         formatter: formatDimensionLabel,
@@ -1150,6 +1244,25 @@ const buildChartOption = () => {
         overflow: 'truncate',
         ellipsis: '...'
       }
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      formatter: isFullscreen
+        ? (params) => {
+            const point = params[0]
+            if (!point) return ''
+            return `<strong>${point.name}</strong><br/>${metric.label}: ${point.value}`
+          }
+        : undefined
+    },
+    grid: gridConfig,
+    xAxis: {
+      type: 'category',
+      data: xData,
+      boundaryGap: chartType.value === 'bar',
+      axisLabel: xAxisLabelConfig
     },
     yAxis: {
       type: 'value',
@@ -1210,6 +1323,55 @@ const handleResetZoom = () => {
     })
   }
 }
+
+// 全屏图表相关函数（使用CSS强制横屏）
+const openFullscreenChart = () => {
+  showFullscreenChart.value = true
+  // 锁定背景滚动
+  document.body.style.overflow = 'hidden'
+  
+  nextTick(() => {
+    // 延迟初始化图表，等待DOM渲染完成
+    setTimeout(() => {
+      initFullscreenChart()
+    }, 100)
+  })
+}
+
+const closeFullscreenChart = () => {
+  showFullscreenChart.value = false
+  // 恢复背景滚动
+  document.body.style.overflow = ''
+  
+  if (fullscreenChartInstance) {
+    fullscreenChartInstance.dispose()
+    fullscreenChartInstance = null
+  }
+}
+
+const initFullscreenChart = () => {
+  if (!fullscreenChartRef.value) {
+    return
+  }
+  if (fullscreenChartInstance) {
+    fullscreenChartInstance.dispose()
+  }
+  fullscreenChartInstance = echarts.init(fullscreenChartRef.value)
+  const option = buildChartOption(true)
+  if (option) {
+    fullscreenChartInstance.setOption(option)
+  }
+}
+
+// 监听屏幕方向变化，更新全屏图表尺寸
+const handleOrientationChange = () => {
+  if (showFullscreenChart.value && fullscreenChartInstance) {
+    setTimeout(() => {
+      fullscreenChartInstance.resize()
+    }, 300)
+  }
+}
+
 
 const chartNotices = computed(() => {
   const notices = []
@@ -1433,6 +1595,9 @@ const applyRoutePresetIfNeeded = () => {
 }
 
 onMounted(() => {
+  // 初始化移动端检测
+  checkMobile()
+  
   const savedState = readSessionJSON(generalAnalysisStateKey, null)
   if (savedState?.query) {
     suppressAutoQuery.value = true
@@ -1457,6 +1622,9 @@ onMounted(() => {
   nextTick(() => {
     initChart()
   })
+  
+  // 监听屏幕方向变化
+  window.addEventListener('orientationchange', handleOrientationChange)
 })
 
 watch(
@@ -1496,9 +1664,18 @@ onBeforeUnmount(() => {
     autoQueryTimer = null
   }
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('orientationchange', handleOrientationChange)
   if (chartInstance) {
     chartInstance.dispose()
     chartInstance = null
+  }
+  if (fullscreenChartInstance) {
+    fullscreenChartInstance.dispose()
+    fullscreenChartInstance = null
+  }
+  // 确保关闭时恢复滚动
+  if (showFullscreenChart.value) {
+    document.body.style.overflow = ''
   }
 })
 
@@ -1605,6 +1782,21 @@ onBeforeUnmount(() => {
         font-size: 14px;
         background-color: rgba(255, 255, 255, 0.85);
         border: 1px dashed #ebeef5;
+      }
+
+      .chart-fullscreen-btn {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        z-index: 10;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      }
+
+      .chart-truncate-tip {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        z-index: 10;
       }
     }
   }
@@ -1944,6 +2136,79 @@ onBeforeUnmount(() => {
     }
   }
 
+}
+
+// 全屏图表弹窗样式（独立于 .general-analysis）
+// 使用 CSS transform 强制横屏显示
+.fullscreen-chart-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background-color: #000;
+
+  // 旋转容器 - 在竖屏时强制横屏显示
+  .fullscreen-chart-rotated {
+    position: absolute;
+    background-color: #fff;
+    
+    // 默认（竖屏时）：旋转90度显示为横屏
+    @media screen and (orientation: portrait) {
+      // 旋转后宽高互换
+      width: 100vh;
+      height: 100vw;
+      // 先移动到中心，再旋转
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(90deg);
+      transform-origin: center center;
+    }
+
+    // 横屏时：正常显示，不旋转
+    @media screen and (orientation: landscape) {
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      transform: none;
+    }
+  }
+
+  .fullscreen-chart-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    .fullscreen-chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      border-bottom: 1px solid #ebeef5;
+      flex-shrink: 0;
+      background-color: #fff;
+
+      .fullscreen-chart-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #303133;
+        // 防止标题过长
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: calc(100% - 50px);
+      }
+    }
+
+    .fullscreen-chart-body {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      padding: 8px 12px 12px;
+      background-color: #fff;
+    }
+  }
 }
 </style>
 
