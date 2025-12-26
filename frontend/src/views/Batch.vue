@@ -14,6 +14,7 @@
             <el-option label="预订汇总" value="booking" />
             <el-option label="包厢开台" value="room" />
             <el-option label="酒水销售" value="sales" />
+            <el-option label="连锁会员变动明细" value="member_change" />
           </el-select>
         </el-form-item>
 
@@ -220,6 +221,7 @@ const TABLE_TYPE_MAP = {
   booking: { name: '预订汇总', tag: 'info' },
   room: { name: '包厢开台', tag: 'success' },
   sales: { name: '酒水销售', tag: 'warning' },
+  member_change: { name: '连锁会员变动明细', tag: 'primary' },
 }
 
 const getStatusType = (status) => STATUS_MAP[status]?.type || 'info'

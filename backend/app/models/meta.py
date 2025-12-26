@@ -23,7 +23,7 @@ class MetaFileBatch(Base):
     file_path = Column(String(500), comment="文件存储路径")
     file_hash = Column(String(64), comment="文件MD5哈希(防重复)")
     store_id = Column(Integer, nullable=False, index=True, comment="关联门店ID")
-    table_type = Column(String(50), nullable=False, comment="表类型: booking/room/sales")
+    table_type = Column(String(50), nullable=False, comment="表类型: booking/room/sales/member_change")
     
     # 数据范围
     data_start_date = Column(DateTime, comment="数据开始日期")
