@@ -8,6 +8,7 @@
         placeholder="选择基准日期"
         format="YYYY-MM-DD"
         value-format="YYYY-MM-DD"
+        :editable="false"
         clearable
         :disabled="loading"
       />
@@ -768,9 +769,8 @@ onUnmounted(() => {
     }
 
     :deep(.el-date-editor) {
-      flex: 1 0 200px;
-      min-width: 200px;
-      max-width: 320px;
+      flex: 0 0 auto;
+      width: 180px;
     }
   }
 
@@ -878,12 +878,18 @@ onUnmounted(() => {
         margin-right: 12px;
       }
       
-      // 调整移动端日期选择器样式，避免独占一行
+      // 调整移动端日期选择器样式
       :deep(.el-date-editor) {
-        flex: 1;
-        width: auto;
-        min-width: 150px;
-        max-width: none;
+        flex: 0 0 auto;
+        width: 160px;
+        min-width: 160px;
+        max-width: 160px;
+        
+        .el-input__inner {
+          text-align: center;
+          padding: 0 8px;
+          font-size: 13px;
+        }
       }
     }
 

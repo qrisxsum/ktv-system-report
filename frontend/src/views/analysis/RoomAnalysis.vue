@@ -1,26 +1,37 @@
 <template>
   <div class="room-analysis">
-    <el-card shadow="never">
+    <el-card class="filter-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span class="header-title">🎤 包厢效能分析</span>
-          <div class="header-right">
-            <span class="filter-label">时间范围</span>
-            <el-date-picker
-              class="date-range"
-              v-model="dateRange"
-              type="daterange"
-              unlink-panels
-              range-separator="至"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              value-format="YYYY-MM-DD"
-              @change="handleDateChange"
-            />
+          <div class="title-row">
+            <div class="title-text">
+              <h2>🎤 包厢效能分析</h2>
+              <p class="card-subtitle">包厢使用率、营收表现与折扣分析</p>
+            </div>
+            <el-tag type="primary" effect="light">数据源：Booking</el-tag>
           </div>
         </div>
       </template>
 
+      <div class="filters">
+        <div class="filter-item">
+          <span class="filter-label">时间范围</span>
+          <el-date-picker
+            v-model="dateRange"
+            type="daterange"
+            unlink-panels
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            :editable="false"
+            @change="handleDateChange"
+          />
+        </div>
+      </div>
+    </el-card>
+
+    <el-card class="summary-card" shadow="never">
       <el-row :gutter="20" class="summary-cards">
         <el-col
           v-for="card in summaryCards"
@@ -28,8 +39,8 @@
           :xs="24"
           :sm="12"
           :md="8"
-          :lg="6"
-          :xl="4"
+          :lg="8"
+          :xl="6"
         >
           <div class="summary-item">
             <div class="label">
@@ -78,7 +89,7 @@
         v-loading="loading"
         :default-sort="{ prop: 'order_count', order: 'descending' }"
       >
-        <el-table-column prop="room_name" label="包厢名称" min-width="150" />
+        <el-table-column prop="room_name" label="包厢名称" min-width="150" fixed="left" />
         <el-table-column
           prop="order_count"
           label="开台次数"
@@ -838,33 +849,60 @@ const {
 
 <style lang="scss" scoped>
 .room-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+
   .card-header {
+    .title-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+
+      .title-text {
+        h2 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 600;
+          color: #303133;
+        }
+
+        .card-subtitle {
+          margin: 4px 0 0;
+          font-size: 13px;
+          color: #909399;
+        }
+      }
+
+      .el-tag {
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+    }
+  }
+
+  .filters {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
     flex-wrap: wrap;
-  }
-
-  .header-title {
-    font-weight: 600;
-  }
-
-  .header-right {
-    display: flex;
+    gap: 24px;
     align-items: center;
-    gap: 8px;
-  }
 
-  .filter-label {
-    font-size: 13px;
-    color: #606266;
-    white-space: nowrap;
-  }
+    .filter-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
 
-  .date-range {
-    width: 360px;
-    max-width: 100%;
+      :deep(.el-date-editor--daterange) {
+        width: 360px;
+      }
+
+      .filter-label {
+        font-size: 13px;
+        color: #606266;
+        white-space: nowrap;
+      }
+    }
   }
 
   .summary-cards {
@@ -984,23 +1022,68 @@ const {
   }
 
   @media (max-width: 768px) {
+    :deep(.el-card__header) {
+      padding: 12px 15px;
+    }
+
+    :deep(.el-card__body) {
+      padding: 12px;
+    }
+
     .card-header {
-      flex-direction: column;
-      align-items: flex-start;
+      .title-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
+        .title-text {
+          h2 {
+            font-size: 16px;
+          }
+
+          .card-subtitle {
+            font-size: 12px;
+          }
+        }
+      }
     }
 
-    .header-right {
-      width: 100%;
+    .filters {
       flex-direction: column;
-      align-items: flex-start;
-    }
+      align-items: stretch;
+      gap: 14px;
 
-    .date-range {
-      width: 100%;
+      .filter-item {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 8px;
+
+        :deep(.el-date-editor--daterange) {
+          width: 100% !important;
+        }
+      }
     }
 
     :deep(.el-date-editor--daterange) {
-      width: 100%;
+      width: 100% !important;
+      padding: 3px 5px;
+
+      .el-range-separator {
+        padding: 0 4px;
+        font-size: 12px;
+        width: auto;
+      }
+
+      .el-range-input {
+        font-size: 12px;
+        width: 42%;
+      }
+
+      .el-range__icon,
+      .el-range__close-icon {
+        font-size: 12px;
+        width: 18px;
+      }
     }
 
     .time-slot-chart {

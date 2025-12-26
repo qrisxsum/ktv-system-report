@@ -3,14 +3,14 @@
     <!-- 筛选区域 -->
     <el-card class="filter-card">
       <el-form :model="filters" inline>
-        <el-form-item label="当前门店筛选">
-          <el-tag type="info" size="large">
-            {{ getCurrentStoreName() }}
-          </el-tag>
-        </el-form-item>
-
         <el-form-item label="表类型">
-          <el-select v-model="filters.table_type" placeholder="全部类型" clearable style="width: 150px">
+          <el-select 
+            v-model="filters.table_type" 
+            placeholder="全部类型" 
+            clearable 
+            style="width: 150px"
+            @change="handleFilterChange"
+          >
             <el-option label="预订汇总" value="booking" />
             <el-option label="包厢开台" value="room" />
             <el-option label="酒水销售" value="sales" />
@@ -19,7 +19,13 @@
         </el-form-item>
 
         <el-form-item label="状态">
-          <el-select v-model="filters.status" placeholder="全部状态" clearable style="width: 120px">
+          <el-select 
+            v-model="filters.status" 
+            placeholder="全部状态" 
+            clearable 
+            style="width: 120px"
+            @change="handleFilterChange"
+          >
             <el-option label="成功" value="success" />
             <el-option label="失败" value="failed" />
             <el-option label="处理中" value="pending" />
@@ -28,9 +34,6 @@
         </el-form-item>
 
         <el-form-item>
-          <el-button type="primary" @click="loadBatches">
-            <el-icon><Search /></el-icon> 查询
-          </el-button>
           <el-button @click="resetFilters">
             <el-icon><Refresh /></el-icon> 重置
           </el-button>
@@ -120,9 +123,10 @@
       v-model="detailVisible"
       title="批次详情"
       width="600px"
+      :fullscreen="isMobile"
       destroy-on-close
     >
-      <el-descriptions :column="2" border v-if="currentBatch">
+      <el-descriptions :column="isMobile ? 1 : 2" border v-if="currentBatch">
         <el-descriptions-item label="批次ID">{{ currentBatch.id }}</el-descriptions-item>
         <el-descriptions-item label="批次编号">{{ currentBatch.batch_no }}</el-descriptions-item>
         <el-descriptions-item label="文件名" :span="2">{{ currentBatch.file_name }}</el-descriptions-item>
@@ -173,17 +177,23 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, inject, watch, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, inject, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listBatches, getBatchDetail, deleteBatch } from '@/api/batch'
-import { listStores } from '@/api/store'
 import { usePagination } from '@/composables/usePagination'
+
+// 响应式屏幕检测
+const windowWidth = ref(window.innerWidth)
+const isMobile = computed(() => windowWidth.value <= 768)
+
+const handleResize = () => {
+  windowWidth.value = window.innerWidth
+}
 
 // 状态
 const loading = ref(false)
 const batches = ref([])
 const total = ref(0)
-const stores = ref([])
 const detailVisible = ref(false)
 const currentBatch = ref(null)
 
@@ -229,12 +239,10 @@ const getStatusText = (status) => STATUS_MAP[status]?.text || status
 const getTableTypeName = (type) => TABLE_TYPE_MAP[type]?.name || type
 const getTableTypeTag = (type) => TABLE_TYPE_MAP[type]?.tag || 'info'
 
-// 获取当前门店名称
-const getCurrentStoreName = () => {
-  if (currentStore.value === 'all') return '全部门店'
-  if (!stores.value || stores.value.length === 0) return '加载中...'
-  const store = stores.value.find(s => s.id.toString() === currentStore.value)
-  return store ? store.name : `门店ID: ${currentStore.value}`
+// 筛选条件变化时自动查询
+const handleFilterChange = () => {
+  pagination.page = 1
+  loadBatches()
 }
 
 // 监听门店变化，自动重新加载数据
@@ -242,16 +250,6 @@ watch(currentStore, (newStore) => {
   pagination.page = 1 // 重置到第一页
   loadBatches()
 })
-
-// 加载门店列表
-const loadStores = async () => {
-  try {
-    const res = await listStores(true)
-    stores.value = res.data || []
-  } catch (error) {
-    console.error('加载门店失败:', error)
-  }
-}
 
 // 加载批次列表
 const loadBatches = async () => {
@@ -332,9 +330,14 @@ const formatTime = (time) => {
 
 // 初始化
 onMounted(() => {
-  loadStores()
   // 手动触发一次数据加载
   loadBatches()
+  // 监听窗口尺寸变化
+  window.addEventListener('resize', handleResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -384,13 +387,14 @@ onMounted(() => {
     .filter-card {
       // 优化内边距
       :deep(.el-card__body) {
-        padding: 15px 12px 15px 12px;
+        padding: 12px;
       }
 
       :deep(.el-form) {
         display: flex;
         flex-wrap: wrap;
-        gap: 14px;
+        gap: 12px;
+        align-items: flex-end;
         
         .el-form-item {
           display: flex;
@@ -399,20 +403,16 @@ onMounted(() => {
           margin-right: 0;
           margin-bottom: 0;
 
-          // 当前门店筛选占满一行
-          &:first-child {
-            width: 100%;
-          }
-
           // 表类型和状态各占一半
-          &:nth-child(2),
-          &:nth-child(3) {
-            width: calc(50% - 7px);
+          &:nth-child(1),
+          &:nth-child(2) {
+            flex: 1;
+            min-width: 0;
           }
 
-          // 按钮组占满一行
+          // 重置按钮
           &:last-child {
-            width: 100%;
+            flex: 0 0 auto;
           }
 
           .el-form-item__label {
@@ -427,20 +427,18 @@ onMounted(() => {
             width: 100%;
             margin-left: 0 !important;
 
-            .el-select,
-            .el-button {
+            .el-select {
               width: 100% !important;
             }
           }
           
-          // 按钮组横向排列
-          &:last-child .el-form-item__content {
-            display: flex;
-            gap: 8px;
-            
-            .el-button {
-              flex: 1;
-              margin-left: 0;
+          // 重置按钮隐藏label
+          &:last-child {
+            .el-form-item__label {
+              visibility: hidden;
+              height: 0;
+              padding: 0;
+              margin: 0;
             }
           }
         }
@@ -549,11 +547,26 @@ onMounted(() => {
 
           .el-descriptions__label {
             font-size: 13px;
+            min-width: 80px;
           }
 
           .el-descriptions__content {
             font-size: 13px;
+            word-break: break-all;
           }
+        }
+      }
+
+      .el-dialog__footer {
+        padding: 12px 15px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+
+        .el-button {
+          flex: 1;
+          min-width: calc(50% - 4px);
+          margin-left: 0 !important;
         }
       }
     }
@@ -677,6 +690,40 @@ onMounted(() => {
     .error-log {
       pre {
         font-size: 11px;
+      }
+    }
+
+    // 480px 以下弹窗进一步优化
+    :deep(.el-dialog) {
+      width: 95% !important;
+
+      .el-dialog__body {
+        padding: 12px;
+
+        .el-descriptions {
+          font-size: 12px;
+
+          .el-descriptions__label {
+            font-size: 12px;
+          }
+
+          .el-descriptions__content {
+            font-size: 12px;
+          }
+        }
+      }
+
+      .el-dialog__footer {
+        padding: 10px 12px;
+
+        .el-button {
+          width: 100%;
+          margin-bottom: 8px;
+
+          &:last-child {
+            margin-bottom: 0;
+          }
+        }
       }
     }
   }

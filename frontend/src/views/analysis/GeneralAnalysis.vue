@@ -30,6 +30,7 @@
             start-placeholder="开始日期"
             end-placeholder="结束日期"
             value-format="YYYY-MM-DD"
+            :editable="false"
           />
         </div>
 
@@ -104,14 +105,6 @@
             >
               商品日报
             </el-button>
-            <el-button
-              type="warning"
-              plain
-              size="small"
-              @click="handleRoomDailyPreset"
-            >
-              包厢运营日报
-            </el-button>
           </el-button-group>
         </div>
 
@@ -172,49 +165,8 @@
           <div v-if="!hasChartData" class="chart-empty">
             暂无可视化数据，请先执行查询
           </div>
-          <!-- 移动端放大按钮 -->
-          <el-button
-            v-if="hasChartData && isMobile"
-            class="chart-fullscreen-btn"
-            type="primary"
-            circle
-            @click="openFullscreenChart"
-          >
-            <el-icon><FullScreen /></el-icon>
-          </el-button>
-          <!-- 移动端数据截断提示 -->
-          <div v-if="isMobile && isChartTruncated" class="chart-truncate-tip">
-            <el-tag type="info" size="small">
-              竖屏显示前 {{ MOBILE_CHART_LIMIT }} 项，点击放大查看全部
-            </el-tag>
-          </div>
         </div>
       </div>
-
-      <!-- 全屏横屏图表弹窗（CSS强制横屏） -->
-      <teleport to="body">
-        <div
-          v-if="showFullscreenChart"
-          class="fullscreen-chart-overlay"
-        >
-          <div class="fullscreen-chart-rotated">
-            <div class="fullscreen-chart-container">
-              <div class="fullscreen-chart-header">
-                <span class="fullscreen-chart-title">{{ currentMetricLabel }}</span>
-                <el-button
-                  type="danger"
-                  circle
-                  size="small"
-                  @click="closeFullscreenChart"
-                >
-                  <el-icon><Close /></el-icon>
-                </el-button>
-              </div>
-              <div ref="fullscreenChartRef" class="fullscreen-chart-body"></div>
-            </div>
-          </div>
-        </div>
-      </teleport>
 
       <el-table
         ref="tableRef"
@@ -239,17 +191,10 @@
               :min-width="child.minWidth || 120"
               :align="child.align || 'left'"
               show-overflow-tooltip
-              sortable
             >
               <template #default="{ row }">
-                <span
-                  v-if="child.format === 'percent'"
-                  :class="buildPercentCellClass(child, row)"
-                >
-                  {{ formatPercentCell(row[child.prop], child.digits) }}
-                </span>
-                <span v-else-if="child.format === 'currency'">
-                  {{ formatCurrencyCell(row[child.prop], child.digits, child) }}
+                <span v-if="child.format === 'percent'">
+                  {{ formatPercentCell(row[child.prop]) }}
                 </span>
                 <span v-else>
                   {{ formatDefaultCell(row[child.prop]) }}
@@ -263,18 +208,12 @@
             :label="column.label"
             :min-width="column.minWidth || 120"
             :align="column.align || 'left'"
+            :fixed="column.fixed"
             show-overflow-tooltip
-            :sortable="column.prop !== 'dimension_value' || queryParams.dimension === 'date'"
           >
             <template #default="{ row }">
-              <span
-                v-if="column.format === 'percent'"
-                :class="buildPercentCellClass(column, row)"
-              >
-                {{ formatPercentCell(row[column.prop], column.digits) }}
-              </span>
-              <span v-else-if="column.format === 'currency'">
-                {{ formatCurrencyCell(row[column.prop], column.digits, column) }}
+              <span v-if="column.format === 'percent'">
+                {{ formatPercentCell(row[column.prop]) }}
               </span>
               <span v-else>
                 {{ formatDefaultCell(row[column.prop]) }}
@@ -308,7 +247,6 @@ import { reactive, computed, watch, ref, onMounted, onBeforeUnmount, nextTick } 
 import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
-import { FullScreen, Close } from '@element-plus/icons-vue'
 import { queryStats } from '@/api/stats'
 import { listStores } from '@/api/store'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
@@ -321,10 +259,6 @@ const PAGINATION_CONFIG = Object.freeze({
   pageSizeOptions: [20, 50, 100, 200],
   maxPageSize: 200
 })
-
-// 移动端图表限制配置
-const MOBILE_CHART_LIMIT = 15
-const MOBILE_BREAKPOINT = 768
 
 const queryParams = reactive({
   table: 'sales',
@@ -365,9 +299,7 @@ const DIMENSION_OPTIONS_MAP = {
     { label: '日期', value: 'date' },
     { label: '门店', value: 'store' },
     { label: '包厢', value: 'room' },
-    { label: '包厢类型', value: 'room_type' },
-    { label: '订房人', value: 'booker' },
-    { label: '业务时段', value: 'time_slot' }
+    { label: '包厢类型', value: 'room_type' }
   ]
 }
 
@@ -384,15 +316,15 @@ const GRANULARITY_OPTIONS = [
 ]
 
 const DIMENSION_COLUMN_MAP = {
-  date: { label: '日期', prop: 'dimension_value', minWidth: 140 },
-  store: { label: '门店', prop: 'dimension_value', minWidth: 160 },
-  employee: { label: '员工', prop: 'dimension_value', minWidth: 160 },
-  product: { label: '商品名称', prop: 'dimension_value', minWidth: 160 },
-  category: { label: '商品类别', prop: 'dimension_value', minWidth: 160 },
-  room: { label: '包厢', prop: 'dimension_value', minWidth: 140 },
-  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160 },
-  booker: { label: '订房人', prop: 'dimension_value', minWidth: 160 },
-  time_slot: { label: '业务时段', prop: 'dimension_value', minWidth: 140 }
+  date: { label: '日期', prop: 'dimension_value', minWidth: 140, fixed: 'left' },
+  store: { label: '门店', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  employee: { label: '员工', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  product: { label: '商品名称', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  category: { label: '商品类别', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  room: { label: '包厢', prop: 'dimension_value', minWidth: 140, fixed: 'left' },
+  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  booker: { label: '订房人', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  time_slot: { label: '业务时段', prop: 'dimension_value', minWidth: 140, fixed: 'left' }
 }
 
 const COLUMN_CONFIG = {
@@ -435,51 +367,9 @@ const COLUMN_CONFIG = {
   ],
   room: [
     { prop: 'orders', label: '开台数', align: 'right', minWidth: 100 },
-    { prop: 'gmv', label: 'GMV（应收）', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
-    { prop: 'bill_total', label: '账单合计', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
-    { prop: 'actual', label: '实收金额', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
-    {
-      prop: 'min_consumption',
-      label: '最低消费',
-      align: 'right',
-      minWidth: 140,
-      format: 'currency',
-      digits: 0,
-      nullWhenZero: true
-    },
-    {
-      prop: 'min_consumption_diff',
-      label: '低消差额',
-      align: 'right',
-      minWidth: 140,
-      format: 'currency',
-      digits: 0
-    },
-    {
-      prop: 'low_consume_rate',
-      label: '低消达成率',
-      align: 'right',
-      minWidth: 140,
-      format: 'percent',
-      digits: 2,
-      bold: true
-    },
-    { prop: 'gift_amount', label: '赠送金额', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
-    {
-      prop: 'gift_ratio',
-      label: '赠送比例',
-      align: 'right',
-      minWidth: 140,
-      format: 'percent',
-      digits: 2,
-      bold: true,
-      warnThreshold: 0.2
-    },
-    { prop: 'room_discount', label: '房费折扣', align: 'right', minWidth: 120, format: 'currency', digits: 0 },
-    { prop: 'beverage_discount', label: '酒水折扣', align: 'right', minWidth: 120, format: 'currency', digits: 0 },
-    { prop: 'free_amount', label: '免单金额', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
-    { prop: 'credit_amount', label: '挂账金额', align: 'right', minWidth: 140, format: 'currency', digits: 0 },
-    { prop: 'duration', label: '时长 (分钟)', align: 'right', minWidth: 120 }
+    { prop: 'gmv', label: 'GMV', align: 'right', minWidth: 120 },
+    { prop: 'actual', label: '实收', align: 'right', minWidth: 120 },
+    { prop: 'duration', label: '时长', align: 'right', minWidth: 100 } // 假设后端字段为 duration
   ]
 }
 
@@ -538,17 +428,11 @@ const loading = ref(false)
 const selectedMetric = ref('')
 const chartRef = ref(null)
 const tableRef = ref(null)
-const fullscreenChartRef = ref(null)
 let chartInstance = null
-let fullscreenChartInstance = null
 let activeQueryController = null
 let latestRequestToken = 0
 const storeOptions = ref([])
 const currentUser = ref(null)
-
-// 移动端相关状态
-const isMobile = ref(false)
-const showFullscreenChart = ref(false)
 
 // 获取当前用户信息
 const loadCurrentUser = () => {
@@ -575,24 +459,6 @@ const managerStoreName = computed(() => {
 })
 
 const chartType = computed(() => (queryParams.dimension === 'date' ? 'line' : 'bar'))
-
-// 移动端图表是否被截断
-const isChartTruncated = computed(() => {
-  return isMobile.value && chartSourceRows.value.length > MOBILE_CHART_LIMIT
-})
-
-// 移动端竖屏显示的数据（限制数量）
-const mobileChartData = computed(() => {
-  if (!isMobile.value) {
-    return chartSourceRows.value
-  }
-  return chartSourceRows.value.slice(0, MOBILE_CHART_LIMIT)
-})
-
-// 检测是否为移动设备
-const checkMobile = () => {
-  isMobile.value = window.innerWidth <= MOBILE_BREAKPOINT
-}
 
 const snapshotCurrentQuery = () => ({
   table: queryParams.table,
@@ -747,51 +613,6 @@ const withSalesDerivedMetrics = (row) => {
   }
 }
 
-const withRoomDerivedMetrics = (row) => {
-  const billTotal = toFiniteNumber(row.bill_total ?? row.gmv ?? row.receivable_amount)
-  const hasMinConsumption = row.min_consumption !== null && row.min_consumption !== undefined
-  const minConsumption = hasMinConsumption ? toFiniteNumber(row.min_consumption) : null
-  const minDiffSource = row.min_consumption_diff ?? row.low_consume_diff
-  const computedDiff =
-    minConsumption !== null && minConsumption > 0
-      ? Number(Math.max(minConsumption - billTotal, 0).toFixed(2))
-      : 0
-  const minConsumptionDiff =
-    minDiffSource !== null && minDiffSource !== undefined
-      ? toFiniteNumber(minDiffSource)
-      : computedDiff
-  const giftAmount =
-    row.gift_amount !== null && row.gift_amount !== undefined
-      ? toFiniteNumber(row.gift_amount)
-      : 0
-  const freeAmount =
-    row.free_amount !== null && row.free_amount !== undefined
-      ? toFiniteNumber(row.free_amount)
-      : 0
-  const creditAmount =
-    row.credit_amount !== null && row.credit_amount !== undefined
-      ? toFiniteNumber(row.credit_amount)
-      : 0
-
-  return {
-    ...row,
-    bill_total: billTotal,
-    min_consumption: minConsumption,
-    min_consumption_diff: minConsumptionDiff,
-    low_consume_rate:
-      minConsumption !== null && minConsumption > 0
-        ? Number((billTotal / minConsumption).toFixed(4))
-        : null,
-    gift_amount: giftAmount,
-    gift_ratio:
-      billTotal > 0 && Number.isFinite(giftAmount)
-        ? Number((giftAmount / billTotal).toFixed(4))
-        : null,
-    free_amount: freeAmount,
-    credit_amount: creditAmount
-  }
-}
-
 const normalizeRow = (item, table) => {
   const baseRow = {
     ...item,
@@ -803,29 +624,7 @@ const normalizeRow = (item, table) => {
   if (table === 'sales') {
     return withSalesDerivedMetrics(baseRow)
   }
-  if (table === 'room') {
-    return withRoomDerivedMetrics(baseRow)
-  }
   return baseRow
-}
-
-const formatCurrencyValue = (value, digits = 2) => {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) {
-    return '--'
-  }
-  return `¥${numeric.toLocaleString('zh-CN', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits
-  })}`
-}
-
-const formatPercentValue = (value, digits = 2) => {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) {
-    return '--'
-  }
-  return `${(numeric * 100).toFixed(digits)}%`
 }
 
 const formatDefaultCell = (value) => {
@@ -835,45 +634,12 @@ const formatDefaultCell = (value) => {
   return value
 }
 
-const shouldShowPlaceholder = (value, column) => {
-  if (value === null || value === undefined || value === '') {
-    return true
-  }
-  if (column?.nullWhenZero && Number(value) === 0) {
-    return true
-  }
-  return false
-}
-
-const formatCurrencyCell = (value, digits = 2, column) => {
-  if (shouldShowPlaceholder(value, column)) {
-    return '--'
-  }
-  const decimalDigits = Number.isFinite(Number(digits)) ? Number(digits) : 2
-  return formatCurrencyValue(value, decimalDigits)
-}
-
-const formatPercentCell = (value, digits = 2) => {
+const formatPercentCell = (value) => {
   const numeric = toFiniteNumber(value, NaN)
   if (!Number.isFinite(numeric)) {
     return '--'
   }
-  const decimalDigits = Number.isFinite(Number(digits)) ? Number(digits) : 2
-  return formatPercentValue(numeric, decimalDigits)
-}
-
-const buildPercentCellClass = (column, row) => {
-  const classes = ['percent-text']
-  if (column?.bold) {
-    classes.push('percent-strong')
-  }
-  if (column?.warnThreshold !== undefined) {
-    const numeric = toFiniteNumber(row?.[column.prop], NaN)
-    if (Number.isFinite(numeric) && numeric > column.warnThreshold) {
-      classes.push('is-warning')
-    }
-  }
-  return classes
+  return `${(numeric * 100).toFixed(2)}%`
 }
 
 const columnKey = (column) => {
@@ -890,14 +656,10 @@ const hasChartData = computed(
 
 const paginationDisabled = computed(() => !appliedParams.value || !isViewSynced.value)
 
-  const currentMetricLabel = computed(() => {
-    const current = metricOptions.value.find((item) => item.prop === selectedMetric.value)
-    let label = current?.label || ''
-    if (queryParams.dimension === 'booker' && label) {
-      label += ' (已排除散户数据)'
-    }
-    return label
-  })
+const currentMetricLabel = computed(() => {
+  const current = metricOptions.value.find((item) => item.prop === selectedMetric.value)
+  return current?.label || ''
+})
 
 const buildTableColumns = () => {
   const dimensionKey = queryParams.dimension
@@ -1087,16 +849,12 @@ const fetchStoreOptions = async () => {
 
 const handleResize = () => {
   checkDevice()
-  checkMobile()
   if (chartInstance) {
     chartInstance.resize()
   }
-  if (fullscreenChartInstance) {
-    fullscreenChartInstance.resize()
-  }
 }
 
-const buildChartOption = (isFullscreen = false) => {
+const buildChartOption = () => {
   if (!hasChartData.value) {
     return null
   }
@@ -1106,17 +864,7 @@ const buildChartOption = (isFullscreen = false) => {
     return null
   }
 
-  // 如果是订房人维度，过滤掉散户数据，避免大值淹没小值，方便对比员工能力
-  let sourceData = chartSourceRows.value
-  if (queryParams.dimension === 'booker') {
-    sourceData = sourceData.filter(item => item.dimension_value !== '散户')
-  }
-
-  // 移动端竖屏（非全屏）时限制显示数量
-  if (isMobile.value && !isFullscreen) {
-    sourceData = sourceData.slice(0, MOBILE_CHART_LIMIT)
-  }
-
+  const sourceData = chartSourceRows.value
   const xData = sourceData.map((item) => item.dimension_value ?? '--')
   const yData = sourceData.map((item) => Number(item[metric.prop]) || 0)
   const mode = chartMode.value
@@ -1133,15 +881,7 @@ const buildChartOption = (isFullscreen = false) => {
     showSymbol,
     symbol: showSymbol ? 'circle' : 'none',
     symbolSize: showSymbol ? 6 : 0,
-    sampling,
-    barMinHeight: 5, // 确保小数值在柱状图中依然可见
-    label: {
-      show: xData.length <= 30, // 数据点较少时直接显示数值
-      position: 'top',
-      fontSize: 10,
-      color: '#909399',
-      formatter: (params) => params.value > 0 ? params.value : ''
-    }
+    sampling
   }
 
   if (isLine) {
@@ -1168,9 +908,7 @@ const buildChartOption = (isFullscreen = false) => {
   })()
 
   const dataZoom = []
-  // 全屏模式或数据量较大时启用 dataZoom
-  const needsDataZoom = isFullscreen || chartNeedsDataZoom.value
-  if (needsDataZoom) {
+  if (chartNeedsDataZoom.value) {
     dataZoom.push({
       type: 'inside',
       moveOnMouseWheel: true,
@@ -1180,19 +918,18 @@ const buildChartOption = (isFullscreen = false) => {
     })
     const slider = {
       type: 'slider',
-      height: isFullscreen ? 24 : 18,
-      bottom: isFullscreen ? 10 : 6,
-      showDetail: isFullscreen,
+      height: 18,
+      bottom: 6,
+      showDetail: false,
       brushSelect: true,
-      handleSize: isFullscreen ? 16 : 10
+      handleSize: 10
     }
-    const totalPoints = xData.length
-    if (totalPoints > CHART_CONFIG.sliderWindowThreshold) {
+    if (chartPointCount.value > CHART_CONFIG.sliderWindowThreshold) {
       slider.startValue = Math.max(
         0,
-        totalPoints - CHART_CONFIG.defaultWindowSize
+        chartPointCount.value - CHART_CONFIG.defaultWindowSize
       )
-      slider.endValue = totalPoints - 1
+      slider.endValue = chartPointCount.value - 1
     }
     dataZoom.push(slider)
   }
@@ -1209,34 +946,22 @@ const buildChartOption = (isFullscreen = false) => {
         }
       : undefined
 
-  const isCountMetric = ['orders', 'sales_qty', 'gift_qty'].includes(metric.prop)
-
-  // 全屏模式下的配置调整
-  const gridConfig = isFullscreen
-    ? { left: 20, right: 20, top: 50, bottom: 60, containLabel: true }
-    : { left: 20, right: 20, top: 60, bottom: 20, containLabel: true }
-
-  // 全屏模式下标签显示更多
-  const fullscreenLabelInterval = (() => {
-    const count = xData.length
-    if (count <= 30) return 0
-    if (count <= 60) return 1
-    if (count <= 100) return 2
-    return Math.ceil(count / 40)
-  })()
-
-  const xAxisLabelConfig = isFullscreen
-    ? {
-        rotate: 45,
-        interval: fullscreenLabelInterval,
-        fontSize: 11,
-        formatter: (value) => {
-          // 全屏模式下显示更多字符
-          if (typeof value !== 'string') return String(value ?? '--')
-          return value.length > 12 ? `${value.slice(0, 10)}…` : value
-        }
-      }
-    : {
+  return {
+    tooltip: {
+      trigger: 'axis'
+    },
+    grid: {
+      left: 20,
+      right: 20,
+      top: 60,
+      bottom: 20,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      data: xData,
+      boundaryGap: chartType.value === 'bar',
+      axisLabel: {
         rotate: 45,
         interval: axisLabelInterval,
         formatter: formatDimensionLabel,
@@ -1244,29 +969,9 @@ const buildChartOption = (isFullscreen = false) => {
         overflow: 'truncate',
         ellipsis: '...'
       }
-
-  return {
-    tooltip: {
-      trigger: 'axis',
-      confine: true,
-      formatter: isFullscreen
-        ? (params) => {
-            const point = params[0]
-            if (!point) return ''
-            return `<strong>${point.name}</strong><br/>${metric.label}: ${point.value}`
-          }
-        : undefined
-    },
-    grid: gridConfig,
-    xAxis: {
-      type: 'category',
-      data: xData,
-      boundaryGap: chartType.value === 'bar',
-      axisLabel: xAxisLabelConfig
     },
     yAxis: {
       type: 'value',
-      minInterval: isCountMetric ? 1 : undefined,
       splitLine: {
         lineStyle: {
           type: 'dashed'
@@ -1323,55 +1028,6 @@ const handleResetZoom = () => {
     })
   }
 }
-
-// 全屏图表相关函数（使用CSS强制横屏）
-const openFullscreenChart = () => {
-  showFullscreenChart.value = true
-  // 锁定背景滚动
-  document.body.style.overflow = 'hidden'
-  
-  nextTick(() => {
-    // 延迟初始化图表，等待DOM渲染完成
-    setTimeout(() => {
-      initFullscreenChart()
-    }, 100)
-  })
-}
-
-const closeFullscreenChart = () => {
-  showFullscreenChart.value = false
-  // 恢复背景滚动
-  document.body.style.overflow = ''
-  
-  if (fullscreenChartInstance) {
-    fullscreenChartInstance.dispose()
-    fullscreenChartInstance = null
-  }
-}
-
-const initFullscreenChart = () => {
-  if (!fullscreenChartRef.value) {
-    return
-  }
-  if (fullscreenChartInstance) {
-    fullscreenChartInstance.dispose()
-  }
-  fullscreenChartInstance = echarts.init(fullscreenChartRef.value)
-  const option = buildChartOption(true)
-  if (option) {
-    fullscreenChartInstance.setOption(option)
-  }
-}
-
-// 监听屏幕方向变化，更新全屏图表尺寸
-const handleOrientationChange = () => {
-  if (showFullscreenChart.value && fullscreenChartInstance) {
-    setTimeout(() => {
-      fullscreenChartInstance.resize()
-    }, 300)
-  }
-}
-
 
 const chartNotices = computed(() => {
   const notices = []
@@ -1524,20 +1180,6 @@ const scheduleAutoQuery = ({ resetPage = true, source = 'auto' } = {}) => {
   }, 250)
 }
 
-const formatDateToYMD = (date) => {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-const getYesterdayDateRange = () => {
-  const today = new Date()
-  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
-  const formatted = formatDateToYMD(yesterday)
-  return [formatted, formatted]
-}
-
 const handleFinancialDailyPreset = ({ triggerQuery = true, source = 'preset:financial' } = {}) => {
   suppressAutoQuery.value = true
   queryParams.table = 'booking'
@@ -1564,20 +1206,6 @@ const handleProductDailyPreset = ({ triggerQuery = true, source = 'preset:produc
   })
 }
 
-const handleRoomDailyPreset = ({ triggerQuery = true, source = 'preset:room' } = {}) => {
-  suppressAutoQuery.value = true
-  queryParams.table = 'room'
-  queryParams.dimension = 'room'
-  queryParams.granularity = 'day'
-  queryParams.dateRange = getYesterdayDateRange()
-  nextTick(() => {
-    suppressAutoQuery.value = false
-    if (triggerQuery) {
-      scheduleAutoQuery({ resetPage: true, source })
-    }
-  })
-}
-
 const applyRoutePresetIfNeeded = () => {
   if (route.query?.preset === 'financial_daily') {
     handleFinancialDailyPreset({ source: 'preset:financial:route' })
@@ -1587,17 +1215,10 @@ const applyRoutePresetIfNeeded = () => {
     handleProductDailyPreset({ source: 'preset:product:route' })
     return true
   }
-  if (route.query?.preset === 'room_daily') {
-    handleRoomDailyPreset({ source: 'preset:room:route' })
-    return true
-  }
   return false
 }
 
 onMounted(() => {
-  // 初始化移动端检测
-  checkMobile()
-  
   const savedState = readSessionJSON(generalAnalysisStateKey, null)
   if (savedState?.query) {
     suppressAutoQuery.value = true
@@ -1622,9 +1243,6 @@ onMounted(() => {
   nextTick(() => {
     initChart()
   })
-  
-  // 监听屏幕方向变化
-  window.addEventListener('orientationchange', handleOrientationChange)
 })
 
 watch(
@@ -1651,8 +1269,6 @@ watch(
       handleFinancialDailyPreset({ source: 'preset:financial:navigate' })
     } else if (preset === 'product_daily' && preset !== previous) {
       handleProductDailyPreset({ source: 'preset:product:navigate' })
-    } else if (preset === 'room_daily' && preset !== previous) {
-      handleRoomDailyPreset({ source: 'preset:room:navigate' })
     }
   }
 )
@@ -1664,18 +1280,9 @@ onBeforeUnmount(() => {
     autoQueryTimer = null
   }
   window.removeEventListener('resize', handleResize)
-  window.removeEventListener('orientationchange', handleOrientationChange)
   if (chartInstance) {
     chartInstance.dispose()
     chartInstance = null
-  }
-  if (fullscreenChartInstance) {
-    fullscreenChartInstance.dispose()
-    fullscreenChartInstance = null
-  }
-  // 确保关闭时恢复滚动
-  if (showFullscreenChart.value) {
-    document.body.style.overflow = ''
   }
 })
 
@@ -1783,21 +1390,6 @@ onBeforeUnmount(() => {
         background-color: rgba(255, 255, 255, 0.85);
         border: 1px dashed #ebeef5;
       }
-
-      .chart-fullscreen-btn {
-        position: absolute;
-        right: 12px;
-        bottom: 12px;
-        z-index: 10;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-      }
-
-      .chart-truncate-tip {
-        position: absolute;
-        left: 12px;
-        bottom: 12px;
-        z-index: 10;
-      }
     }
   }
 
@@ -1822,20 +1414,6 @@ onBeforeUnmount(() => {
 
   .result-table {
     margin-bottom: 16px;
-  }
-
-  .percent-text {
-    display: inline-block;
-    min-width: 70px;
-    text-align: right;
-  }
-
-  .percent-strong {
-    font-weight: 600;
-  }
-
-  .percent-text.is-warning {
-    color: #f56c6c;
   }
 
   .table-pagination {
@@ -1929,10 +1507,6 @@ onBeforeUnmount(() => {
         line-height: 20px; // 优化多行文本显示
         white-space: normal; // 允许换行
         padding: 0 20px;
-      }
-
-      :deep(.percent-text) {
-        min-width: 50px;
       }
     }
 
@@ -2067,10 +1641,6 @@ onBeforeUnmount(() => {
         .el-table__body td {
           padding: 6px 3px;
         }
-
-        .percent-text {
-          min-width: 40px;
-        }
       }
 
       .table-pagination {
@@ -2136,79 +1706,6 @@ onBeforeUnmount(() => {
     }
   }
 
-}
-
-// 全屏图表弹窗样式（独立于 .general-analysis）
-// 使用 CSS transform 强制横屏显示
-.fullscreen-chart-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background-color: #000;
-
-  // 旋转容器 - 在竖屏时强制横屏显示
-  .fullscreen-chart-rotated {
-    position: absolute;
-    background-color: #fff;
-    
-    // 默认（竖屏时）：旋转90度显示为横屏
-    @media screen and (orientation: portrait) {
-      // 旋转后宽高互换
-      width: 100vh;
-      height: 100vw;
-      // 先移动到中心，再旋转
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%) rotate(90deg);
-      transform-origin: center center;
-    }
-
-    // 横屏时：正常显示，不旋转
-    @media screen and (orientation: landscape) {
-      width: 100%;
-      height: 100%;
-      top: 0;
-      left: 0;
-      transform: none;
-    }
-  }
-
-  .fullscreen-chart-container {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-
-    .fullscreen-chart-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 16px;
-      border-bottom: 1px solid #ebeef5;
-      flex-shrink: 0;
-      background-color: #fff;
-
-      .fullscreen-chart-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: #303133;
-        // 防止标题过长
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        max-width: calc(100% - 50px);
-      }
-    }
-
-    .fullscreen-chart-body {
-      flex: 1;
-      width: 100%;
-      min-height: 0;
-      padding: 8px 12px 12px;
-      background-color: #fff;
-    }
-  }
 }
 </style>
 

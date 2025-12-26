@@ -3,11 +3,13 @@
     <el-card class="filter-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <div>
-            <h2>💳 会员变动分析</h2>
-            <p class="card-subtitle">会员充值、消费及积分成长趋势分析</p>
+          <div class="title-row">
+            <div class="title-text">
+              <h2>💳 会员变动分析</h2>
+              <p class="card-subtitle">会员充值、消费及积分成长趋势分析</p>
+            </div>
+            <el-tag type="success" effect="light">数据源：会员变动明细</el-tag>
           </div>
-          <el-tag type="success" effect="light">数据源：会员变动明细</el-tag>
         </div>
       </template>
 
@@ -22,22 +24,22 @@
             start-placeholder="开始日期"
             end-placeholder="结束日期"
             value-format="YYYY-MM-DD"
+            :editable="false"
             @change="handleDateRangeChange"
           />
         </div>
 
         <div class="filter-item dimension-switch">
           <span class="filter-label">分析维度</span>
-          <el-radio-group v-model="queryFilters.dimension" @change="handleDimensionChange">
+          <el-radio-group
+            v-model="queryFilters.dimension"
+            size="small"
+            @change="handleDimensionChange"
+          >
             <el-radio-button value="date">按日期</el-radio-button>
             <el-radio-button value="store">按门店</el-radio-button>
           </el-radio-group>
         </div>
-
-        <el-button type="primary" @click="fetchData" :loading="loading">
-          <el-icon><Search /></el-icon>
-          查询
-        </el-button>
       </div>
     </el-card>
 
@@ -129,7 +131,7 @@
           :prop="queryFilters.dimension === 'date' ? 'dimension_key' : 'dimension_label'"
           :label="queryFilters.dimension === 'date' ? '日期' : '门店'"
           width="150"
-          fixed
+          fixed="left"
           :sortable="queryFilters.dimension === 'date'"
         />
         <el-table-column prop="recharge_real_income" label="充值实收" align="right" sortable>
@@ -182,7 +184,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, inject, nextTick } from 'vue'
-import { Search, CreditCard, Wallet, Present, Star } from '@element-plus/icons-vue'
+import { CreditCard, Wallet, Present, Star } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
@@ -563,46 +565,59 @@ onUnmounted(() => {
   }
 
   .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 12px;
+    .title-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
 
-    h2 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 600;
-    }
+      .title-text {
+        h2 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 600;
+        }
 
-    .card-subtitle {
-      margin: 4px 0 0;
-      font-size: 13px;
-      color: #909399;
+        .card-subtitle {
+          margin: 4px 0 0;
+          font-size: 13px;
+          color: #909399;
+        }
+      }
+
+      .el-tag {
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
     }
   }
 
   .filters {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px;
-    align-items: flex-end;
+    gap: 24px;
+    align-items: center;
 
     .filter-item {
       display: flex;
-      flex-direction: column;
-      gap: 4px;
+      align-items: center;
+      gap: 12px;
+
+      :deep(.el-date-editor--daterange) {
+        width: 360px;
+      }
 
       .filter-label {
         font-size: 13px;
         color: #606266;
+        white-space: nowrap;
       }
     }
 
     .dimension-switch {
-      :deep(.el-radio-button__inner) {
-        padding: 8px 16px;
-      }
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
   }
 
@@ -757,37 +772,94 @@ onUnmounted(() => {
   }
 
   @media (max-width: 768px) {
+    .filter-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+    }
+
     .card-header {
-      flex-direction: column;
-      align-items: flex-start;
+      .title-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
+        .title-text {
+          h2 {
+            font-size: 16px;
+          }
+
+          .card-subtitle {
+            font-size: 12px;
+          }
+        }
+      }
     }
 
     .filters {
       flex-direction: column;
+      gap: 14px;
       align-items: stretch;
 
       .filter-item {
         width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
+        .filter-label {
+          font-size: 12px;
+        }
+
+        // 时间范围选择器移动端优化
+        :deep(.el-date-editor--daterange) {
+          width: 100% !important;
+          padding: 3px 5px;
+          
+          .el-range-separator {
+            padding: 0 4px;
+            font-size: 12px;
+            width: auto;
+          }
+          
+          .el-range-input {
+            font-size: 12px;
+            width: 42%;
+          }
+
+          .el-range__icon,
+          .el-range__close-icon {
+            font-size: 12px;
+            width: 18px;
+          }
+        }
       }
 
       .dimension-switch {
+        width: calc(50% - 6px);
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
         :deep(.el-radio-group) {
           width: 100%;
           display: flex;
-        }
 
-        :deep(.el-radio-button) {
-          flex: 1;
-        }
+          .el-radio-button {
+            flex: 1;
 
-        :deep(.el-radio-button__inner) {
-          width: 100%;
-          padding: 10px 8px;
+            .el-radio-button__inner {
+              width: 100%;
+              height: 32px;
+              line-height: 30px;
+              padding: 0 12px;
+            }
+          }
         }
-      }
-
-      > .el-button {
-        width: 100%;
       }
     }
 
@@ -798,14 +870,20 @@ onUnmounted(() => {
 
     .summary-card {
       padding: 14px;
+      border-radius: 10px;
 
       .card-icon {
         width: 40px;
         height: 40px;
         font-size: 18px;
+        border-radius: 10px;
       }
 
       .card-content {
+        .card-title {
+          font-size: 12px;
+        }
+
         .card-value {
           font-size: 18px;
         }
@@ -813,6 +891,24 @@ onUnmounted(() => {
         .card-sub {
           flex-direction: column;
           gap: 2px;
+          font-size: 11px;
+          margin-top: 6px;
+        }
+      }
+    }
+
+    .chart-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      .chart-header {
+        .chart-title {
+          font-size: 14px;
         }
       }
     }
@@ -821,28 +917,181 @@ onUnmounted(() => {
       height: 280px !important;
     }
 
+    .table-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      .table-header {
+        .table-title {
+          font-size: 14px;
+        }
+      }
+    }
+
     :deep(.el-table) {
       font-size: 12px;
+
+      .el-table__header th,
+      .el-table__body td {
+        padding: 8px 5px;
+      }
     }
 
     .table-pagination {
       justify-content: center !important;
+      margin-top: 12px;
+
+      :deep(.el-pagination) {
+        flex-wrap: wrap;
+        justify-content: center;
+        font-size: 12px;
+
+        .btn-prev,
+        .btn-next {
+          min-width: 28px;
+          height: 28px;
+        }
+
+        .el-pager li {
+          min-width: 28px;
+          height: 28px;
+          line-height: 28px;
+          font-size: 12px;
+          margin: 0 2px;
+        }
+      }
     }
   }
 
   @media (max-width: 480px) {
+    gap: 12px;
+
+    .filter-card {
+      .card-header {
+        h2 {
+          font-size: 15px;
+        }
+
+        .el-tag {
+          font-size: 11px;
+          padding: 0 6px;
+        }
+      }
+    }
+
     .summary-cards {
       grid-template-columns: 1fr;
+      gap: 10px;
     }
 
     .summary-card {
+      padding: 14px 16px;
+      gap: 12px;
+
       .card-icon {
-        display: none;
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+        border-radius: 8px;
+        flex-shrink: 0;
+      }
+
+      .card-content {
+        flex: 1;
+        min-width: 0;
+
+        .card-title {
+          font-size: 12px;
+          margin-bottom: 2px;
+        }
+
+        .card-value {
+          font-size: 20px;
+          font-weight: 700;
+        }
+
+        .card-sub {
+          display: flex;
+          flex-direction: row;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 4px;
+          font-size: 11px;
+        }
+      }
+    }
+
+    .chart-card {
+      :deep(.el-card__header) {
+        padding: 10px 12px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 10px;
+      }
+
+      .chart-header {
+        .chart-title {
+          font-size: 13px;
+        }
       }
     }
 
     .chart-container {
       height: 220px !important;
+    }
+
+    .table-card {
+      :deep(.el-card__header) {
+        padding: 10px 12px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 10px;
+      }
+
+      .table-header {
+        .table-title {
+          font-size: 13px;
+        }
+      }
+
+      .amount {
+        font-size: 12px;
+      }
+    }
+
+    :deep(.el-table) {
+      font-size: 11px;
+
+      .el-table__header th,
+      .el-table__body td {
+        padding: 6px 4px;
+      }
+    }
+
+    .table-pagination {
+      margin-top: 10px;
+
+      :deep(.el-pagination) {
+        .btn-prev,
+        .btn-next {
+          min-width: 26px;
+          height: 26px;
+        }
+
+        .el-pager li {
+          min-width: 26px;
+          height: 26px;
+          line-height: 26px;
+          font-size: 11px;
+        }
+      }
     }
   }
 }
