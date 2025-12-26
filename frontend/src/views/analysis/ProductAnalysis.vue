@@ -17,7 +17,6 @@
         <div class="filter-item">
           <span class="filter-label">时间范围</span>
           <el-date-picker
-            class="date-range"
             v-model="dateRange"
             type="daterange"
             unlink-panels
@@ -969,11 +968,6 @@ onBeforeUnmount(() => {
       color: #606266;
       white-space: nowrap;
     }
-  }
-
-  .date-range {
-    width: 360px;
-    max-width: 100%;
   }
 
   .search-input {

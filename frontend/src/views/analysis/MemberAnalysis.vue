@@ -603,6 +603,10 @@ onUnmounted(() => {
       align-items: center;
       gap: 12px;
 
+      :deep(.el-date-editor--daterange) {
+        width: 360px;
+      }
+
       .filter-label {
         font-size: 13px;
         color: #606266;

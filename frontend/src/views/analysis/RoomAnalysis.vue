@@ -893,17 +893,16 @@ const {
       align-items: center;
       gap: 12px;
 
+      :deep(.el-date-editor--daterange) {
+        width: 360px;
+      }
+
       .filter-label {
         font-size: 13px;
         color: #606266;
         white-space: nowrap;
       }
     }
-  }
-
-  .date-range {
-    width: 360px;
-    max-width: 100%;
   }
 
   .summary-cards {
@@ -1063,10 +1062,6 @@ const {
           width: 100% !important;
         }
       }
-    }
-
-    .date-range {
-      width: 100%;
     }
 
     :deep(.el-date-editor--daterange) {

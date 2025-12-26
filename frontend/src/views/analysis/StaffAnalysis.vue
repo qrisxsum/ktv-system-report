@@ -657,11 +657,6 @@ onUnmounted(() => {
     }
   }
 
-  .date-range {
-    width: 360px;
-    max-width: 100%;
-  }
-
   // TOP 3 荣誉领奖台
   .top-three-podium {
     display: flex;
@@ -964,10 +959,6 @@ onUnmounted(() => {
 
     .filter-label {
       font-size: 12px;
-    }
-
-    .date-range {
-      width: 100%;
     }
 
     // 时间范围选择器样式优化
