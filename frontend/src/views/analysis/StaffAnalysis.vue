@@ -136,19 +136,19 @@
             <span class="highlight-value">¥{{ (row.actual_amount || 0).toLocaleString() }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="客单价" width="90" align="right">
+        <el-table-column prop="avgPerOrder" label="客单价" width="90" align="right" sortable>
           <template #default="{ row }">
             ¥{{ row.avgPerOrder.toFixed(0) }}
           </template>
         </el-table-column>
-        <el-table-column label="转化率" width="80" align="center">
+        <el-table-column prop="conversionRate" label="转化率" width="80" align="center" sortable>
           <template #default="{ row }">
             <span :class="getConversionClass(row.conversionRate)">
               {{ row.conversionRate.toFixed(1) }}%
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="贡献占比" min-width="130">
+        <el-table-column prop="contributionPct" label="贡献占比" min-width="130" sortable>
           <template #default="{ row }">
             <div class="contribution-cell">
               <el-progress 
@@ -161,7 +161,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="gift_amount" label="赠送金额" width="100" align="right">
+        <el-table-column prop="gift_amount" label="赠送金额" width="100" align="right" sortable>
           <template #default="{ row }">
             <span :class="{ 'text-danger': row.gift_amount > 500 }">
               ¥{{ (row.gift_amount || 0).toFixed(0) }}

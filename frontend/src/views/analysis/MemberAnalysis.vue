@@ -130,6 +130,7 @@
           :label="queryFilters.dimension === 'date' ? '日期' : '门店'"
           width="150"
           fixed
+          :sortable="queryFilters.dimension === 'date'"
         />
         <el-table-column prop="recharge_real_income" label="充值实收" align="right" sortable>
           <template #default="{ row }">

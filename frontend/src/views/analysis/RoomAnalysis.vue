@@ -76,6 +76,7 @@
         border
         class="room-table"
         v-loading="loading"
+        :default-sort="{ prop: 'order_count', order: 'descending' }"
       >
         <el-table-column prop="room_name" label="包厢名称" min-width="150" />
         <el-table-column
@@ -83,12 +84,14 @@
           label="开台次数"
           min-width="100"
           align="right"
+          sortable
         />
         <el-table-column
           prop="gmv"
           label="GMV（应收）"
           min-width="130"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.gmv, 0) }}
@@ -99,6 +102,7 @@
           label="账单合计"
           min-width="130"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.bill_total, 0) }}
@@ -109,6 +113,7 @@
           label="实收金额"
           min-width="130"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.actual, 0) }}
@@ -119,6 +124,7 @@
           label="最低消费"
           min-width="120"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             {{ row.min_consumption ? formatCurrencyValue(row.min_consumption, 0) : '--' }}
@@ -129,6 +135,7 @@
           label="低消差额"
           min-width="120"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.low_consume_diff, 0) }}
@@ -139,6 +146,7 @@
           label="低消达成率"
           min-width="130"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             <span class="percent-text">
@@ -151,6 +159,7 @@
           label="包厢折扣"
           min-width="120"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.room_discount) }}
@@ -161,6 +170,7 @@
           label="酒水折扣"
           min-width="120"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.beverage_discount) }}
@@ -171,6 +181,7 @@
           label="赠送金额"
           min-width="120"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.gift_amount) }}
@@ -181,6 +192,7 @@
           label="赠送比例"
           min-width="120"
           align="right"
+          sortable
         >
           <template #default="{ row }">
             <span
