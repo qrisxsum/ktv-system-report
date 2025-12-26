@@ -39,8 +39,8 @@
           :xs="24"
           :sm="12"
           :md="8"
-          :lg="6"
-          :xl="4"
+          :lg="8"
+          :xl="6"
         >
           <div class="summary-item">
             <div class="label">
