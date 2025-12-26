@@ -198,6 +198,7 @@
               :min-width="child.minWidth || 120"
               :align="child.align || 'left'"
               show-overflow-tooltip
+              sortable
             >
               <template #default="{ row }">
                 <span
@@ -222,6 +223,7 @@
             :min-width="column.minWidth || 120"
             :align="column.align || 'left'"
             show-overflow-tooltip
+            :sortable="column.prop !== 'dimension_value' || queryParams.dimension === 'date'"
           >
             <template #default="{ row }">
               <span
