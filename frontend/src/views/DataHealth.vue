@@ -105,26 +105,21 @@
         >
           <template #default="{ row }">
             <template v-if="row[reportType.value]">
-              <el-tooltip
-                :content="getStatusTooltip(row[reportType.value])"
-                placement="top"
+              <div
+                class="status-badge"
+                :class="`status-badge--${row[reportType.value]?.status || 'unknown'}`"
+                @click="showDetail(row.store_id, reportType.value, row[reportType.value])"
               >
-                <div
-                  class="status-badge"
-                  :class="`status-badge--${row[reportType.value]?.status || 'unknown'}`"
-                  @click="showDetail(row.store_id, reportType.value, row[reportType.value])"
+                <span class="status-label">
+                  {{ getStatusText(row[reportType.value]?.status) }}
+                </span>
+                <span
+                  v-if="getCoveragePercent(row[reportType.value])"
+                  class="status-percent"
                 >
-                  <span class="status-label">
-                    {{ getStatusText(row[reportType.value]?.status) }}
-                  </span>
-                  <span
-                    v-if="getCoveragePercent(row[reportType.value])"
-                    class="status-percent"
-                  >
-                    {{ getCoveragePercent(row[reportType.value]) }}
-                  </span>
-                </div>
-              </el-tooltip>
+                  {{ getCoveragePercent(row[reportType.value]) }}
+                </span>
+              </div>
             </template>
             <template v-else>
               <span style="color: #c0c4cc;">-</span>
@@ -371,28 +366,6 @@ const getCoveragePercent = (detail) => {
   if (!expected) return ''
   const percent = Math.round((coverage / expected) * 100)
   return `${percent}%`
-}
-
-// 矩阵单元格 tooltip 文案
-const getStatusTooltip = (detail) => {
-  if (!detail) return '暂无数据'
-  const percent = getCoveragePercent(detail)
-  const coverageText = detail.expected_days
-    ? `覆盖 ${detail.coverage_days || 0} / ${detail.expected_days} 天${percent ? `（${percent}）` : ''}`
-    : ''
-
-  switch (detail.status) {
-    case 'complete':
-      return coverageText ? `数据完整，${coverageText}` : '数据完整'
-    case 'partial':
-      return coverageText
-        ? `数据部分缺失，${coverageText}。请检查缺失日期的数据是否已上传。`
-        : '数据部分缺失，请检查上传情况。'
-    case 'missing':
-      return '当前月份无任何数据，请上传对应类型报表。'
-    default:
-      return coverageText || '暂无数据'
-  }
 }
 
 // 格式化时间

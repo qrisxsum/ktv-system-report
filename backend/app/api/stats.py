@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api", tags=["统计"])
 
 @router.get("/stats/query", response_model=None)
 def query_stats(
-    table: str = Query(..., regex="^(booking|room|sales)$"),
+    table: str = Query(..., regex="^(booking|room|sales|member_change)$"),
     start_date: date = Query(..., description="开始日期 YYYY-MM-DD"),
     end_date: date = Query(..., description="结束日期 YYYY-MM-DD"),
     store_id: Optional[int] = Query(None),
