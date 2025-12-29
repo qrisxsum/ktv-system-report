@@ -146,45 +146,45 @@
         border
         v-loading="loading"
         :row-class-name="getRowClass"
-        :default-sort="{ prop: 'sales_amount', order: 'descending' }"
+        @sort-change="handleSortChange"
       >
         <el-table-column prop="product_name" label="商品名称" min-width="150" fixed="left" />
-        <el-table-column prop="sales_qty" label="销售数量" min-width="100" align="right" sortable>
+        <el-table-column prop="sales_qty" label="销售数量" min-width="100" align="right" sortable="custom">
           <template #default="{ row }">
             {{ formatInteger(row.sales_qty) }}
           </template>
         </el-table-column>
-        <el-table-column prop="sales_amount" label="销售金额" min-width="120" align="right" sortable>
+        <el-table-column prop="sales_amount" label="销售金额" min-width="120" align="right" sortable="custom">
           <template #default="{ row }">
             {{ formatCurrency(row.sales_amount) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_qty" label="赠送数量" min-width="100" align="right" sortable>
+        <el-table-column prop="gift_qty" label="赠送数量" min-width="100" align="right" sortable="custom">
           <template #default="{ row }">
             {{ formatInteger(row.gift_qty) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_amount" label="赠送金额" min-width="120" align="right" sortable>
+        <el-table-column prop="gift_amount" label="赠送金额" min-width="120" align="right" sortable="custom">
           <template #default="{ row }">
             {{ formatCurrency(row.gift_amount) }}
           </template>
         </el-table-column>
-        <el-table-column prop="gift_rate" label="赠送率" min-width="120" align="right" sortable>
+        <el-table-column prop="gift_rate" label="赠送率" min-width="120" align="right" sortable="custom">
           <template #default="{ row }">
             {{ formatPercent(row.gift_rate) }}
           </template>
         </el-table-column>
-        <el-table-column prop="cost" label="成本" min-width="120" align="right" sortable>
+        <el-table-column prop="cost" label="成本" min-width="120" align="right" sortable="custom">
           <template #default="{ row }">
             {{ formatCurrency(row.cost) }}
           </template>
         </el-table-column>
-        <el-table-column prop="profit" label="利润" min-width="120" align="right" sortable>
+        <el-table-column prop="profit" label="利润" min-width="120" align="right" sortable="custom">
           <template #default="{ row }">
             {{ formatCurrency(row.profit) }}
           </template>
         </el-table-column>
-        <el-table-column prop="profit_rate" label="成本利润率" min-width="110" align="right" sortable>
+        <el-table-column prop="profit_rate" label="成本利润率" min-width="110" align="right" sortable="custom">
           <template #default="{ row }">
             {{ formatPercent(row.profit_rate) }}
           </template>
@@ -243,6 +243,11 @@ let pendingFullFetch = null
 const pagination = reactive({
   page: 1,
   pageSize: 20
+})
+
+const sortState = reactive({
+  prop: null,
+  order: null
 })
 
 // 使用分页优化 Composable
@@ -709,11 +714,32 @@ const fetchData = async () => {
       total.value = 0
       return
     }
-    const response = await queryStats({
+    // 如果有表头排序，使用表头排序字段；否则使用默认排序（按销售金额降序）
+    let sortBy = undefined
+    let sortOrder = undefined
+    
+    if (sortState.prop) {
+      // 表头排序
+      sortBy = sortState.prop
+      sortOrder = sortState.order === 'ascending' ? 'asc' : sortState.order === 'descending' ? 'desc' : undefined
+    } else {
+      // 无表头排序时，使用默认排序（按销售金额降序）
+      sortBy = 'sales_amount'
+      sortOrder = 'desc'
+    }
+    
+    const queryParams = {
       ...baseParams,
       page: pagination.page,
-      page_size: pagination.pageSize
-    })
+      page_size: pagination.pageSize,
+      sort_by: sortBy,
+      sort_order: sortOrder
+    }
+    // 过滤掉 undefined 值
+    const filteredParams = Object.fromEntries(
+      Object.entries(queryParams).filter(([, value]) => value !== undefined)
+    )
+    const response = await queryStats(filteredParams)
 
     if (response.success && response.data) {
       const rows = Array.isArray(response.data.rows) ? response.data.rows : []
@@ -896,6 +922,21 @@ const handlePageSizeChange = async (size) => {
   pagination.page = 1
   await fetchData()
   scrollTableToTop()
+}
+
+const handleSortChange = async ({ prop, order }) => {
+  // 更新排序状态
+  sortState.prop = prop || null
+  sortState.order = order || null
+  // 排序变化时重置到第一页
+  pagination.page = 1
+  // 如果是筛选异常模式，前端排序即可（因为已有全量数据）
+  if (showExceptionOnly.value) {
+    // 注意：排序时不需要滚动表格，保持用户当前查看位置
+    return
+  }
+  await fetchData()
+  // 注意：排序时不需要滚动表格，保持用户当前查看位置
 }
 
 const handleDateChange = () => {

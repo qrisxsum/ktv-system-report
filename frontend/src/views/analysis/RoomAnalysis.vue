@@ -87,7 +87,7 @@
         border
         class="room-table"
         v-loading="loading"
-        :default-sort="{ prop: 'order_count', order: 'descending' }"
+        @sort-change="handleSortChange"
       >
         <el-table-column prop="room_name" label="包厢名称" min-width="150" fixed="left" />
         <el-table-column
@@ -101,14 +101,14 @@
           label="开台次数"
           min-width="100"
           align="right"
-          sortable
+          sortable="custom"
         />
         <el-table-column
           prop="gmv"
           label="GMV（应收）"
           min-width="130"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.gmv, 0) }}
@@ -119,7 +119,7 @@
           label="账单合计"
           min-width="130"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.bill_total, 0) }}
@@ -130,7 +130,7 @@
           label="实收金额"
           min-width="130"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.actual, 0) }}
@@ -141,7 +141,7 @@
           label="最低消费"
           min-width="120"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ row.min_consumption ? formatCurrencyValue(row.min_consumption, 0) : '--' }}
@@ -152,7 +152,7 @@
           label="低消差额"
           min-width="120"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.low_consume_diff, 0) }}
@@ -163,7 +163,7 @@
           label="低消达成率"
           min-width="130"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             <span class="percent-text">
@@ -176,7 +176,7 @@
           label="包厢折扣"
           min-width="120"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.room_discount) }}
@@ -187,7 +187,7 @@
           label="酒水折扣"
           min-width="120"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.beverage_discount) }}
@@ -198,7 +198,7 @@
           label="赠送金额"
           min-width="120"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ formatCurrencyValue(row.gift_amount) }}
@@ -209,7 +209,7 @@
           label="赠送比例"
           min-width="120"
           align="right"
-          sortable
+          sortable="custom"
         >
           <template #default="{ row }">
             <span
@@ -552,8 +552,9 @@ const transformRoomRows = (rows) =>
     const minConsumption = toNumber(item.min_consumption)
     const minDiff = toNumber(item.min_consumption_diff)
     const giftAmount = toNumber(item.gift_amount)
-    const giftRatio = formatRatio(giftAmount, billTotal)
-    const lowConsumeRate = formatRatio(billTotal, minConsumption)
+    // 优先使用后端返回的字段，如果没有则前端计算（兼容旧数据）
+    const giftRatio = item.gift_ratio !== undefined ? toNumber(item.gift_ratio) : formatRatio(giftAmount, billTotal)
+    const lowConsumeRate = item.low_consume_rate !== undefined ? toNumber(item.low_consume_rate) : formatRatio(billTotal, minConsumption)
     return {
       room_name: item.dimension_label || '未知包厢',
       store_name: item.store_name || '--',
@@ -581,6 +582,15 @@ function useRoomAnalysis(storeRef) {
   const dateRange = ref([])
   const tableRef = ref(null)
   const pagination = reactive({ page: 1, pageSize: 20 })
+  const sortState = reactive({ prop: null, order: null })
+  
+  // 前端字段名到后端字段名的映射
+  const SORT_FIELD_MAP = {
+    order_count: 'orders',
+    low_consume_diff: 'min_consumption_diff',
+    low_consume_rate: 'low_consume_rate',
+    gift_ratio: 'gift_ratio'
+  }
   const tableRows = ref([])
   const summaryRows = ref([])
   const summaryData = ref(null)
@@ -645,6 +655,9 @@ function useRoomAnalysis(storeRef) {
     }
     try {
       const [startDate, endDate] = dateRange.value
+      // 将前端字段名映射到后端字段名
+      const backendSortField = sortState.prop ? (SORT_FIELD_MAP[sortState.prop] || sortState.prop) : undefined
+      
       const params = {
         table: 'room',
         start_date: startDate,
@@ -653,12 +666,18 @@ function useRoomAnalysis(storeRef) {
         granularity: 'day',
         page: pagination.page,
         page_size: pagination.pageSize,
+        sort_by: backendSortField,
+        sort_order: sortState.order === 'ascending' ? 'asc' : sortState.order === 'descending' ? 'desc' : undefined,
       }
       const storeId = resolveStoreId()
       if (storeId) {
         params.store_id = storeId
       }
-      const response = await queryStats(params)
+      // 过滤掉 undefined 值
+      const filteredParams = Object.fromEntries(
+        Object.entries(params).filter(([, value]) => value !== undefined)
+      )
+      const response = await queryStats(filteredParams)
       if (response.success && response.data) {
         const { rows, series_rows, summary, total: totalCount, meta } = response.data
         tableRows.value = Array.isArray(rows) ? rows : []
@@ -760,6 +779,16 @@ function useRoomAnalysis(storeRef) {
     scrollTableToTop()
   }
 
+  const handleSortChange = async ({ prop, order }) => {
+    // 更新排序状态
+    sortState.prop = prop || null
+    sortState.order = order || null
+    // 排序变化时重置到第一页
+    pagination.page = 1
+    await fetchRoomTable(true)
+    // 注意：排序时不需要滚动表格，保持用户当前查看位置
+  }
+
   const handleDateChange = () => {
     pagination.page = 1
     if (isValidDateRange(dateRange.value)) {
@@ -829,6 +858,7 @@ function useRoomAnalysis(storeRef) {
     timeSlotChartRef,
     handlePageChange,
     handlePageSizeChange,
+    handleSortChange,
     handleDateChange,
   }
 }
@@ -850,6 +880,7 @@ const {
   timeSlotChartRef,
   handlePageChange,
   handlePageSizeChange,
+  handleSortChange,
   handleDateChange,
 } = useRoomAnalysis(currentStore)
 </script>
