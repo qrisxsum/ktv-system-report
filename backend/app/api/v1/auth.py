@@ -30,53 +30,91 @@ class UserInfo(BaseModel):
 @router.post("/login", response_model=None)
 async def login(request: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """用户登录"""
+    import traceback
     from app.services.user_service import UserService
     from app.core.security import verify_password, create_access_token
     from datetime import datetime
     
-    user_service = UserService(db)
-    
-    # 查询用户（只查询一次）
-    user = user_service.get_user_by_username(request.username)
-    if not user:
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
-    
-    # 检查账号是否激活
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
-    
-    # 验证密码（复用已查询的user对象）
-    if not verify_password(request.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    try:
+        user_service = UserService(db)
+        
+        # 查询用户（只查询一次）
+        user = user_service.get_user_by_username(request.username)
+        if not user:
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+        
+        # 检查账号是否激活
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
+        
+        # 验证密码（复用已查询的user对象）
+        if not verify_password(request.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    # 更新最后登录时间
-    user.last_login_at = datetime.utcnow()
-    db.commit()
+        # 更新最后登录时间
+        try:
+            user.last_login_at = datetime.utcnow()
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"❌ 更新最后登录时间失败: {e}")
+            print(traceback.format_exc())
+            raise HTTPException(status_code=500, detail="更新登录信息失败，请稍后重试")
 
-    # 创建 Token
-    token = create_access_token(data={"sub": user.username})
+        # 创建 Token
+        try:
+            token = create_access_token(data={"sub": user.username})
+        except Exception as e:
+            print(f"❌ 创建Token失败: {e}")
+            print(traceback.format_exc())
+            raise HTTPException(status_code=500, detail="生成访问令牌失败，请稍后重试")
 
-    # 更新用户的token信息到数据库
-    user_service.update_user_token(user.id, token)
-    
-    # 获取用户信息用于返回
-    user_info = user.to_user_info()
+        # 更新用户的token信息到数据库
+        try:
+            success = user_service.update_user_token(user.id, token)
+            if not success:
+                print(f"⚠️ 更新用户token失败: user_id={user.id}")
+                # 即使更新token失败，也允许登录（token已创建）
+        except Exception as e:
+            print(f"❌ 更新用户token异常: {e}")
+            print(traceback.format_exc())
+            # 即使更新token失败，也允许登录（token已创建）
+        
+        # 获取用户信息用于返回
+        try:
+            user_info = user.to_user_info()
+        except Exception as e:
+            print(f"❌ 获取用户信息失败: {e}")
+            print(traceback.format_exc())
+            raise HTTPException(status_code=500, detail="获取用户信息失败，请稍后重试")
 
-    # 设置 Cookie
-    response.set_cookie(
-        key="access_token",
-        value=token,
-        httponly=True,
-        max_age=24 * 60 * 60,  # 24 小时
-        samesite="lax",
-    )
+        # 设置 Cookie
+        try:
+            response.set_cookie(
+                key="access_token",
+                value=token,
+                httponly=True,
+                max_age=24 * 60 * 60,  # 24 小时
+                samesite="lax",
+            )
+        except Exception as e:
+            print(f"⚠️ 设置Cookie失败: {e}")
+            # Cookie设置失败不影响登录，token已在响应体中返回
 
-    return {
-        "success": True,
-        "message": "登录成功",
-        "token": token,
-        "user": user_info,
-    }
+        return {
+            "success": True,
+            "message": "登录成功",
+            "token": token,
+            "user": user_info,
+        }
+    except HTTPException:
+        # 重新抛出HTTP异常（如401、403等）
+        raise
+    except Exception as e:
+        # 捕获所有其他异常
+        print(f"❌ 登录过程发生未知错误: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"登录失败: {str(e)}")
 
 
 async def clear_user_token(request, db):

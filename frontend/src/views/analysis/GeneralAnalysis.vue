@@ -176,8 +176,9 @@
         stripe
         v-loading="loading"
         :empty-text="loading ? '数据加载中…' : '暂无数据，请先执行查询'"
+        @sort-change="handleSortChange"
       >
-        <template v-for="column in tableColumns" :key="columnKey(column)">
+        <template v-for="(column, colIndex) in tableColumns" :key="columnKey(column)">
           <el-table-column
             v-if="column.children"
             :label="column.label"
@@ -190,6 +191,7 @@
               :label="child.label"
               :min-width="child.minWidth || 120"
               :align="child.align || 'left'"
+              sortable="custom"
               show-overflow-tooltip
             >
               <template #default="{ row }">
@@ -209,6 +211,7 @@
             :min-width="column.minWidth || 120"
             :align="column.align || 'left'"
             :fixed="column.fixed"
+            :sortable="colIndex !== 0 || queryParams.dimension === 'date' ? 'custom' : false"
             show-overflow-tooltip
           >
             <template #default="{ row }">
@@ -275,6 +278,11 @@ const route = useRoute()
 const pagination = reactive({
   page: PAGINATION_CONFIG.defaultPage,
   pageSize: PAGINATION_CONFIG.defaultPageSize
+})
+
+const sortState = reactive({
+  prop: null,
+  order: null
 })
 
 const TABLE_OPTIONS = [
@@ -765,7 +773,9 @@ const performQuery = async ({ resetPage = false, source = 'query', paramsSnapsho
     page_size: Math.min(
       pagination.pageSize || PAGINATION_CONFIG.defaultPageSize,
       PAGINATION_CONFIG.maxPageSize
-    )
+    ),
+    sort_by: sortState.prop ?? undefined,
+    sort_order: sortState.order === 'ascending' ? 'asc' : sortState.order === 'descending' ? 'desc' : undefined
   }
   const requestParams = Object.fromEntries(
     Object.entries(rawParams).filter(([, value]) => value !== undefined && value !== null && value !== '')
@@ -827,6 +837,18 @@ const handlePageSizeChange = (size) => {
   pagination.pageSize = size
   pagination.page = PAGINATION_CONFIG.defaultPage
   performQuery({ source: 'pageSize', paramsSnapshot: appliedParams.value })
+}
+
+const handleSortChange = ({ prop, order }) => {
+  // 更新排序状态
+  sortState.prop = prop || null
+  sortState.order = order || null
+  // 排序变化时重置到第一页
+  pagination.page = PAGINATION_CONFIG.defaultPage
+  // 重新查询
+  if (appliedParams.value && isViewSynced.value) {
+    performQuery({ source: 'sort', paramsSnapshot: appliedParams.value })
+  }
 }
 
 const fetchStoreOptions = async () => {
@@ -1089,6 +1111,9 @@ watch(
     tableTotal.value = 0
     appliedParams.value = null
     pagination.page = PAGINATION_CONFIG.defaultPage
+    // 重置排序状态
+    sortState.prop = null
+    sortState.order = null
     cancelActiveQuery()
     const defaultDimension = DEFAULT_DIMENSION_MAP[nextTable] || 'date'
     const dimensionCandidates = DIMENSION_OPTIONS_MAP[nextTable] || []

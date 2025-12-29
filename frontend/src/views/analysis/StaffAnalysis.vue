@@ -118,7 +118,7 @@
         border
         style="margin-top: 20px"
         v-loading="loading"
-        :default-sort="{ prop: rankMetric, order: 'descending' }"
+        @sort-change="handleSortChange"
       >
         <el-table-column label="排名" width="70" align="center">
           <template #default="{ $index }">
@@ -136,30 +136,30 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="booking_count" label="订台数" width="90" align="right" sortable />
-        <el-table-column prop="sales_amount" label="销售金额" width="120" align="right" sortable>
+        <el-table-column prop="booking_count" label="订台数" width="90" align="right" sortable="custom" />
+        <el-table-column prop="sales_amount" label="销售金额" width="120" align="right" sortable="custom">
           <template #default="{ row }">
             ¥{{ (row.sales_amount || 0).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column prop="actual_amount" label="实收金额" width="120" align="right" sortable>
+        <el-table-column prop="actual_amount" label="实收金额" width="120" align="right" sortable="custom">
           <template #default="{ row }">
             <span class="highlight-value">¥{{ (row.actual_amount || 0).toLocaleString() }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="avgPerOrder" label="客单价" width="90" align="right" sortable>
+        <el-table-column prop="avgPerOrder" label="客单价" width="90" align="right" sortable="custom">
           <template #default="{ row }">
             ¥{{ row.avgPerOrder.toFixed(0) }}
           </template>
         </el-table-column>
-        <el-table-column prop="conversionRate" label="转化率" width="80" align="center" sortable>
+        <el-table-column prop="conversionRate" label="转化率" width="80" align="center" sortable="custom">
           <template #default="{ row }">
             <span :class="getConversionClass(row.conversionRate)">
               {{ row.conversionRate.toFixed(1) }}%
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="contributionPct" label="贡献占比" min-width="130" sortable>
+        <el-table-column prop="contributionPct" label="贡献占比" min-width="130">
           <template #default="{ row }">
             <div class="contribution-cell">
               <el-progress 
@@ -172,7 +172,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="gift_amount" label="赠送金额" width="100" align="right" sortable>
+        <el-table-column prop="gift_amount" label="赠送金额" width="100" align="right" sortable="custom">
           <template #default="{ row }">
             <span :class="{ 'text-danger': row.gift_amount > 500 }">
               ¥{{ (row.gift_amount || 0).toFixed(0) }}
@@ -242,6 +242,20 @@ const pagination = reactive({
   pageSize: 20
 })
 
+const sortState = reactive({
+  prop: null,
+  order: null
+})
+
+// 前端字段名到后端字段名的映射
+const SORT_FIELD_MAP = {
+  booking_count: 'orders',
+  actual_amount: 'actual',
+  base_performance: 'performance',
+  avgPerOrder: 'avg_order_amount',
+  conversionRate: 'actual_rate'
+}
+
 // 使用分页优化 Composable
 const { isMobile, pageSizeOptions, paginationLayout, pagerCount, checkDevice } = usePagination({
   desktopPageSizes: [20, 50, 100],
@@ -270,13 +284,14 @@ const summaryStats = computed(() => {
 })
 
 // 增强员工数据（添加客单价、转化率、贡献占比）
+// 优先使用后端返回的字段，如果没有则前端计算（兼容旧数据）
 const enhanceStaffData = (data) => {
   const totalActual = data.reduce((sum, i) => sum + i.actual_amount, 0)
   return data.map(item => ({
     ...item,
-    avgPerOrder: item.booking_count > 0 ? item.actual_amount / item.booking_count : 0,
-    conversionRate: item.sales_amount > 0 ? (item.actual_amount / item.sales_amount) * 100 : 0,
-    contributionPct: totalActual > 0 ? (item.actual_amount / totalActual) * 100 : 0
+    avgPerOrder: item.avg_order_amount !== undefined ? item.avg_order_amount : (item.booking_count > 0 ? item.actual_amount / item.booking_count : 0),
+    conversionRate: item.actual_rate !== undefined ? item.actual_rate * 100 : (item.sales_amount > 0 ? (item.actual_amount / item.sales_amount) * 100 : 0),
+    contributionPct: item.contribution_pct !== undefined ? item.contribution_pct : (totalActual > 0 ? (item.actual_amount / totalActual) * 100 : 0)
   }))
 }
 
@@ -294,18 +309,22 @@ const sortByMetric = (data, metric) => {
   })
 }
 
-// 处理后的员工数据（按选定维度排序）
+// 处理后的员工数据
+// 统一使用后端排序，直接使用后端返回的顺序（后端已排好序）
 const staffData = computed(() => {
   const data = tableRows.value.map(normalizeStaffRow)
   const enhanced = enhanceStaffData(data)
-  return sortByMetric(enhanced, rankMetric.value)
+  // 后端已按排序字段排好序，直接返回
+  return enhanced
 })
 
 // 图表所用数据（不受分页影响）
+// 注意：图表数据使用 series_rows，后端已按排序字段排好序
 const chartStaffData = computed(() => {
   const data = chartRows.value.map(normalizeStaffRow)
   const enhanced = enhanceStaffData(data)
-  return sortByMetric(enhanced, rankMetric.value)
+  // 后端已按排序字段排好序，直接返回
+  return enhanced
 })
 
 // TOP 3 数据
@@ -337,8 +356,13 @@ const getProgressColor = (pct) => {
 }
 
 // 排名维度切换
-const handleRankMetricChange = () => {
-  updateChart()
+const handleRankMetricChange = async () => {
+  // 切换排名依据时，需要重新获取数据以使用新的排序字段
+  // 清除表头排序状态，使用 rankMetric 作为排序依据
+  sortState.prop = null
+  sortState.order = null
+  pagination.page = 1
+  await fetchData()
 }
 
 // 初始化日期范围（使用数据库中的最新日期）
@@ -378,6 +402,21 @@ const fetchData = async () => {
   try {
     const [startDate, endDate] = dateRange.value
 
+    // 将前端字段名映射到后端字段名
+    // 如果有表头排序，使用表头排序字段；否则使用排名依据（rankMetric）对应的后端字段
+    let backendSortField = undefined
+    let sortOrder = undefined
+    
+    if (sortState.prop) {
+      // 表头排序
+      backendSortField = SORT_FIELD_MAP[sortState.prop] || sortState.prop
+      sortOrder = sortState.order === 'ascending' ? 'asc' : sortState.order === 'descending' ? 'desc' : undefined
+    } else {
+      // 无表头排序时，使用排名依据（rankMetric）进行后端排序
+      backendSortField = SORT_FIELD_MAP[rankMetric.value] || rankMetric.value
+      sortOrder = 'desc' // 默认降序
+    }
+    
     const params = {
       table: 'booking',
       start_date: startDate,
@@ -385,7 +424,9 @@ const fetchData = async () => {
       dimension: 'employee',
       granularity: 'day',
       page: pagination.page,
-      page_size: pagination.pageSize
+      page_size: pagination.pageSize,
+      sort_by: backendSortField,
+      sort_order: sortOrder
     }
 
     // 根据当前门店选择设置store_id参数
@@ -396,7 +437,12 @@ const fetchData = async () => {
       }
     }
 
-    const response = await queryStats(params)
+    // 过滤掉 undefined 值
+    const filteredParams = Object.fromEntries(
+      Object.entries(params).filter(([, value]) => value !== undefined)
+    )
+
+    const response = await queryStats(filteredParams)
 
     if (response.success && response.data) {
       const rows = Array.isArray(response.data.rows) ? response.data.rows : []
@@ -562,6 +608,16 @@ const handlePageSizeChange = async (size) => {
   pagination.page = 1
   await fetchData()
   scrollTableToTop()
+}
+
+const handleSortChange = async ({ prop, order }) => {
+  // 更新排序状态
+  sortState.prop = prop || null
+  sortState.order = order || null
+  // 排序变化时重置到第一页
+  pagination.page = 1
+  await fetchData()
+  // 注意：排序时不需要滚动表格，保持用户当前查看位置
 }
 
 const handleDateChange = () => {

@@ -96,6 +96,8 @@ async def query_stats(
     page: int = Query(1, ge=1, description="分页页码（表格 rows 用）"),
     page_size: int = Query(20, ge=1, le=200, description="分页大小（表格 rows 用）"),
     top_n: int = Query(50, ge=1, le=200, description="非时间维度 Top-N（series_rows 用）"),
+    sort_by: Optional[str] = Query(None, description="排序字段"),
+    sort_order: Optional[str] = Query(None, description="排序方向: asc 或 desc"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_manager),
 ):
@@ -125,6 +127,8 @@ async def query_stats(
             page=page,
             page_size=page_size,
             top_n=top_n,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
     except ValueError as e:
         return {"success": False, "message": str(e), "data": None}
@@ -192,4 +196,6 @@ async def get_date_range(
             "suggested_end": None,
             "error": str(e),
         }
+
+
 
