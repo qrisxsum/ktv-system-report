@@ -245,11 +245,20 @@ class StatsService:
                 ("pay_deposit", self._safe_sum(model.pay_deposit)),
                 ("orders", orders_sum),
                 # 派生字段：单均消费 = 实收 / 订单数
-                ("avg_order_amount", case((orders_sum > 0, actual_sum * 1.0 / orders_sum), else_=0)),
+                (
+                    "avg_order_amount",
+                    case((orders_sum > 0, actual_sum * 1.0 / orders_sum), else_=0),
+                ),
                 # 派生字段：挂账率 = 挂账金额 / 实收
-                ("credit_rate", case((actual_sum > 0, credit_sum * 1.0 / actual_sum), else_=0)),
+                (
+                    "credit_rate",
+                    case((actual_sum > 0, credit_sum * 1.0 / actual_sum), else_=0),
+                ),
                 # 派生字段：实收转化率 = 实收 / 销售金额
-                ("actual_rate", case((sales_sum > 0, actual_sum * 1.0 / sales_sum), else_=0)),
+                (
+                    "actual_rate",
+                    case((sales_sum > 0, actual_sum * 1.0 / sales_sum), else_=0),
+                ),
                 # 注意：contribution_pct 需要在查询结果后处理中添加，因为需要全局汇总
             ]
         if model is FactRoom:
@@ -267,12 +276,9 @@ class StatsService:
                 ("gmv", self._safe_sum(model.receivable_amount)),
                 ("bill_total", bill_total_sum),
                 ("actual", self._safe_sum(model.actual_amount)),
-                ("min_consumption", min_consumption_sum),
-                (
-                    "min_consumption_diff",
-                    self._safe_sum(min_consumption_diff_expr),
-                ),
-                ("gift_amount", gift_amount_sum),
+                ("min_consumption", self._safe_sum(model.min_consumption)),
+                ("min_consumption_diff", self._safe_sum(model.min_consumption_diff)),
+                ("gift_amount", self._safe_sum(model.gift_amount)),
                 ("free_amount", self._safe_sum(model.free_amount)),
                 ("credit_amount", self._safe_sum(model.credit_amount)),
                 ("room_discount", self._safe_sum(model.room_discount)),
@@ -280,9 +286,24 @@ class StatsService:
                 ("duration", self._safe_sum(model.duration_min)),
                 ("orders", func.count(model.id)),
                 # 派生字段：低消达成率 = 账单合计 / 最低消费
-                ("low_consume_rate", case((min_consumption_sum > 0, bill_total_sum * 1.0 / min_consumption_sum), else_=0)),
+                (
+                    "low_consume_rate",
+                    case(
+                        (
+                            min_consumption_sum > 0,
+                            bill_total_sum * 1.0 / min_consumption_sum,
+                        ),
+                        else_=0,
+                    ),
+                ),
                 # 派生字段：赠送比例 = 赠送金额 / 账单合计
-                ("gift_ratio", case((bill_total_sum > 0, gift_amount_sum * 1.0 / bill_total_sum), else_=0)),
+                (
+                    "gift_ratio",
+                    case(
+                        (bill_total_sum > 0, gift_amount_sum * 1.0 / bill_total_sum),
+                        else_=0,
+                    ),
+                ),
             ]
         if model is FactSales:
             total_qty = func.sum(model.sales_qty) + func.sum(model.gift_qty)
@@ -299,9 +320,20 @@ class StatsService:
                 ("profit", profit_sum),
                 ("profit_rate", func.avg(model.profit_rate)),  # 利润率取平均值
                 # 派生字段：赠送率 = 赠送数量 / (销售数量 + 赠送数量)
-                ("gift_rate", case((total_qty > 0, func.sum(model.gift_qty) * 1.0 / total_qty), else_=0)),
+                (
+                    "gift_rate",
+                    case(
+                        (total_qty > 0, func.sum(model.gift_qty) * 1.0 / total_qty),
+                        else_=0,
+                    ),
+                ),
                 # 派生字段：单品毛利 = 利润 / 销量
-                ("unit_profit", case((sales_qty_sum > 0, profit_sum * 1.0 / sales_qty_sum), else_=0)),
+                (
+                    "unit_profit",
+                    case(
+                        (sales_qty_sum > 0, profit_sum * 1.0 / sales_qty_sum), else_=0
+                    ),
+                ),
             ]
         if model is FactMemberChange:
             return [
@@ -346,11 +378,22 @@ class StatsService:
                 [],
             )
         if dimension == "employee" and hasattr(model, "employee_id"):
+            # 获取门店名称的子查询，避免多重 join 逻辑复杂化
+            store_name_subquery = (
+                select(DimStore.store_name)
+                .where(DimStore.id == DimEmployee.store_id)
+                .scalar_subquery()
+                .label("store_name")
+            )
+            extra_columns = [
+                store_name_subquery,
+                DimEmployee.store_id.label("store_id"),
+            ]
             return (
                 DimEmployee,
                 model.employee_id == DimEmployee.id,
                 DimEmployee.name.label("dimension_label"),
-                [],
+                extra_columns,
             )
         if dimension == "product" and hasattr(model, "product_id"):
             extra_columns = [DimProduct.category.label("dimension_category")]
@@ -368,11 +411,18 @@ class StatsService:
                 [],
             )
         if dimension == "room" and hasattr(model, "room_id"):
+            # 获取所属门店名称的子查询
+            store_name_subquery = (
+                select(DimStore.store_name)
+                .where(DimStore.id == DimRoom.store_id)
+                .scalar_subquery()
+                .label("store_name")
+            )
             return (
                 DimRoom,
                 model.room_id == DimRoom.id,
                 DimRoom.room_no.label("dimension_label"),
-                [],
+                [store_name_subquery],
             )
         if dimension == "room_type":
             if model is not FactRoom:
@@ -569,7 +619,11 @@ class StatsService:
 
         # 对于 booking 表的员工维度，添加 contribution_pct 字段（使用窗口函数）
         # 注意：窗口函数需要在聚合之后计算，使用原始聚合表达式
-        if model is FactBooking and dimension == "employee" and "actual" in original_metrics:
+        if (
+            model is FactBooking
+            and dimension == "employee"
+            and "actual" in original_metrics
+        ):
             actual_expr = original_metrics["actual"]
             # 使用窗口函数计算总实收（在所有分组上求和）
             # 窗口函数中使用原始聚合表达式
@@ -577,7 +631,7 @@ class StatsService:
             # 计算贡献占比 = (当前实收 / 总实收) * 100
             contribution_pct_expr = case(
                 (total_actual_window > 0, actual_expr * 100.0 / total_actual_window),
-                else_=0
+                else_=0,
             ).label("contribution_pct")
             select_columns.append(contribution_pct_expr)
             metric_columns["contribution_pct"] = contribution_pct_expr
@@ -706,14 +760,16 @@ class StatsService:
 
         metrics = self._get_metrics_exprs(model)
 
-        rows_stmt, dim_expr, has_label_rows, metric_columns_rows, extra_column_names = self._build_group_stmt(
-            model=model,
-            dimension=dimension,
-            granularity=granularity,
-            metrics=metrics,
-            start_date=start_date,
-            end_date=end_date,
-            store_id=store_id,
+        rows_stmt, dim_expr, has_label_rows, metric_columns_rows, extra_column_names = (
+            self._build_group_stmt(
+                model=model,
+                dimension=dimension,
+                granularity=granularity,
+                metrics=metrics,
+                start_date=start_date,
+                end_date=end_date,
+                store_id=store_id,
+            )
         )
 
         # 应用自定义排序
@@ -737,7 +793,11 @@ class StatsService:
         offset = (page - 1) * page_size
         paginated_stmt = rows_stmt.offset(offset).limit(page_size)
         rows = self._fetch_rows(
-            paginated_stmt, metrics, has_label_rows, extra_column_names, metric_columns_rows
+            paginated_stmt,
+            metrics,
+            has_label_rows,
+            extra_column_names,
+            metric_columns_rows,
         )
 
         series_granularity = granularity
@@ -787,7 +847,11 @@ class StatsService:
                 store_id=store_id,
             )
             series_rows = self._fetch_rows(
-                series_stmt, metrics, has_label_series, extra_column_names_series, metric_columns_series
+                series_stmt,
+                metrics,
+                has_label_series,
+                extra_column_names_series,
+                metric_columns_series,
             )
         else:
             (
@@ -812,7 +876,11 @@ class StatsService:
             )
             series_stmt = series_stmt.limit(top_n)
             series_rows = self._fetch_rows(
-                series_stmt, metrics, has_label_series, extra_column_names_series, metric_columns_series
+                series_stmt,
+                metrics,
+                has_label_series,
+                extra_column_names_series,
+                metric_columns_series,
             )
             if total > len(series_rows):
                 is_truncated = True
@@ -875,7 +943,7 @@ class StatsService:
         # 补充：room 表提供活跃包厢数，便于前端计算翻台率/利用率
         if table == "room":
             summary_data["active_room_count"] = self._get_active_room_count(store_id)
-        
+
         # 注意：contribution_pct 现在在 SQL 层面使用窗口函数计算，无需后处理
 
         return {
@@ -1003,10 +1071,17 @@ class StatsService:
                     self.db.query(
                         DimEmployee.id.label("dimension_key"),
                         DimEmployee.name.label("dimension_label"),
+                        DimStore.store_name.label("store_label"),
                         func.sum(model.actual_amount).label("metric_value"),
                     )
                     .join(DimEmployee, model.employee_id == DimEmployee.id)
-                    .group_by(model.employee_id, DimEmployee.id, DimEmployee.name)
+                    .join(DimStore, DimEmployee.store_id == DimStore.id)
+                    .group_by(
+                        model.employee_id,
+                        DimEmployee.id,
+                        DimEmployee.name,
+                        DimStore.store_name,
+                    )
                     .order_by(func.sum(model.actual_amount).desc())
                 )
 
@@ -1064,16 +1139,30 @@ class StatsService:
                 else:
                     sum_field = model.sales_amount
 
-                query = (
-                    self.db.query(
-                        DimProduct.id.label("dimension_key"),
-                        DimProduct.name.label("dimension_label"),
-                        func.sum(sum_field).label("metric_value"),
+                if store_id is None:
+                    # 全部门店视角：按商品名称聚合，忽略具体的 product_id
+                    query = (
+                        self.db.query(
+                            DimProduct.name.label("dimension_key"),
+                            DimProduct.name.label("dimension_label"),
+                            func.sum(sum_field).label("metric_value"),
+                        )
+                        .join(DimProduct, model.product_id == DimProduct.id)
+                        .group_by(DimProduct.name)
+                        .order_by(func.sum(sum_field).desc())
                     )
-                    .join(DimProduct, model.product_id == DimProduct.id)
-                    .group_by(model.product_id, DimProduct.id, DimProduct.name)
-                    .order_by(func.sum(sum_field).desc())
-                )
+                else:
+                    # 单门店视角：保留原有的按 ID 分组逻辑
+                    query = (
+                        self.db.query(
+                            DimProduct.id.label("dimension_key"),
+                            DimProduct.name.label("dimension_label"),
+                            func.sum(sum_field).label("metric_value"),
+                        )
+                        .join(DimProduct, model.product_id == DimProduct.id)
+                        .group_by(model.product_id, DimProduct.id, DimProduct.name)
+                        .order_by(func.sum(sum_field).desc())
+                    )
             elif dimension == "store":
                 if metric == "sales":
                     sum_field = model.sales_amount
@@ -1112,15 +1201,15 @@ class StatsService:
         rows = query.all()
         result = []
         for row in rows:
-            result.append(
-                {
-                    "dimension_key": str(row.dimension_key),
-                    "dimension_label": str(row.dimension_label),
-                    "metric_value": (
-                        float(row.metric_value) if row.metric_value else 0.0
-                    ),
-                }
-            )
+            item = {
+                "dimension_key": str(row.dimension_key),
+                "dimension_label": str(row.dimension_label),
+                "metric_value": (float(row.metric_value) if row.metric_value else 0.0),
+            }
+            # 如果查询结果中包含 store_label，也一并返回
+            if hasattr(row, "store_label"):
+                item["store_label"] = str(row.store_label)
+            result.append(item)
 
         return result
 

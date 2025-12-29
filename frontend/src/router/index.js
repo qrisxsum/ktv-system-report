@@ -98,6 +98,12 @@ const routes = [
             meta: { title: '人员风云榜' }
           },
           {
+            path: 'financial',
+            name: 'FinancialAnalysis',
+            component: () => import('@/views/analysis/FinancialAnalysis.vue'),
+            meta: { title: '财务专项' }
+          },
+          {
             path: 'products',
             name: 'ProductAnalysis',
             component: () => import('@/views/analysis/ProductAnalysis.vue'),
@@ -108,12 +114,6 @@ const routes = [
             name: 'RoomAnalysis',
             component: () => import('@/views/analysis/RoomAnalysis.vue'),
             meta: { title: '包厢效能' }
-          },
-          {
-            path: 'financial',
-            name: 'FinancialAnalysis',
-            component: () => import('@/views/analysis/FinancialAnalysis.vue'),
-            meta: { title: '财务专项' }
           },
           {
             path: 'members',

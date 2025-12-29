@@ -37,7 +37,10 @@
         <div class="podium-item second" v-if="topThree[1]">
           <div class="rank-badge silver">🥈</div>
           <div class="avatar">{{ topThree[1].name.slice(0, 1) }}</div>
-          <div class="name">{{ topThree[1].name }}</div>
+          <div class="name">
+            {{ topThree[1].name }}
+            <div v-if="currentStore === 'all' && topThree[1].store_name" class="podium-store">{{ topThree[1].store_name }}</div>
+          </div>
           <div class="metric-label">{{ rankMetricLabel }}</div>
           <div class="amount">{{ formatMetricValue(topThree[1]) }}</div>
           <div class="sub-info">
@@ -49,7 +52,10 @@
           <div class="crown">👑</div>
           <div class="rank-badge gold">🥇</div>
           <div class="avatar champion">{{ topThree[0].name.slice(0, 1) }}</div>
-          <div class="name">{{ topThree[0].name }}</div>
+          <div class="name">
+            {{ topThree[0].name }}
+            <div v-if="currentStore === 'all' && topThree[0].store_name" class="podium-store">{{ topThree[0].store_name }}</div>
+          </div>
           <div class="metric-label">{{ rankMetricLabel }}</div>
           <div class="amount">{{ formatMetricValue(topThree[0]) }}</div>
           <div class="sub-info">
@@ -60,7 +66,10 @@
         <div class="podium-item third" v-if="topThree[2]">
           <div class="rank-badge bronze">🥉</div>
           <div class="avatar">{{ topThree[2].name.slice(0, 1) }}</div>
-          <div class="name">{{ topThree[2].name }}</div>
+          <div class="name">
+            {{ topThree[2].name }}
+            <div v-if="currentStore === 'all' && topThree[2].store_name" class="podium-store">{{ topThree[2].store_name }}</div>
+          </div>
           <div class="metric-label">{{ rankMetricLabel }}</div>
           <div class="amount">{{ formatMetricValue(topThree[2]) }}</div>
           <div class="sub-info">
@@ -136,8 +145,9 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="booking_count" label="订台数" width="90" align="right" sortable="custom" />
-        <el-table-column prop="sales_amount" label="销售金额" width="120" align="right" sortable="custom">
+        <el-table-column v-if="currentStore === 'all'" prop="store_name" label="所属门店" width="120" />
+        <el-table-column prop="booking_count" label="订台数" width="90" align="right" sortable />
+        <el-table-column prop="sales_amount" label="销售金额" width="120" align="right" sortable>
           <template #default="{ row }">
             ¥{{ (row.sales_amount || 0).toLocaleString() }}
           </template>
@@ -263,7 +273,8 @@ const { isMobile, pageSizeOptions, paginationLayout, pagerCount, checkDevice } =
 })
 
 const normalizeStaffRow = (item = {}) => ({
-  name: item.dimension_label || '未知员工',
+  name: item.dimension_label || item.dimension_key || '未知员工',
+  store_name: item.store_name || item.store_label || item.extra_info?.store_name || '',
   booking_count: item.orders || 0,
   sales_amount: item.sales_amount || 0,
   actual_amount: item.actual || 0,
@@ -484,7 +495,7 @@ const updateChart = () => {
   const data = chartStaffData.value
     .slice(0, 10)
     .map(item => ({ 
-      name: item.name, 
+      name: (currentStore.value === 'all' && item.store_name) ? `${item.name}(${item.store_name})` : item.name, 
       value: item[metricKey] || 0,
       actualAmount: item.actual_amount,
       bookingCount: item.booking_count
@@ -803,6 +814,14 @@ onUnmounted(() => {
         font-weight: 600;
         color: #303133;
         margin-bottom: 4px;
+        text-align: center;
+      }
+
+      .podium-store {
+        font-size: 11px;
+        color: #909399;
+        font-weight: normal;
+        margin-top: 2px;
       }
 
       .metric-label {

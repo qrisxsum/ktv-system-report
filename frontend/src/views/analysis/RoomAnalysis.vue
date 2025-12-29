@@ -91,6 +91,12 @@
       >
         <el-table-column prop="room_name" label="包厢名称" min-width="150" fixed="left" />
         <el-table-column
+          v-if="currentStore === 'all'"
+          prop="store_name"
+          label="所属门店"
+          min-width="120"
+        />
+        <el-table-column
           prop="order_count"
           label="开台次数"
           min-width="100"
@@ -551,6 +557,7 @@ const transformRoomRows = (rows) =>
     const lowConsumeRate = item.low_consume_rate !== undefined ? toNumber(item.low_consume_rate) : formatRatio(billTotal, minConsumption)
     return {
       room_name: item.dimension_label || '未知包厢',
+      store_name: item.store_name || '--',
       order_count: toNumber(item.orders ?? item.order_count),
       gmv,
       bill_total: billTotal,

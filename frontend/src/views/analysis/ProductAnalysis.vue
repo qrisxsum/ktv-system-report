@@ -344,9 +344,37 @@ const mapRowToProduct = (item) => {
 }
 
 const buildProductList = (rows = []) => {
-  const mapped = rows.map(item => mapRowToProduct(item))
-  // 统一使用后端排序，直接使用后端返回的顺序（后端已排好序）
-  return mapped
+  if (!rows.length) return []
+  
+  // 使用 Map 按商品名称聚合数值
+  const aggregatedMap = new Map()
+  
+  rows.forEach(item => {
+    const product = mapRowToProduct(item)
+    const name = product.product_name
+    
+    if (aggregatedMap.has(name)) {
+      const existing = aggregatedMap.get(name)
+      // 累加数值字段
+      existing.sales_qty += product.sales_qty
+      existing.sales_amount += product.sales_amount
+      existing.gift_qty += product.gift_qty
+      existing.gift_amount += product.gift_amount
+      existing.cost += product.cost
+      existing.profit += product.profit
+    } else {
+      // 第一次遇到该商品，复制对象（注意这里要浅拷贝防止污染原始数据）
+      aggregatedMap.set(name, { ...product })
+    }
+  })
+  
+  // 重新计算聚合后的比例指标
+  return Array.from(aggregatedMap.values())
+    .map(item => ({
+      ...item,
+      profit_rate: calcProfitRate(item.profit, item.cost),
+      gift_rate: calcGiftRate(item.gift_qty, item.sales_qty)
+    }))
 }
 
 const pagedProductData = computed(() => buildProductList(tableRows.value))
@@ -377,19 +405,56 @@ const chartProductData = computed(() => {
   return data
 })
 
-const tableProductData = computed(() => {
-  const data = chartProductData.value
-  const start = (pagination.page - 1) * pagination.pageSize
-  const end = start + pagination.pageSize
+const isUsingFullData = computed(() => showExceptionOnly.value || fullRows.value.length > 0)
+
+const sortedProductData = computed(() => {
+  const data = [...chartProductData.value]
   
-  if (showExceptionOnly.value || searchKeyword.value) {
+  // 仅在有全量数据或异常筛选时进行前端排序
+  // 否则，顺序由后端接口返回的数据顺序（经过 Map 聚合后保留插入顺序）决定
+  if (isUsingFullData.value) {
+    const { prop, order } = sortState
+    if (prop && order) {
+      data.sort((a, b) => {
+        const valA = a[prop]
+        const valB = b[prop]
+        
+        if (typeof valA === 'number' && typeof valB === 'number') {
+          return order === 'ascending' ? valA - valB : valB - valA
+        }
+        
+        const strA = String(valA || '')
+        const strB = String(valB || '')
+        return order === 'ascending' 
+          ? strA.localeCompare(strB, 'zh-CN') 
+          : strB.localeCompare(strA, 'zh-CN')
+      })
+    } else {
+      // 默认按销售额降序
+      data.sort((a, b) => b.sales_amount - a.sales_amount)
+    }
+  }
+  
+  return data
+})
+
+const tableProductData = computed(() => {
+  const data = sortedProductData.value
+  
+  // 如果当前是使用全量数据进行本地操作，则需要前端切片分页
+  if (isUsingFullData.value) {
+    const start = (pagination.page - 1) * pagination.pageSize
+    const end = start + pagination.pageSize
     return data.slice(start, end)
   }
-  return pagedProductData.value
+  
+  // 否则直接返回数据（此时 data 已经由后端排序并分页好，或者是聚合后的当前页数据）
+  return data
 })
 
 const tableTotal = computed(() => {
-  return chartProductData.value.length
+  // 全量模式下使用本地计算的总数，否则使用后端返回的总数
+  return isUsingFullData.value ? chartProductData.value.length : total.value
 })
 
 const getTopData = (rows, key) => {
@@ -399,7 +464,7 @@ const getTopData = (rows, key) => {
     .reverse()
 }
 
-const topSalesData = computed(() => chartProductData.value.slice(0, 10).reverse())
+const topSalesData = computed(() => getTopData(chartProductData.value, 'sales_amount'))
 const topProfitData = computed(() => getTopData(chartProductData.value, 'profit'))
 const topGiftData = computed(() => getTopData(chartProductData.value, 'gift_amount'))
 
