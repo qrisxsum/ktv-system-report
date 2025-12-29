@@ -1,49 +1,67 @@
 <template>
   <div class="product-analysis">
-    <el-card>
+    <el-card class="filter-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span class="header-title">🍺 商品销售分析</span>
-          <div class="header-right">
-            <el-input
-              v-model="searchKeyword"
-              placeholder="搜索商品..."
-              class="search-input"
-              clearable
-              @clear="handleSearch"
-              @input="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-            <el-switch
-              class="exception-switch"
-              v-model="showExceptionOnly"
-              inline-prompt
-              active-text="仅看滞销/异常"
-              inactive-text="全部商品"
-              @change="handleExceptionToggle"
-            />
-            <el-date-picker
-              class="date-range"
-              v-model="dateRange"
-              type="daterange"
-              unlink-panels
-              range-separator="至"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              value-format="YYYY-MM-DD"
-              @change="handleDateChange"
-            />
+          <div class="title-row">
+            <div class="title-text">
+              <h2>🍺 商品销售分析</h2>
+              <p class="card-subtitle">商品销量、滞销异常识别与SKU排名</p>
+            </div>
+            <el-tag type="info" effect="light">数据源：商品销售</el-tag>
           </div>
         </div>
       </template>
+
+      <div class="filters">
+        <div class="filter-item">
+          <span class="filter-label">时间范围</span>
+          <el-date-picker
+            v-model="dateRange"
+            type="daterange"
+            unlink-panels
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            :editable="false"
+            @change="handleDateChange"
+          />
+        </div>
+
+        <div class="filter-item">
+          <span class="filter-label">搜索商品</span>
+          <el-input
+            v-model="searchKeyword"
+            placeholder="搜索商品..."
+            class="search-input"
+            clearable
+            @clear="handleSearch"
+            @input="handleSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </div>
+
+        <div class="filter-item exception-switch">
+          <span class="filter-label">商品筛选</span>
+          <el-switch
+            v-model="showExceptionOnly"
+            inline-prompt
+            active-text="仅看滞销/异常"
+            inactive-text="全部商品"
+            @change="handleExceptionToggle"
+          />
+        </div>
+      </div>
+    </el-card>
       
-      <div
-        v-if="chartProductData.length"
-        class="ranking-row"
-      >
+    <div
+      v-if="chartProductData.length"
+      class="ranking-row"
+    >
         <el-row :gutter="16">
           <el-col :xs="24" :sm="12" :md="8">
             <el-card class="chart-card">
@@ -120,6 +138,7 @@
         </el-row>
       </div>
 
+    <el-card class="table-card" shadow="never">
       <el-table
         ref="tableRef"
         :data="tableProductData"
@@ -129,7 +148,7 @@
         :row-class-name="getRowClass"
         :default-sort="{ prop: 'sales_amount', order: 'descending' }"
       >
-        <el-table-column prop="product_name" label="商品名称" min-width="150" />
+        <el-table-column prop="product_name" label="商品名称" min-width="150" fixed="left" />
         <el-table-column prop="sales_qty" label="销售数量" min-width="100" align="right" sortable>
           <template #default="{ row }">
             {{ formatInteger(row.sales_qty) }}
@@ -463,6 +482,19 @@ const buildBarOption = (data, valueKey, color) => {
   const names = data.map(item => item.product_name || '未知商品')
   const values = data.map(item => toSafeNumber(item[valueKey]))
 
+  // 简化的金额格式化，防止x轴标签重叠
+  const formatAxisLabelCompact = (value) => {
+    const num = toSafeNumber(value)
+    if (!Number.isFinite(num)) return '¥0'
+    if (num >= 10000) {
+      return '¥' + (num / 10000).toFixed(1) + '万'
+    } else if (num >= 1000) {
+      return '¥' + (num / 1000).toFixed(0) + 'K'
+    } else {
+      return '¥' + num.toFixed(0)
+    }
+  }
+
   return {
     tooltip: {
       trigger: 'axis',
@@ -475,7 +507,7 @@ const buildBarOption = (data, valueKey, color) => {
     },
     grid: {
       top: 10,
-      bottom: 10,
+      bottom: 30,
       left: 10,
       right: 20,
       containLabel: true
@@ -483,7 +515,9 @@ const buildBarOption = (data, valueKey, color) => {
     xAxis: {
       type: 'value',
       axisLabel: {
-        formatter: formatAxisLabel
+        formatter: formatAxisLabelCompact,
+        fontSize: 11,
+        rotate: 0
       },
       splitLine: {
         lineStyle: { type: 'dashed' }
@@ -500,7 +534,7 @@ const buildBarOption = (data, valueKey, color) => {
       {
         type: 'bar',
         data: values,
-        barMaxWidth: 20,
+        barMaxWidth: 24,
         itemStyle: {
           color
         },
@@ -899,33 +933,69 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 .product-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+
   .card-header {
+    .title-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+
+      .title-text {
+        h2 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 600;
+        }
+
+        .card-subtitle {
+          margin: 4px 0 0;
+          color: #909399;
+          font-size: 13px;
+        }
+      }
+
+      .el-tag {
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+    }
+  }
+
+  .filters {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
     flex-wrap: wrap;
-  }
-
-  .header-title {
-    font-weight: 600;
-  }
-
-  .header-right {
-    display: flex;
+    gap: 24px;
     align-items: center;
-    gap: 8px;
-  }
 
-  .filter-label {
-    font-size: 13px;
-    color: #606266;
-    white-space: nowrap;
-  }
+    .filter-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
 
-  .date-range {
-    width: 360px;
-    max-width: 100%;
+      :deep(.el-date-editor--daterange) {
+        width: 360px;
+      }
+
+      :deep(.el-input) {
+        width: 200px;
+      }
+    }
+
+    .exception-switch {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .filter-label {
+      font-size: 13px;
+      color: #606266;
+      white-space: nowrap;
+    }
   }
 
   .search-input {
@@ -933,25 +1003,59 @@ onBeforeUnmount(() => {
   }
 
   @media (max-width: 768px) {
-    .card-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
+    :deep(.el-card__header) {
+      padding: 12px 15px;
     }
 
-    .header-right {
-      width: 100%;
+    :deep(.el-card__body) {
+      padding: 12px;
+    }
+
+    .card-header {
+      .title-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
+        .title-text {
+          h2 {
+            font-size: 16px;
+          }
+
+          .card-subtitle {
+            font-size: 12px;
+          }
+        }
+      }
+    }
+
+    .filters {
       flex-direction: column;
-      align-items: flex-start;
-      gap: 6px;
+      align-items: stretch;
+      gap: 14px;
+
+      .filter-item {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 8px;
+
+        :deep(.el-date-editor--daterange) {
+          width: 100% !important;
+        }
+
+        :deep(.el-input) {
+          flex: 1;
+          min-width: 120px;
+        }
+      }
+
+      .exception-switch {
+        justify-content: flex-start;
+      }
     }
 
     .filter-label {
       font-size: 12px;
-    }
-
-    .date-range {
-      width: 100%;
     }
 
     // 时间范围选择器样式优化（与财务专项一致）
@@ -974,6 +1078,24 @@ onBeforeUnmount(() => {
       .el-range__close-icon {
         font-size: 12px;
         width: 18px;
+      }
+    }
+
+    // 排行榜图表移动端优化
+    .ranking-row,
+    .category-structure {
+      margin-bottom: 15px;
+
+      .el-col {
+        margin-bottom: 12px;
+      }
+
+      .chart-title {
+        font-size: 14px;
+      }
+
+      .chart-wrapper {
+        height: 250px;
       }
     }
 
@@ -1053,18 +1175,50 @@ onBeforeUnmount(() => {
 
   @media (max-width: 480px) {
     :deep(.el-card__header) {
-      padding: 12px 15px;
+      padding: 10px 12px;
     }
 
     :deep(.el-card__body) {
-      padding: 12px;
+      padding: 10px;
     }
 
     .card-header {
-      font-size: 14px;
+      gap: 10px;
 
-      .header-right {
-        margin-top: 10px;
+      .title-row {
+        .title-text h2 {
+          font-size: 15px;
+        }
+      }
+    }
+
+    .filters {
+      gap: 10px;
+    }
+
+    // 排行榜图表小屏优化
+    .ranking-row,
+    .category-structure {
+      margin-bottom: 12px;
+
+      .el-col {
+        margin-bottom: 10px;
+      }
+
+      :deep(.el-card__header) {
+        padding: 10px 12px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 10px;
+      }
+
+      .chart-title {
+        font-size: 13px;
+      }
+
+      .chart-wrapper {
+        height: 220px;
       }
     }
 

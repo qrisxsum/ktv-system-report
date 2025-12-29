@@ -130,7 +130,10 @@
         <el-card class="history-card">
           <template #header>
             <div class="card-header">
-              <span>📋 最近上传记录</span>
+              <div class="header-left">
+                <span>📋 最近上传记录</span>
+                <span class="history-tip">仅显示最近 10 条</span>
+              </div>
               <el-button link type="primary" @click="refreshHistory">
                 <el-icon><Refresh /></el-icon> 刷新
               </el-button>
@@ -431,6 +434,19 @@ onMounted(() => {
       display: flex;
       justify-content: space-between;
       align-items: center;
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+
+        .history-tip {
+          font-size: 12px;
+          color: #909399;
+          font-weight: normal;
+        }
+      }
     }
   }
 
