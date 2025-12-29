@@ -3,13 +3,11 @@
     <el-card class="filter-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <div class="title-row">
-            <div class="title-text">
-              <h2>💰 财务专项分析</h2>
-              <p class="card-subtitle">聚焦“钱从哪里来、又流失到哪里”</p>
-            </div>
-            <el-tag type="warning" effect="light">数据源：Booking</el-tag>
+          <div>
+            <h2>财务专项分析</h2>
+            <p class="card-subtitle">聚焦“钱从哪里来、又流失到哪里”</p>
           </div>
+          <el-tag type="warning" effect="light">数据源：Booking</el-tag>
         </div>
       </template>
 
@@ -24,8 +22,30 @@
             start-placeholder="开始日期"
             end-placeholder="结束日期"
             value-format="YYYY-MM-DD"
-            :editable="false"
             @change="handleDateRangeChange"
+          />
+        </div>
+
+        <div class="filter-item">
+          <span class="filter-label">门店</span>
+          <el-select
+            v-if="currentUser?.role === 'admin'"
+            v-model="queryFilters.store_id"
+            placeholder="全部门店"
+            clearable
+          >
+            <el-option
+              v-for="store in storeOptions"
+              :key="store.id"
+              :label="store.name"
+              :value="store.id"
+            />
+          </el-select>
+          <el-input
+            v-else
+            :model-value="managerStoreName"
+            readonly
+            placeholder="我的门店"
           />
         </div>
 
@@ -156,14 +176,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { queryStats, getDateRange } from '@/api/stats'
+import { listStores } from '@/api/store'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
-
-// 注入全局门店选择状态
-const currentStore = inject('currentStore', ref('all'))
 
 // 移动端检测
 const isMobile = ref(false)
@@ -254,7 +272,11 @@ const createEmptyPaymentTotals = () =>
   }, {})
 
 const dateRange = ref([])
+const queryFilters = reactive({
+  store_id: null
+})
 const anomalyDimension = ref('employee')
+const storeOptions = ref([])
 const currentUser = ref(null)
 const financialSeriesRows = ref([])
 const summaryData = ref(null) // 新增：保存后端返回的全局汇总数据
@@ -271,6 +293,17 @@ let activeController = null
 let latestRequestToken = 0
 
 const isReadyToQuery = computed(() => isValidDateRange(dateRange.value))
+
+const managerStoreName = computed(() => {
+  if (!currentUser.value || currentUser.value.role !== 'manager') {
+    return '我的门店'
+  }
+  if (!currentUser.value.store_id || !storeOptions.value.length) {
+    return '我的门店'
+  }
+  const match = storeOptions.value.find((store) => store.id === currentUser.value.store_id)
+  return match ? match.name : '我的门店'
+})
 
 const anomalyDimensionLabel = computed(() =>
   anomalyDimension.value === 'store' ? '门店' : '员工'
@@ -668,17 +701,13 @@ const buildAnomalyOption = () => {
         name: '赠送金额',
         type: 'bar',
         data: giftData,
-        barMaxWidth: isMobile.value ? 20 : 32,
-        barGap: '20%',
-        barCategoryGap: '30%'
+        barMaxWidth: isMobile.value ? 20 : 26
       },
       {
         name: '免单金额',
         type: 'bar',
         data: freeData,
-        barMaxWidth: isMobile.value ? 20 : 32,
-        barGap: '20%',
-        barCategoryGap: '30%'
+        barMaxWidth: isMobile.value ? 20 : 26
       }
     ]
   }
@@ -735,12 +764,8 @@ const fetchFinancialStats = async () => {
     granularity: 'day',
     top_n: DEFAULT_TOP_N
   }
-  // 使用全局门店选择
-  if (currentStore.value && currentStore.value !== 'all') {
-    const parsedStoreId = parseInt(currentStore.value, 10)
-    if (Number.isFinite(parsedStoreId)) {
-      params.store_id = parsedStoreId
-    }
+  if (queryFilters.store_id) {
+    params.store_id = queryFilters.store_id
   }
 
   if (activeController) {
@@ -795,9 +820,26 @@ const loadCurrentUser = () => {
     const raw = localStorage.getItem('user')
     if (raw) {
       currentUser.value = JSON.parse(raw)
+      if (currentUser.value?.role === 'manager' && currentUser.value.store_id) {
+        queryFilters.store_id = currentUser.value.store_id
+      }
     }
   } catch (error) {
     console.error('[FinancialAnalysis] 读取用户信息失败', error)
+  }
+}
+
+const fetchStoreOptions = async () => {
+  try {
+    const response = await listStores(true)
+    if (Array.isArray(response?.data)) {
+      storeOptions.value = response.data
+    } else {
+      storeOptions.value = []
+    }
+  } catch (error) {
+    console.error('[FinancialAnalysis] 获取门店列表失败:', error)
+    storeOptions.value = []
   }
 }
 
@@ -839,7 +881,7 @@ watch(
 )
 
 watch(
-  () => currentStore.value,
+  () => queryFilters.store_id,
   () => {
     triggerAutoQuery()
     nextTick(() => handleResize())
@@ -865,7 +907,7 @@ watch(
 onMounted(async () => {
   checkMobile()
   loadCurrentUser()
-  await restoreDateRange()
+  await Promise.all([fetchStoreOptions(), restoreDateRange()])
   await nextTick()
   nextTick(() => {
     ensureChartInstance('anomaly')
@@ -893,30 +935,22 @@ onBeforeUnmount(() => {
   gap: 20px;
 
   .card-header {
-    .title-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
 
-      .title-text {
-        h2 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 600;
-        }
+    h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
 
-        .card-subtitle {
-          margin: 4px 0 0;
-          color: #909399;
-          font-size: 13px;
-        }
-      }
-
-      .el-tag {
-        flex-shrink: 0;
-        margin-top: 2px;
-      }
+    .card-subtitle {
+      margin: 4px 0 0;
+      color: #909399;
+      font-size: 13px;
     }
   }
 
@@ -1049,7 +1083,7 @@ onBeforeUnmount(() => {
       height: 100%;
 
       &.tall {
-        min-height: 560px;
+        min-height: 420px;
       }
     }
 
@@ -1218,31 +1252,27 @@ onBeforeUnmount(() => {
       }
 
       .card-header {
-        .title-row {
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 6px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
 
-          .title-text {
-            h2 {
-              font-size: 16px;
-            }
+        h2 {
+          font-size: 16px;
+        }
 
-            .card-subtitle {
-              font-size: 12px;
-            }
-          }
+        .card-subtitle {
+          font-size: 12px;
         }
       }
     }
 
     .filters {
-      flex-direction: row;
-      flex-wrap: wrap;
-      gap: 12px;
+      flex-direction: column;
+      gap: 14px;
       align-items: stretch;
 
       .filter-item {
+        width: 100%;
         flex-direction: column;
         align-items: flex-start;
         gap: 6px;
@@ -1254,16 +1284,6 @@ onBeforeUnmount(() => {
         :deep(.el-select),
         :deep(.el-input) {
           width: 100% !important;
-        }
-
-        // 时间范围选择器独占一行
-        &:first-child {
-          width: 100%;
-        }
-
-        // 门店选择器和异常监控维度在同一行
-        &:nth-child(2) {
-          width: calc(50% - 6px);
         }
 
         // 时间范围选择器移动端优化
@@ -1291,23 +1311,20 @@ onBeforeUnmount(() => {
       }
 
       .dimension-switch {
-        width: calc(50% - 6px);
+        width: 100%;
         flex-direction: column;
         align-items: flex-start;
         gap: 6px;
 
         :deep(.el-radio-group) {
           width: 100%;
-          display: flex;
 
           .el-radio-button {
             flex: 1;
 
             .el-radio-button__inner {
               width: 100%;
-              height: 32px;
-              line-height: 30px;
-              padding: 0 12px;
+              padding: 8px 12px;
             }
           }
         }
@@ -1387,7 +1404,7 @@ onBeforeUnmount(() => {
         min-height: 280px;
 
         &.tall {
-          min-height: 480px;
+          min-height: 380px;
         }
       }
     }
@@ -1535,7 +1552,7 @@ onBeforeUnmount(() => {
         min-height: 250px;
 
         &.tall {
-          min-height: 400px;
+          min-height: 300px;
         }
       }
     }

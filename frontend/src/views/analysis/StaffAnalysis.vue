@@ -1,38 +1,27 @@
 <template>
   <div class="staff-analysis">
-    <el-card class="filter-card" shadow="never">
+    <el-card>
       <template #header>
         <div class="card-header">
-          <div class="title-row">
-            <div class="title-text">
-              <h2>👑 人员风云榜</h2>
-              <p class="card-subtitle">员工业绩排名与销售能力分析</p>
-            </div>
-            <el-tag type="success" effect="light">数据源：Booking</el-tag>
+          <span class="header-title">👑 人员风云榜</span>
+          <div class="header-right">
+            <span class="filter-label">时间范围</span>
+            <el-date-picker
+              class="date-range"
+              v-model="dateRange"
+              type="daterange"
+              unlink-panels
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              value-format="YYYY-MM-DD"
+              @change="handleDateChange"
+            />
           </div>
         </div>
       </template>
 
-      <div class="filters">
-        <div class="filter-item">
-          <span class="filter-label">时间范围</span>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            unlink-panels
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            :editable="false"
-            @change="handleDateChange"
-          />
-        </div>
-      </div>
-    </el-card>
-
-    <!-- TOP 3 荣誉领奖台 -->
-    <el-card class="content-card" shadow="never" v-loading="loading">
+      <!-- TOP 3 荣誉领奖台 -->
       <div class="top-three-podium" v-if="topThree.length > 0 && !loading">
         <div class="podium-item second" v-if="topThree[1]">
           <div class="rank-badge silver">🥈</div>
@@ -137,7 +126,7 @@
             <span v-else class="rank-number">{{ $index + 1 }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="name" label="姓名" min-width="100" fixed="left">
+        <el-table-column prop="name" label="姓名" min-width="100">
           <template #default="{ row, $index }">
             <div class="name-cell">
               <span class="staff-name">{{ row.name }}</span>
@@ -669,59 +658,33 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .staff-analysis {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-
   .card-header {
-    .title-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      flex-wrap: wrap;
-
-      .title-text {
-        h2 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 600;
-        }
-
-        .card-subtitle {
-          margin: 4px 0 0;
-          color: #909399;
-          font-size: 13px;
-        }
-      }
-
-      .el-tag {
-        flex-shrink: 0;
-        margin-top: 2px;
-      }
-    }
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
   }
 
-  .filters {
+  .header-title {
+    font-weight: 600;
+  }
+
+  .header-right {
     display: flex;
-    flex-wrap: wrap;
-    gap: 24px;
     align-items: center;
+    gap: 8px;
+  }
 
-    .filter-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
+  .filter-label {
+    font-size: 13px;
+    color: #606266;
+    white-space: nowrap;
+  }
 
-      :deep(.el-date-editor--daterange) {
-        width: 360px;
-      }
-    }
-
-    .filter-label {
-      font-size: 13px;
-      color: #606266;
-      white-space: nowrap;
-    }
+  .date-range {
+    width: 360px;
+    max-width: 100%;
   }
 
   // TOP 3 荣誉领奖台
@@ -990,50 +953,25 @@ onUnmounted(() => {
 
   // 移动端优化
   @media (max-width: 768px) {
-    :deep(.el-card__header) {
-      padding: 12px 15px;
-    }
-
-    :deep(.el-card__body) {
-      padding: 12px;
-    }
-
     .card-header {
-      .title-row {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 6px;
-
-        .title-text {
-          h2 {
-            font-size: 16px;
-          }
-
-          .card-subtitle {
-            font-size: 12px;
-          }
-        }
-      }
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
     }
 
-    .filters {
+    .header-right {
+      width: 100%;
       flex-direction: column;
-      align-items: stretch;
-      gap: 14px;
-
-      .filter-item {
-        width: 100%;
-        flex-wrap: wrap;
-        gap: 8px;
-
-        :deep(.el-date-editor--daterange) {
-          width: 100% !important;
-        }
-      }
+      align-items: flex-start;
+      gap: 6px;
     }
 
     .filter-label {
       font-size: 12px;
+    }
+
+    .date-range {
+      width: 100%;
     }
 
     // 时间范围选择器样式优化

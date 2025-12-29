@@ -106,28 +106,9 @@ html, body {
     padding: 8px 12px;
     font-size: 13px;
   }
-}
 
-// 移动端禁止自动缩放 - 确保所有可交互元素字体不小于16px
-@media (max-width: 768px) {
-  // 输入框、选择框、文本域等字体至少16px，防止iOS自动缩放
-  input,
-  textarea,
-  select,
-  .el-input__inner,
-  .el-input__wrapper,
-  .el-textarea__inner,
-  .el-select__input,
-  .el-select__placeholder,
-  .el-select .el-input__inner,
-  .el-date-editor .el-input__inner,
-  .el-picker__popper {
-    font-size: 14px !important;
-  }
-
-  // 触摸优化 - 禁用双击缩放
-  input, button, select, textarea, a, .el-button {
-    touch-action: manipulation;
+  .el-input__inner {
+    font-size: 14px;
   }
 }
 
