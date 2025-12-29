@@ -241,7 +241,6 @@
               :align="child.align || 'left'"
               sortable="custom"
               show-overflow-tooltip
-              sortable
             >
               <template #default="{ row }">
                 <span
