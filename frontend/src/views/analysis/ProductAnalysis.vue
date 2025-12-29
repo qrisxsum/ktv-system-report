@@ -368,14 +368,13 @@ const buildProductList = (rows = []) => {
     }
   })
   
-  // 重新计算聚合后的比例指标并按销售额排序
+  // 重新计算聚合后的比例指标
   return Array.from(aggregatedMap.values())
     .map(item => ({
       ...item,
       profit_rate: calcProfitRate(item.profit, item.cost),
       gift_rate: calcGiftRate(item.gift_qty, item.sales_qty)
     }))
-    .sort((a, b) => b.sales_amount - a.sales_amount)
 }
 
 const pagedProductData = computed(() => buildProductList(tableRows.value))
@@ -406,18 +405,56 @@ const chartProductData = computed(() => {
   return data
 })
 
-const tableProductData = computed(() => {
-  const data = chartProductData.value
-  const start = (pagination.page - 1) * pagination.pageSize
-  const end = start + pagination.pageSize
+const isUsingFullData = computed(() => showExceptionOnly.value || fullRows.value.length > 0)
+
+const sortedProductData = computed(() => {
+  const data = [...chartProductData.value]
   
-  // 统一从聚合后的数据集进行前端切片分页
-  // 这样可以解决后端返回多行同名商品导致的前端显示行数不足的问题
-  return data.slice(start, end)
+  // 仅在有全量数据或异常筛选时进行前端排序
+  // 否则，顺序由后端接口返回的数据顺序（经过 Map 聚合后保留插入顺序）决定
+  if (isUsingFullData.value) {
+    const { prop, order } = sortState
+    if (prop && order) {
+      data.sort((a, b) => {
+        const valA = a[prop]
+        const valB = b[prop]
+        
+        if (typeof valA === 'number' && typeof valB === 'number') {
+          return order === 'ascending' ? valA - valB : valB - valA
+        }
+        
+        const strA = String(valA || '')
+        const strB = String(valB || '')
+        return order === 'ascending' 
+          ? strA.localeCompare(strB, 'zh-CN') 
+          : strB.localeCompare(strA, 'zh-CN')
+      })
+    } else {
+      // 默认按销售额降序
+      data.sort((a, b) => b.sales_amount - a.sales_amount)
+    }
+  }
+  
+  return data
+})
+
+const tableProductData = computed(() => {
+  const data = sortedProductData.value
+  
+  // 如果当前是使用全量数据进行本地操作，则需要前端切片分页
+  if (isUsingFullData.value) {
+    const start = (pagination.page - 1) * pagination.pageSize
+    const end = start + pagination.pageSize
+    return data.slice(start, end)
+  }
+  
+  // 否则直接返回数据（此时 data 已经由后端排序并分页好，或者是聚合后的当前页数据）
+  return data
 })
 
 const tableTotal = computed(() => {
-  return chartProductData.value.length
+  // 全量模式下使用本地计算的总数，否则使用后端返回的总数
+  return isUsingFullData.value ? chartProductData.value.length : total.value
 })
 
 const getTopData = (rows, key) => {
@@ -427,7 +464,7 @@ const getTopData = (rows, key) => {
     .reverse()
 }
 
-const topSalesData = computed(() => chartProductData.value.slice(0, 10).reverse())
+const topSalesData = computed(() => getTopData(chartProductData.value, 'sales_amount'))
 const topProfitData = computed(() => getTopData(chartProductData.value, 'profit'))
 const topGiftData = computed(() => getTopData(chartProductData.value, 'gift_amount'))
 

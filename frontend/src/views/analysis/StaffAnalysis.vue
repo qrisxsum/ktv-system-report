@@ -273,8 +273,8 @@ const { isMobile, pageSizeOptions, paginationLayout, pagerCount, checkDevice } =
 })
 
 const normalizeStaffRow = (item = {}) => ({
-  name: item.dimension_label || '未知员工',
-  store_name: item.store_label || '',
+  name: item.dimension_label || item.dimension_key || '未知员工',
+  store_name: item.store_name || item.store_label || item.extra_info?.store_name || '',
   booking_count: item.orders || 0,
   sales_amount: item.sales_amount || 0,
   actual_amount: item.actual || 0,
