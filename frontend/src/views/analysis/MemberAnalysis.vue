@@ -125,43 +125,43 @@
         stripe
         border
         v-loading="loading"
-        :default-sort="{ prop: 'recharge_real_income', order: 'descending' }"
+        @sort-change="handleSortChange"
       >
         <el-table-column
           :prop="queryFilters.dimension === 'date' ? 'dimension_key' : 'dimension_label'"
           :label="queryFilters.dimension === 'date' ? '日期' : '门店'"
           width="150"
           fixed="left"
-          :sortable="queryFilters.dimension === 'date'"
+          :sortable="queryFilters.dimension === 'date' ? 'custom' : false"
         />
-        <el-table-column prop="recharge_real_income" label="充值实收" align="right" sortable>
+        <el-table-column prop="recharge_real_income" label="充值实收" align="right" sortable="custom">
           <template #default="{ row }">
             <span class="amount positive">¥{{ formatNumber(row.recharge_real_income) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="recharge_count" label="充值笔数" align="right" sortable width="100" />
-        <el-table-column prop="room_amount_principal" label="房费本金" align="right" sortable>
+        <el-table-column prop="recharge_count" label="充值笔数" align="right" sortable="custom" width="100" />
+        <el-table-column prop="room_amount_principal" label="房费本金" align="right" sortable="custom">
           <template #default="{ row }">
             ¥{{ formatNumber(row.room_amount_principal) }}
           </template>
         </el-table-column>
-        <el-table-column prop="drink_amount_principal" label="酒水本金" align="right" sortable>
+        <el-table-column prop="drink_amount_principal" label="酒水本金" align="right" sortable="custom">
           <template #default="{ row }">
             ¥{{ formatNumber(row.drink_amount_principal) }}
           </template>
         </el-table-column>
-        <el-table-column prop="room_amount_gift" label="房费赠送" align="right" sortable>
+        <el-table-column prop="room_amount_gift" label="房费赠送" align="right" sortable="custom">
           <template #default="{ row }">
             <span class="amount gift">¥{{ formatNumber(row.room_amount_gift) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="drink_amount_gift" label="酒水赠送" align="right" sortable>
+        <el-table-column prop="drink_amount_gift" label="酒水赠送" align="right" sortable="custom">
           <template #default="{ row }">
             <span class="amount gift">¥{{ formatNumber(row.drink_amount_gift) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="points_delta" label="积分变动" align="right" sortable width="100" />
-        <el-table-column prop="growth_delta" label="成长值" align="right" sortable width="100" />
+        <el-table-column prop="points_delta" label="积分变动" align="right" sortable="custom" width="100" />
+        <el-table-column prop="growth_delta" label="成长值" align="right" sortable="custom" width="100" />
       </el-table>
 
       <div class="table-pagination">
@@ -213,6 +213,11 @@ const total = ref(0)
 const pagination = reactive({
   page: 1,
   pageSize: 20
+})
+
+const sortState = reactive({
+  prop: null,
+  order: null
 })
 
 // 使用分页优化 Composable
@@ -286,7 +291,9 @@ const fetchData = async () => {
       granularity: 'day',
       page: pagination.page,
       page_size: pagination.pageSize,
-      top_n: 50
+      top_n: 50,
+      sort_by: sortState.prop ?? undefined,
+      sort_order: sortState.order === 'ascending' ? 'asc' : sortState.order === 'descending' ? 'desc' : undefined
     }
 
     // 使用全局门店筛选
@@ -297,7 +304,12 @@ const fetchData = async () => {
       }
     }
 
-    const response = await queryStats(params)
+    // 过滤掉 undefined 值
+    const filteredParams = Object.fromEntries(
+      Object.entries(params).filter(([, value]) => value !== undefined)
+    )
+
+    const response = await queryStats(filteredParams)
 
     if (response.success && response.data) {
       const rows = Array.isArray(response.data.rows) ? response.data.rows : []
@@ -499,6 +511,9 @@ const handleDateRangeChange = () => {
 
 const handleDimensionChange = () => {
   pagination.page = 1
+  // 维度变化时重置排序
+  sortState.prop = null
+  sortState.order = null
   fetchData()
 }
 
@@ -521,6 +536,16 @@ const handlePageSizeChange = async (size) => {
   pagination.page = 1
   await fetchData()
   scrollTableToTop()
+}
+
+const handleSortChange = async ({ prop, order }) => {
+  // 更新排序状态
+  sortState.prop = prop || null
+  sortState.order = order || null
+  // 排序变化时重置到第一页
+  pagination.page = 1
+  await fetchData()
+  // 注意：排序时不需要滚动表格，保持用户当前查看位置
 }
 
 const handleResize = () => {
