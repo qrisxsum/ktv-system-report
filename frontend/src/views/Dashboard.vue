@@ -23,7 +23,10 @@
               <el-icon size="24"><component :is="kpi.icon" /></el-icon>
             </div>
             <div class="kpi-content">
-              <div class="kpi-title">{{ kpi.title }}</div>
+              <div class="kpi-title">
+                {{ kpi.title }}
+                <span v-if="kpi.remark" class="kpi-remark">{{ kpi.remark }}</span>
+              </div>
               <div class="kpi-value" :style="{ color: kpi.valueColor || '#303133' }">{{ kpi.value }}</div>
               <div class="kpi-change" :class="kpi.trend">
                 <el-icon v-if="kpi.trend === 'up'"><Top /></el-icon>
@@ -45,7 +48,10 @@
               <el-icon size="24"><component :is="kpi.icon" /></el-icon>
             </div>
             <div class="kpi-content">
-              <div class="kpi-title">{{ kpi.title }}</div>
+              <div class="kpi-title">
+                {{ kpi.title }}
+                <span v-if="kpi.remark" class="kpi-remark">{{ kpi.remark }}</span>
+              </div>
               <div class="kpi-value" :style="{ color: kpi.valueColor || '#303133' }">{{ kpi.value }}</div>
               <div class="kpi-change" :class="kpi.trend">
                 <el-icon v-if="kpi.trend === 'up'"><Top /></el-icon>
@@ -106,7 +112,7 @@
         <el-card class="ranking-card">
           <template #header>
             <div class="card-header">
-              <span>🍺 热销商品 TOP5</span>
+              <span>🍺 热销商品 TOP5 {{ currentStore === 'all' || !currentStore ? '(全店聚合)' : '' }}</span>
             </div>
           </template>
           <div class="chart-container" ref="productChartRef"></div>
@@ -195,7 +201,7 @@ const efficiencyKpis = computed(() => {
     return [
       { title: '包厢周转率', value: '-', change: '-', trend: 'up', icon: 'Histogram', color: 'linear-gradient(135deg, #7f7fd5 0%, #86a8e7 50%, #91eae4 100%)', valueColor: '#303133' },
       { title: '平均消费时长', value: '-', change: '-', trend: 'up', icon: 'Timer', color: 'linear-gradient(135deg, #43cea2 0%, #185a9d 100%)', valueColor: '#303133' },
-      { title: '赠送率', value: '-', change: '-', trend: 'down', icon: 'Present', color: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', valueColor: '#303133' },
+      { title: '赠送率', value: '-', change: '-', trend: 'down', icon: 'Present', color: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', valueColor: '#303133', remark: '(指商品赠送率)' },
     ]
   }
 
@@ -225,7 +231,8 @@ const efficiencyKpis = computed(() => {
       trend: 'down',
       icon: 'Present', 
       color: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-      valueColor: '#303133'
+      valueColor: '#303133',
+      remark: '(指商品赠送率)'
     },
   ]
 })
@@ -572,12 +579,16 @@ const initStaffChart = (topEmployees) => {
     return
   }
 
+  // 获取姓名列表，后端已在全部门店视图下自动为同名员工添加了(门店名)备注
   const names = topEmployees.map(item => item.name).reverse()
   const values = topEmployees.map(item => item.value).reverse()
 
   chart.setOption({
-    tooltip: { trigger: 'axis' },
-    grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
+    tooltip: { 
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' }
+    },
+    grid: { left: '3%', right: '18%', bottom: '3%', containLabel: true },
     xAxis: { type: 'value' },
     yAxis: {
       type: 'category',
@@ -819,6 +830,15 @@ onUnmounted(() => {
         font-size: 14px;
         color: #909399;
         margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+
+        .kpi-remark {
+          font-size: 11px;
+          font-weight: normal;
+          color: #a8abb2;
+          margin-left: 4px;
+        }
       }
       
       .kpi-value {

@@ -242,22 +242,12 @@ class StatsService:
                 ("orders", self._safe_sum(model.booking_qty)),
             ]
         if model is FactRoom:
-            min_minus_bill = func.coalesce(model.min_consumption, 0) - func.coalesce(
-                model.bill_total, 0
-            )
-            min_consumption_diff_expr = case(
-                (min_minus_bill > 0, min_minus_bill),
-                else_=0,
-            )
             return [
                 ("gmv", self._safe_sum(model.receivable_amount)),
                 ("bill_total", self._safe_sum(model.bill_total)),
                 ("actual", self._safe_sum(model.actual_amount)),
                 ("min_consumption", self._safe_sum(model.min_consumption)),
-                (
-                    "min_consumption_diff",
-                    self._safe_sum(min_consumption_diff_expr),
-                ),
+                ("min_consumption_diff", self._safe_sum(model.min_consumption_diff)),
                 ("gift_amount", self._safe_sum(model.gift_amount)),
                 ("free_amount", self._safe_sum(model.free_amount)),
                 ("credit_amount", self._safe_sum(model.credit_amount)),
@@ -320,11 +310,22 @@ class StatsService:
                 [],
             )
         if dimension == "employee" and hasattr(model, "employee_id"):
+            # 获取门店名称的子查询，避免多重 join 逻辑复杂化
+            store_name_subquery = (
+                select(DimStore.store_name)
+                .where(DimStore.id == DimEmployee.store_id)
+                .scalar_subquery()
+                .label("store_name")
+            )
+            extra_columns = [
+                store_name_subquery,
+                DimEmployee.store_id.label("store_id"),
+            ]
             return (
                 DimEmployee,
                 model.employee_id == DimEmployee.id,
                 DimEmployee.name.label("dimension_label"),
-                [],
+                extra_columns,
             )
         if dimension == "product" and hasattr(model, "product_id"):
             extra_columns = [DimProduct.category.label("dimension_category")]
@@ -342,11 +343,18 @@ class StatsService:
                 [],
             )
         if dimension == "room" and hasattr(model, "room_id"):
+            # 获取所属门店名称的子查询
+            store_name_subquery = (
+                select(DimStore.store_name)
+                .where(DimStore.id == DimRoom.store_id)
+                .scalar_subquery()
+                .label("store_name")
+            )
             return (
                 DimRoom,
                 model.room_id == DimRoom.id,
                 DimRoom.room_no.label("dimension_label"),
-                [],
+                [store_name_subquery],
             )
         if dimension == "room_type":
             if model is not FactRoom:
@@ -930,10 +938,17 @@ class StatsService:
                     self.db.query(
                         DimEmployee.id.label("dimension_key"),
                         DimEmployee.name.label("dimension_label"),
+                        DimStore.store_name.label("store_label"),
                         func.sum(model.actual_amount).label("metric_value"),
                     )
                     .join(DimEmployee, model.employee_id == DimEmployee.id)
-                    .group_by(model.employee_id, DimEmployee.id, DimEmployee.name)
+                    .join(DimStore, DimEmployee.store_id == DimStore.id)
+                    .group_by(
+                        model.employee_id,
+                        DimEmployee.id,
+                        DimEmployee.name,
+                        DimStore.store_name,
+                    )
                     .order_by(func.sum(model.actual_amount).desc())
                 )
 
@@ -991,16 +1006,30 @@ class StatsService:
                 else:
                     sum_field = model.sales_amount
 
-                query = (
-                    self.db.query(
-                        DimProduct.id.label("dimension_key"),
-                        DimProduct.name.label("dimension_label"),
-                        func.sum(sum_field).label("metric_value"),
+                if store_id is None:
+                    # 全部门店视角：按商品名称聚合，忽略具体的 product_id
+                    query = (
+                        self.db.query(
+                            DimProduct.name.label("dimension_key"),
+                            DimProduct.name.label("dimension_label"),
+                            func.sum(sum_field).label("metric_value"),
+                        )
+                        .join(DimProduct, model.product_id == DimProduct.id)
+                        .group_by(DimProduct.name)
+                        .order_by(func.sum(sum_field).desc())
                     )
-                    .join(DimProduct, model.product_id == DimProduct.id)
-                    .group_by(model.product_id, DimProduct.id, DimProduct.name)
-                    .order_by(func.sum(sum_field).desc())
-                )
+                else:
+                    # 单门店视角：保留原有的按 ID 分组逻辑
+                    query = (
+                        self.db.query(
+                            DimProduct.id.label("dimension_key"),
+                            DimProduct.name.label("dimension_label"),
+                            func.sum(sum_field).label("metric_value"),
+                        )
+                        .join(DimProduct, model.product_id == DimProduct.id)
+                        .group_by(model.product_id, DimProduct.id, DimProduct.name)
+                        .order_by(func.sum(sum_field).desc())
+                    )
             elif dimension == "store":
                 if metric == "sales":
                     sum_field = model.sales_amount
@@ -1039,15 +1068,15 @@ class StatsService:
         rows = query.all()
         result = []
         for row in rows:
-            result.append(
-                {
-                    "dimension_key": str(row.dimension_key),
-                    "dimension_label": str(row.dimension_label),
-                    "metric_value": (
-                        float(row.metric_value) if row.metric_value else 0.0
-                    ),
-                }
-            )
+            item = {
+                "dimension_key": str(row.dimension_key),
+                "dimension_label": str(row.dimension_label),
+                "metric_value": (float(row.metric_value) if row.metric_value else 0.0),
+            }
+            # 如果查询结果中包含 store_label，也一并返回
+            if hasattr(row, "store_label"):
+                item["store_label"] = str(row.store_label)
+            result.append(item)
 
         return result
 

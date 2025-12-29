@@ -320,8 +320,37 @@ const mapRowToProduct = (item) => {
 }
 
 const buildProductList = (rows = []) => {
-  return rows
-    .map(item => mapRowToProduct(item))
+  if (!rows.length) return []
+  
+  // 使用 Map 按商品名称聚合数值
+  const aggregatedMap = new Map()
+  
+  rows.forEach(item => {
+    const product = mapRowToProduct(item)
+    const name = product.product_name
+    
+    if (aggregatedMap.has(name)) {
+      const existing = aggregatedMap.get(name)
+      // 累加数值字段
+      existing.sales_qty += product.sales_qty
+      existing.sales_amount += product.sales_amount
+      existing.gift_qty += product.gift_qty
+      existing.gift_amount += product.gift_amount
+      existing.cost += product.cost
+      existing.profit += product.profit
+    } else {
+      // 第一次遇到该商品，复制对象（注意这里要浅拷贝防止污染原始数据）
+      aggregatedMap.set(name, { ...product })
+    }
+  })
+  
+  // 重新计算聚合后的比例指标并按销售额排序
+  return Array.from(aggregatedMap.values())
+    .map(item => ({
+      ...item,
+      profit_rate: calcProfitRate(item.profit, item.cost),
+      gift_rate: calcGiftRate(item.gift_qty, item.sales_qty)
+    }))
     .sort((a, b) => b.sales_amount - a.sales_amount)
 }
 
@@ -358,10 +387,9 @@ const tableProductData = computed(() => {
   const start = (pagination.page - 1) * pagination.pageSize
   const end = start + pagination.pageSize
   
-  if (showExceptionOnly.value || searchKeyword.value) {
-    return data.slice(start, end)
-  }
-  return pagedProductData.value
+  // 统一从聚合后的数据集进行前端切片分页
+  // 这样可以解决后端返回多行同名商品导致的前端显示行数不足的问题
+  return data.slice(start, end)
 })
 
 const tableTotal = computed(() => {

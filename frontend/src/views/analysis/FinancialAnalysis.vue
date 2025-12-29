@@ -158,37 +158,20 @@
           <template #header>
             <div class="chart-header">
               <div>
-                <h3>营收转化漏斗</h3>
-                <p class="chart-subtitle">展示应收到实收的每一步流失</p>
+                <h3>异常损耗监控</h3>
+                <p class="chart-subtitle">对比不同{{ anomalyDimensionLabel }}的赠送 vs 免单</p>
               </div>
             </div>
           </template>
           <div class="chart-body">
-            <div ref="funnelChartRef" class="chart-container"></div>
-            <div v-if="!hasFunnelData" class="chart-empty">
-              {{ loading ? '数据加载中...' : '暂无可用漏斗数据' }}
+            <div ref="anomalyChartRef" class="chart-container tall"></div>
+            <div v-if="!hasAnomalyData" class="chart-empty">
+              {{ loading ? '数据加载中...' : '暂无异常损耗数据' }}
             </div>
           </div>
         </el-card>
       </el-col>
     </el-row>
-
-    <el-card class="chart-card" shadow="never" v-loading="loading">
-      <template #header>
-        <div class="chart-header">
-          <div>
-            <h3>异常损耗监控</h3>
-            <p class="chart-subtitle">对比不同{{ anomalyDimensionLabel }}的赠送 vs 免单</p>
-          </div>
-        </div>
-      </template>
-      <div class="chart-body">
-        <div ref="anomalyChartRef" class="chart-container tall"></div>
-        <div v-if="!hasAnomalyData" class="chart-empty">
-          {{ loading ? '数据加载中...' : '暂无异常损耗数据' }}
-        </div>
-      </div>
-    </el-card>
   </div>
 </template>
 
@@ -299,10 +282,8 @@ const financialSeriesRows = ref([])
 const summaryData = ref(null) // 新增：保存后端返回的全局汇总数据
 const loading = ref(false)
 
-const funnelChartRef = ref(null)
 const anomalyChartRef = ref(null)
 const chartInstances = {
-  funnel: null,
   anomaly: null
 }
 
@@ -456,9 +437,9 @@ const summaryCards = computed(() => {
   const actualRate = salesAmount ? toNumber(totals.actual) / salesAmount : 0
   return [
     {
-      title: '总应收 (账单合计)',
+      title: '实际总应收',
       value: receivable,
-      desc: 'GMV / 账单总流水',
+      desc: '账单合计金额 (GMV)',
       type: 'currency'
     },
     {
@@ -592,41 +573,29 @@ const paymentBreakdown = computed(() => {
 
 const hasPaymentData = computed(() => paymentBreakdown.value.groups.length > 0)
 
-const funnelStages = computed(() => {
-  const totals = aggregatedTotals.value
-  const receivable = toNumber(totals.sales_amount || totals.bill_total)
-  if (!receivable) {
-    return []
-  }
-  const clamp = (value) => Math.max(value, 0)
-  const afterDiscount = clamp(receivable - toNumber(totals.discount_amount))
-  const afterFree = clamp(afterDiscount - toNumber(totals.free_amount))
-  const afterRound = clamp(afterFree - toNumber(totals.round_off_amount))
-  const afterCredit = clamp(afterRound - toNumber(totals.credit_amount))
-  const actual = clamp(toNumber(totals.actual))
-
-  const normalize = (value) => Number(value.toFixed(2))
-
-  return [
-    { name: '应收 (账单合计)', value: normalize(receivable) },
-    { name: '折扣后金额', value: normalize(afterDiscount) },
-    { name: '免单后金额', value: normalize(afterFree) },
-    { name: '抹零后金额', value: normalize(afterRound) },
-    { name: '挂账后金额', value: normalize(afterCredit) },
-    { name: '实收', value: normalize(actual) }
-  ]
-})
-
-const hasFunnelData = computed(() => funnelStages.value.some((stage) => stage.value > 0))
-
 const anomalyDataset = computed(() => {
   const rows = [...financialSeriesRows.value]
   const dataset = rows
-    .map((row) => ({
-      label: row.dimension_label || row.dimension_key || '未命名',
-      gift: toNumber(row.gift_amount ?? row.gift),
-      free: toNumber(row.free_amount ?? row.free_series)
-    }))
+    .map((row) => {
+      let label = row.dimension_label || row.dimension_key || '未命名'
+      // 当维度为员工且未选择特定门店时，在名字后面备注门店
+      if (anomalyDimension.value === 'employee' && !queryFilters.store_id) {
+        // 优先使用后端返回的 store_name 或通过 store_id 匹配到的名称
+        const storeName = row.store_name || 
+                        row.store_label || 
+                        row.extra_info?.store_name || 
+                        storeOptions.value.find(s => String(s.id) === String(row.store_id || row.extra_info?.store_id))?.name
+        
+        if (storeName) {
+          label += ` (${storeName})`
+        }
+      }
+      return {
+        label,
+        gift: toNumber(row.gift_amount ?? row.gift),
+        free: toNumber(row.free_amount ?? row.free_series)
+      }
+    })
     .sort((a, b) => b.gift + b.free - (a.gift + a.free))
   return dataset.slice(0, DEFAULT_TOP_N)
 })
@@ -637,7 +606,6 @@ const hasAnomalyData = computed(() =>
 
 const ensureChartInstance = (key) => {
   const refMap = {
-    funnel: funnelChartRef,
     anomaly: anomalyChartRef
   }
   if (chartInstances[key]) {
@@ -660,46 +628,6 @@ const disposeCharts = () => {
   })
 }
 
-const buildFunnelOption = () => {
-  if (!hasFunnelData.value) {
-    return null
-  }
-  
-  // 移动端配置调整
-  const labelConfig = isMobile.value
-    ? {
-        position: 'inside',
-        formatter: ({ data }) => `${data.name}\n¥${formatCurrency(data.value)}`,
-        fontSize: 11
-      }
-    : {
-        formatter: ({ data }) => `${data.name}\n¥${formatCurrency(data.value)}`
-      }
-
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: ({ data }) => `${data.name}<br/>金额：¥${formatCurrency(data.value)}`
-    },
-    series: [
-      {
-        name: '营收转化',
-        type: 'funnel',
-        sort: 'none',
-        gap: isMobile.value ? 2 : 4,
-        top: 10,
-        bottom: 10,
-        left: isMobile.value ? '5%' : '10%',
-        right: isMobile.value ? '5%' : '10%',
-        minSize: '20%',
-        maxSize: '100%',
-        label: labelConfig,
-        data: funnelStages.value
-      }
-    ]
-  }
-}
-
 const buildAnomalyOption = () => {
   if (!hasAnomalyData.value) {
     return null
@@ -710,8 +638,8 @@ const buildAnomalyOption = () => {
   
   // 移动端配置调整
   const gridConfig = isMobile.value
-    ? { left: 70, right: 15, bottom: 30, top: 40 }
-    : { left: 80, right: 20, bottom: 20, top: 40 }
+    ? { left: 10, right: 15, bottom: 30, top: 40, containLabel: true }
+    : { left: 20, right: 30, bottom: 20, top: 40, containLabel: true }
 
   const xAxisLabelConfig = isMobile.value
     ? {
@@ -735,9 +663,9 @@ const buildAnomalyOption = () => {
   const yAxisLabelConfig = isMobile.value
     ? {
         formatter: (value) => {
-          // 移动端截断过长的名称
-          if (value && value.length > 6) {
-            return value.slice(0, 6) + '...'
+          // 移动端截断过长的名称（考虑到增加了门店名，放宽到12个字符）
+          if (value && value.length > 12) {
+            return value.slice(0, 11) + '...'
           }
           return value || '未命名'
         },
@@ -786,17 +714,6 @@ const buildAnomalyOption = () => {
   }
 }
 
-const updateFunnelChart = () => {
-  const chart = ensureChartInstance('funnel')
-  if (!chart) return
-  const option = buildFunnelOption()
-  if (!option) {
-    chart.clear()
-    return
-  }
-  chart.setOption(option, true)
-}
-
 const updateAnomalyChart = () => {
   const chart = ensureChartInstance('anomaly')
   if (!chart) return
@@ -815,7 +732,6 @@ const handleResize = () => {
   })
   // 移动端尺寸变化时重新更新图表配置
   nextTick(() => {
-    updateFunnelChart()
     updateAnomalyChart()
   })
 }
@@ -958,14 +874,6 @@ const restoreDateRange = async () => {
 }
 
 watch(
-  () => funnelStages.value,
-  () => {
-    nextTick(updateFunnelChart)
-  },
-  { deep: true }
-)
-
-watch(
   () => anomalyDataset.value,
   () => {
     nextTick(updateAnomalyChart)
@@ -1003,7 +911,6 @@ onMounted(async () => {
   await Promise.all([fetchStoreOptions(), restoreDateRange()])
   await nextTick()
   nextTick(() => {
-    ensureChartInstance('funnel')
     ensureChartInstance('anomaly')
     handleResize()
   })

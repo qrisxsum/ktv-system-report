@@ -402,23 +402,50 @@ async def get_dashboard_summary(
     top_products = []
 
     try:
-        # 门店排行
-        stores_data = stats_service.get_top_items(
-            table="booking",
-            metric="actual",
-            dimension="store",
-            limit=5,
+        # 门店排行：汇总包厢实收 + 会员充值实收
+        room_stores_result = stats_service.query_stats(
+            table="room",
             start_date=month_start,
             end_date=yesterday,
-            store_id=None,  # store 维度下不使用 store_id 过滤
+            dimension="store",
+            top_n=100
         )
+        member_stores_result = stats_service.query_stats(
+            table="member_change",
+            start_date=month_start,
+            end_date=yesterday,
+            dimension="store",
+            top_n=100
+        )
+
+        store_totals = {}
+        for row in room_stores_result.get("series_rows", []):
+            sid = row["dimension_key"]
+            store_totals[sid] = {
+                "name": row.get("dimension_label") or f"门店{sid}",
+                "value": _safe_float(row.get("actual"))
+            }
+        
+        for row in member_stores_result.get("series_rows", []):
+            sid = row["dimension_key"]
+            val = _safe_float(row.get("recharge_real_income"))
+            if sid in store_totals:
+                store_totals[sid]["value"] += val
+            else:
+                store_totals[sid] = {
+                    "name": row.get("dimension_label") or f"门店{sid}",
+                    "value": val
+                }
+        
+        # 排序并取 Top 5
+        sorted_stores = sorted(store_totals.values(), key=lambda x: x["value"], reverse=True)[:5]
         top_stores = [
-            TopItem(rank=i + 1, name=row["dimension_label"], value=round(row["metric_value"], 2))
-            for i, row in enumerate(stores_data)
+            TopItem(rank=i + 1, name=s["name"], value=round(s["value"], 2))
+            for i, s in enumerate(sorted_stores)
         ]
     except Exception as e:
         import logging
-        logging.warning(f"Failed to get top stores: {e}")
+        logging.warning(f"Failed to get combined top stores: {e}")
 
     try:
         # 员工排行
@@ -432,7 +459,13 @@ async def get_dashboard_summary(
             store_id=store_id,
         )
         top_employees = [
-            TopItem(rank=i + 1, name=row["dimension_label"], value=round(row["metric_value"], 2))
+            TopItem(
+                rank=i + 1,
+                name=f"{row['dimension_label']} ({row['store_label']})"
+                if row.get("store_label") and store_id is None
+                else row["dimension_label"],
+                value=round(row["metric_value"], 2),
+            )
             for i, row in enumerate(employees_data)
         ]
     except Exception as e:
@@ -703,7 +736,13 @@ async def get_ranking_data(
         )
 
         data = [
-            TopItem(rank=i + 1, name=item["dimension_label"], value=round(item["metric_value"], 2))
+            TopItem(
+                rank=i + 1,
+                name=f"{item['dimension_label']} ({item['store_label']})"
+                if item.get("store_label") and store_id is None
+                else item["dimension_label"],
+                value=round(item["metric_value"], 2),
+            )
             for i, item in enumerate(top_items)
         ]
     except Exception as e:
