@@ -62,7 +62,9 @@
           </el-tag>
         </div>
         <div class="time-slot-chart-wrapper" v-loading="chartLoading">
-          <div ref="timeSlotChartRef" class="time-slot-chart"></div>
+          <div class="chart-scroll-wrapper" ref="timeSlotChartWrapperRef">
+            <div ref="timeSlotChartRef" class="time-slot-chart"></div>
+          </div>
           <div v-if="!hasTimeSlotData && !chartLoading" class="chart-empty">
             暂无时段数据，请调整时间或门店筛选条件
           </div>
@@ -234,7 +236,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, inject, watch, nextTick, onMounted } from 'vue'
+import { ref, reactive, computed, inject, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import { queryStats, getDateRange } from '@/api/stats'
@@ -370,11 +372,33 @@ const buildTimeSlotDataset = (rows, activeRooms, range) => {
   return { labels, orders, gmv, occupiedMinutes, scenes, utilizationRatio, utilizationPercent }
 }
 
-const buildTimeSlotChartOption = (dataset) => {
+const buildTimeSlotChartOption = (dataset, mobile = false) => {
   if (!dataset) return null
   const maxUtilPercent = Math.max(...dataset.utilizationPercent, 0)
   const yAxisMax =
     maxUtilPercent > 0 ? Math.min(Math.max(maxUtilPercent * 1.2, 40), 150) : 40
+  
+  // 移动端配置调整
+  const gridConfig = mobile
+    ? { top: 40, left: 40, right: 10, bottom: 60, containLabel: true }
+    : { top: 40, left: 50, right: 30, bottom: 50, containLabel: true }
+  
+  // 优化横坐标显示格式：移动端简化显示
+  const xAxisLabelFormatter = mobile
+    ? (value, idx) => {
+        // 移动端只显示小时，不显示场次，节省空间
+        return value
+      }
+    : (value, idx) => `${value}\n${dataset.scenes[idx]}`
+  
+  // 优化 Y 轴显示格式：去掉多余的"0"
+  const yAxisLabelFormatter = (val) => {
+    const num = Number(val)
+    if (!Number.isFinite(num)) return '0%'
+    // 如果是整数，不显示小数
+    return num % 1 === 0 ? `${num}%` : `${num.toFixed(1)}%`
+  }
+  
   return {
     color: [chartColors.primary],
     tooltip: {
@@ -398,19 +422,15 @@ const buildTimeSlotChartOption = (dataset) => {
         ].join('<br/>')
       },
     },
-    grid: {
-      top: 40,
-      left: 50,
-      right: 30,
-      bottom: 50,
-      containLabel: true,
-    },
+    grid: gridConfig,
     xAxis: {
       type: 'category',
       data: dataset.labels,
       axisLabel: {
         color: '#606266',
-        formatter: (value, idx) => `${value}\n${dataset.scenes[idx]}`,
+        formatter: xAxisLabelFormatter,
+        fontSize: mobile ? 10 : undefined,
+        interval: 0
       },
       axisLine: { lineStyle: { color: '#E0E6ED' } },
     },
@@ -421,7 +441,8 @@ const buildTimeSlotChartOption = (dataset) => {
       max: yAxisMax,
       axisLabel: {
         color: '#909399',
-        formatter: (val) => `${Number(val).toFixed(0)}%`,
+        formatter: yAxisLabelFormatter,
+        fontSize: mobile ? 10 : undefined
       },
       splitLine: { lineStyle: { color: '#F2F3F5' } },
     },
@@ -592,20 +613,42 @@ function useRoomAnalysis(storeRef) {
     mobilePageSizes: [20, 50],
   })
 
+  // 移动端检测
+  const isMobile = ref(false)
+  const checkMobile = () => {
+    isMobile.value = window.innerWidth <= 768
+  }
+  
   const timeSlotChartRef = ref(null)
+  const timeSlotChartWrapperRef = ref(null)
   const timeSlotChartData = computed(() =>
     buildTimeSlotDataset(timeSlotRows.value, activeRoomCount.value, dateRange.value)
   )
   const { updateChart: updateTimeSlotChart } = useChart(
     timeSlotChartRef,
-    () => buildTimeSlotChartOption(timeSlotChartData.value)
+    () => buildTimeSlotChartOption(timeSlotChartData.value, isMobile.value)
   )
+  // 将图表滚动到中间位置
+  const scrollTimeSlotChartToCenter = () => {
+    if (isMobile.value && timeSlotChartWrapperRef.value) {
+      nextTick(() => {
+        const wrapper = timeSlotChartWrapperRef.value
+        if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
+          const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+          wrapper.scrollLeft = scrollLeft
+        }
+      })
+    }
+  }
+  
   watch(
     timeSlotChartData,
     (data) => {
-      const option = buildTimeSlotChartOption(data)
+      const option = buildTimeSlotChartOption(data, isMobile.value)
       if (option) {
         updateTimeSlotChart(option, true)
+        // 移动端：图表更新后，将滚动位置设置为中间
+        scrollTimeSlotChartToCenter()
       }
     },
     { deep: true }
@@ -815,7 +858,14 @@ function useRoomAnalysis(storeRef) {
     fetchData()
   })
 
+  const handleResize = () => {
+    checkMobile()
+    // 移动端：窗口大小变化后重新居中滚动
+    scrollTimeSlotChartToCenter()
+  }
+  
   onMounted(async () => {
+    checkMobile()
     const saved = readSessionJSON(dateRangeStorageKey, null)
     if (isValidDateRange(saved)) {
       dateRange.value = saved
@@ -828,6 +878,11 @@ function useRoomAnalysis(storeRef) {
     if (isValidDateRange(dateRange.value)) {
       await fetchData()
     }
+    window.addEventListener('resize', handleResize)
+  })
+  
+  onBeforeUnmount(() => {
+    window.removeEventListener('resize', handleResize)
   })
 
   return {
@@ -980,6 +1035,20 @@ const {
       min-height: 320px;
     }
 
+    .chart-scroll-wrapper {
+      // 移动端：支持横向滚动以显示完整的24小时数据
+      @media (max-width: 768px) {
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        width: 100%;
+        
+        .time-slot-chart {
+          min-width: 800px; // 24小时需要更多空间
+        }
+      }
+    }
+
     .time-slot-chart {
       width: 100%;
       height: 320px;
@@ -1025,20 +1094,45 @@ const {
     .card-header {
       flex-direction: column;
       align-items: flex-start;
+      gap: 12px;
     }
 
     .header-right {
       width: 100%;
       flex-direction: column;
       align-items: flex-start;
+      gap: 6px;
+    }
+
+    .filter-label {
+      font-size: 12px;
     }
 
     .date-range {
       width: 100%;
     }
 
+    // 时间范围选择器移动端优化
     :deep(.el-date-editor--daterange) {
-      width: 100%;
+      width: 100% !important;
+      padding: 3px 5px;
+      
+      .el-range-separator {
+        padding: 0 4px;
+        font-size: 12px;
+        width: auto;
+      }
+      
+      .el-range-input {
+        font-size: 12px;
+        width: 42%;
+      }
+
+      .el-range__icon,
+      .el-range__close-icon {
+        font-size: 12px;
+        width: 18px;
+      }
     }
 
     .time-slot-chart {
