@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 # 导入核心模块
 from app.core import get_settings, get_db_info, check_db_connection
 from app.api import v1_router
+from app.services.cleanup import start_scheduler, stop_scheduler
 
 settings = get_settings()
 
@@ -25,9 +26,13 @@ async def lifespan(app: FastAPI):
     else:
         print(f"⚠️ 数据库连接失败: {settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}")
     
+    # 启动定时清理任务
+    start_scheduler()
+    
     yield
     
     # 关闭时
+    stop_scheduler()
     print(f"👋 {settings.APP_NAME} 正在关闭...")
 
 

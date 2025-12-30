@@ -13,9 +13,10 @@ import uuid
 import os
 import hashlib
 from typing import Optional, Tuple, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 import math
+import glob
 
 from fastapi import (
     APIRouter,
@@ -25,6 +26,7 @@ from fastapi import (
     HTTPException,
     BackgroundTasks,
     Depends,
+    Query,
 )
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
@@ -491,3 +493,56 @@ async def cancel_upload(session_id: str):
         del _parse_cache[session_id]
 
     return {"success": True, "message": "已取消上传"}
+
+
+@router.post("/cleanup-cache", summary="清除缓存文件")
+async def cleanup_cache(
+    days: int = Query(7, description="保留最近N天的文件，默认7天"),
+    current_user: dict = Depends(get_current_manager),
+):
+    """
+    清除上传目录中的旧缓存文件
+    
+    参数:
+    - days: 保留最近N天的文件，默认7天
+    """
+    upload_dir = os.path.abspath(settings.UPLOAD_DIR)
+    
+    if not os.path.exists(upload_dir):
+        return {
+            "success": True,
+            "message": "上传目录不存在",
+            "deleted_count": 0,
+            "freed_space_mb": 0,
+        }
+
+    deleted_count = 0
+    freed_space = 0
+    cutoff_time = datetime.now() - timedelta(days=days)
+
+    try:
+        files = glob.glob(os.path.join(upload_dir, "*"))
+        
+        for file_path in files:
+            if os.path.isfile(file_path):
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
+                
+                if file_mtime < cutoff_time:
+                    try:
+                        file_size = os.path.getsize(file_path)
+                        os.remove(file_path)
+                        deleted_count += 1
+                        freed_space += file_size
+                    except Exception as e:
+                        print(f"删除文件失败 {file_path}: {e}")
+
+        freed_space_mb = round(freed_space / (1024 * 1024), 2)
+        
+        return {
+            "success": True,
+            "message": f"成功清除 {deleted_count} 个缓存文件，释放 {freed_space_mb} MB 空间",
+            "deleted_count": deleted_count,
+            "freed_space_mb": freed_space_mb,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清除缓存失败: {str(e)}")

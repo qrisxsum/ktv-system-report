@@ -345,6 +345,7 @@ const aggregatedTotals = computed(() => {
   const acc = {
     bill_total: 0,
     sales_amount: 0,
+    receivable_amount: 0,
     actual: 0,
     credit_amount: 0,
     discount_amount: 0,
@@ -363,6 +364,7 @@ const aggregatedTotals = computed(() => {
     const data = summaryData.value
     acc.bill_total = toNumber(data.bill_total ?? data.sales_amount)
     acc.sales_amount = toNumber(data.sales_amount)
+    acc.receivable_amount = toNumber(data.receivable_amount)
     acc.actual = toNumber(data.actual)
     acc.credit_amount = toNumber(data.credit_amount)
     acc.discount_amount = toNumber(data.discount_amount)
@@ -394,6 +396,7 @@ const aggregatedTotals = computed(() => {
   financialSeriesRows.value.forEach((row) => {
     acc.bill_total += toNumber(row.bill_total ?? row.sales_amount)
     acc.sales_amount += toNumber(row.sales_amount)
+    acc.receivable_amount += toNumber(row.receivable_amount)
     acc.actual += toNumber(row.actual)
     acc.credit_amount += toNumber(row.credit_amount)
     acc.discount_amount += toNumber(row.discount_amount)
@@ -439,14 +442,15 @@ const aggregatedTotals = computed(() => {
 
 const summaryCards = computed(() => {
   const totals = aggregatedTotals.value
-  const receivable = totals.bill_total || totals.sales_amount
+  // 优先使用预定汇总表的应收金额，其次使用账单合计或销售金额
+  const receivable = totals.receivable_amount || totals.bill_total || totals.sales_amount
   const salesAmount = toNumber(totals.sales_amount)
   const actualRate = salesAmount ? toNumber(totals.actual) / salesAmount : 0
   return [
     {
       title: '实际总应收',
       value: receivable,
-      desc: '账单合计金额 (GMV)',
+      desc: '预定汇总应收金额',
       type: 'currency'
     },
     {
