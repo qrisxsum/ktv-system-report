@@ -21,7 +21,7 @@
         </div>
       </template>
 
-      <el-row :gutter="20" class="summary-cards">
+      <el-row :gutter="24" class="summary-cards">
         <el-col
           v-for="card in summaryCards"
           :key="card.key"
@@ -31,22 +31,29 @@
           :lg="6"
           :xl="4"
         >
-          <div class="summary-item">
-            <div class="label">
-              <span>{{ card.label }}</span>
-              <el-tooltip
-                v-if="card.tooltip"
-                :content="card.tooltip"
-                placement="top"
-                effect="dark"
-              >
-                <el-icon class="label-icon">
-                  <QuestionFilled />
-                </el-icon>
-              </el-tooltip>
+          <div class="summary-card" :class="`summary-card--${card.type}`">
+            <div class="summary-card__icon">
+              <el-icon :size="24">
+                <component :is="card.icon" />
+              </el-icon>
             </div>
-            <div class="value">{{ card.display }}</div>
-            <div v-if="card.helper" class="helper-text">{{ card.helper }}</div>
+            <div class="summary-card__content">
+              <div class="summary-card__label">
+                <span>{{ card.label }}</span>
+                <el-tooltip
+                  v-if="card.tooltip"
+                  :content="card.tooltip"
+                  placement="top"
+                  effect="dark"
+                >
+                  <el-icon class="summary-card__help">
+                    <QuestionFilled />
+                  </el-icon>
+                </el-tooltip>
+              </div>
+              <div class="summary-card__value">{{ card.display }}</div>
+              <div v-if="card.helper" class="summary-card__helper">{{ card.helper }}</div>
+            </div>
           </div>
         </el-col>
       </el-row>
@@ -66,7 +73,16 @@
             <div ref="timeSlotChartRef" class="time-slot-chart"></div>
           </div>
           <div v-if="!hasTimeSlotData && !chartLoading" class="chart-empty">
-            暂无时段数据，请调整时间或门店筛选条件
+            <el-empty
+              description="暂无时段数据"
+              :image-size="80"
+            >
+              <template #description>
+                <p class="empty-description">
+                  暂无时段数据，请调整时间或门店筛选条件
+                </p>
+              </template>
+            </el-empty>
           </div>
         </div>
       </div>
@@ -124,7 +140,9 @@
           sortable="custom"
         >
           <template #default="{ row }">
-            {{ formatCurrencyValue(row.actual, 0) }}
+            <span class="table-value--emphasis">
+              {{ formatCurrencyValue(row.actual, 0) }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column
@@ -151,13 +169,31 @@
         </el-table-column>
         <el-table-column
           prop="low_consume_rate"
-          label="低消达成率"
           min-width="130"
           align="right"
           sortable="custom"
         >
+          <template #header>
+            <span>低消达成率</span>
+            <el-tooltip
+              content="低消达成率 = 账单合计 ÷ 最低消费。先计算每次开台的达成率，再取平均值。≥90%为优秀（绿色），70-90%为良好（橙色），<70%需关注（红色）"
+              placement="top"
+              effect="dark"
+            >
+              <el-icon class="table-header-help">
+                <QuestionFilled />
+              </el-icon>
+            </el-tooltip>
+          </template>
           <template #default="{ row }">
-            <span class="percent-text">
+            <span 
+              class="percent-text"
+              :class="{
+                'percent-text--success': row.low_consume_rate_type === 'success',
+                'percent-text--warning': row.low_consume_rate_type === 'warning',
+                'percent-text--danger': row.low_consume_rate_type === 'danger'
+              }"
+            >
               {{ row.low_consume_rate !== null ? formatPercentValue(row.low_consume_rate, 1) : '--' }}
             </span>
           </template>
@@ -197,15 +233,26 @@
         </el-table-column>
         <el-table-column
           prop="gift_ratio"
-          label="赠送比例"
           min-width="120"
           align="right"
           sortable="custom"
         >
+          <template #header>
+            <span>赠送比例</span>
+            <el-tooltip
+              content="赠送比例 = 赠送金额 ÷ 账单合计 × 100%。>20%时显示红色警告，表示赠送比例过高"
+              placement="top"
+              effect="dark"
+            >
+              <el-icon class="table-header-help">
+                <QuestionFilled />
+              </el-icon>
+            </el-tooltip>
+          </template>
           <template #default="{ row }">
             <span
               class="percent-text"
-              :class="{ 'is-warning': row.gift_ratio_warn }"
+              :class="{ 'percent-text--danger': row.gift_ratio_warn }"
             >
               {{ row.gift_ratio !== null ? formatPercentValue(row.gift_ratio, 1) : '--' }}
             </span>
@@ -229,7 +276,16 @@
       </div>
 
       <div v-if="!roomData.length && !loading" class="empty-hint">
-        暂无数据，请先上传包厢消费数据
+        <el-empty
+          description="暂无数据"
+          :image-size="100"
+        >
+          <template #description>
+            <p class="empty-description">
+              暂无数据，请先上传包厢消费数据
+            </p>
+          </template>
+        </el-empty>
       </div>
     </el-card>
   </div>
@@ -238,11 +294,21 @@
 <script setup>
 import { ref, reactive, computed, inject, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { QuestionFilled } from '@element-plus/icons-vue'
+import { 
+  QuestionFilled,
+  Document,
+  Money,
+  Wallet,
+  TrendCharts,
+  Refresh,
+  Timer
+} from '@element-plus/icons-vue'
 import { queryStats, getDateRange } from '@/api/stats'
-import { useChart, chartColors } from '@/components/charts/useChart'
+import { useChart } from '@/components/charts/useChart'
 import { usePagination } from '@/composables/usePagination'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
+import { chartColors as designChartColors, spacing } from '@/utils/designTokens'
+import * as echarts from 'echarts'
 
 const formatCurrencyValue = (value, digits = 2) => {
   const numeric = Number(value)
@@ -374,14 +440,30 @@ const buildTimeSlotDataset = (rows, activeRooms, range) => {
 
 const buildTimeSlotChartOption = (dataset, mobile = false) => {
   if (!dataset) return null
+  
+  // 使用设计系统的颜色值（与 SCSS 变量保持一致）
+  const CHART_COLORS = designChartColors
+  
   const maxUtilPercent = Math.max(...dataset.utilizationPercent, 0)
   const yAxisMax =
     maxUtilPercent > 0 ? Math.min(Math.max(maxUtilPercent * 1.2, 40), 150) : 40
   
-  // 移动端配置调整
+  // 计算平均值和峰值（用于标注和对比）
+  const avgUtilization = dataset.utilizationPercent.length > 0
+    ? dataset.utilizationPercent.reduce((a, b) => a + b, 0) / dataset.utilizationPercent.length
+    : 0
+  const maxUtilization = maxUtilPercent
+  
+  // 创建柱状图渐变色
+  const barGradient = new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: CHART_COLORS.primary },
+    { offset: 1, color: CHART_COLORS.primaryLight }
+  ])
+  
+  // 移动端配置调整（增加顶部空间以显示峰值标注）
   const gridConfig = mobile
-    ? { top: 40, left: 40, right: 10, bottom: 60, containLabel: true }
-    : { top: 40, left: 50, right: 30, bottom: 50, containLabel: true }
+    ? { top: 50, left: 40, right: 10, bottom: 60, containLabel: true }
+    : { top: 50, left: 50, right: 30, bottom: 50, containLabel: true }
   
   // 优化横坐标显示格式：移动端简化显示
   const xAxisLabelFormatter = mobile
@@ -400,26 +482,40 @@ const buildTimeSlotChartOption = (dataset, mobile = false) => {
   }
   
   return {
-    color: [chartColors.primary],
+    color: [CHART_COLORS.primary],
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
+      backgroundColor: CHART_COLORS.bgPrimary,
+      borderColor: CHART_COLORS.borderLight,
+      borderWidth: 1,
+      borderRadius: 8,
+      padding: spacing.md,
+      textStyle: {
+        color: CHART_COLORS.textPrimary,
+        fontSize: 13,
+      },
       formatter: (params) => {
         if (!params?.length) return ''
         const index = params[0].dataIndex
         const hourLabel = dataset.labels[index]
         const scene = dataset.scenes[index]
         const orders = dataset.orders[index]
-        const gmv = dataset.gmv[index]
-        const occupiedMinutes = dataset.occupiedMinutes?.[index] ?? 0
-        const utilizationRatio = dataset.utilizationRatio[index] || 0
+        const utilizationPercent = dataset.utilizationPercent[index] || 0
+        
+        // 计算与平均值的差值
+        const diff = utilizationPercent - avgUtilization
+        const diffText = diff !== 0
+          ? diff > 0
+            ? `<span style="color: ${CHART_COLORS.success};">+${diff.toFixed(1)}%</span>`
+            : `<span style="color: ${CHART_COLORS.danger};">${diff.toFixed(1)}%</span>`
+          : ''
+        
         return [
-          `<strong>${hourLabel} (${scene})</strong>`,
-          `开台数：${orders.toLocaleString('zh-CN')} 单`,
-          `GMV：${formatCurrencyValue(gmv, 0)}`,
-          `占用时长：${formatDurationValue(occupiedMinutes)}`,
-          `时段利用率：${formatPercentValue(utilizationRatio, 1)}`,
-        ].join('<br/>')
+          `<div style="font-weight: 600; margin-bottom: ${spacing.sm}px; color: ${CHART_COLORS.textPrimary};">${hourLabel} · ${scene}</div>`,
+          `<div style="margin: ${spacing.xs}px 0; color: ${CHART_COLORS.textRegular};">开台数：<strong>${orders.toLocaleString('zh-CN')}</strong> 单</div>`,
+          `<div style="margin: ${spacing.xs}px 0; color: ${CHART_COLORS.textRegular};">时段利用率：<strong style="color: ${CHART_COLORS.primary};">${utilizationPercent.toFixed(1)}%</strong>${diffText ? ` (${diffText})` : ''}</div>`,
+        ].join('')
       },
     },
     grid: gridConfig,
@@ -427,12 +523,12 @@ const buildTimeSlotChartOption = (dataset, mobile = false) => {
       type: 'category',
       data: dataset.labels,
       axisLabel: {
-        color: '#606266',
+        color: CHART_COLORS.textRegular,
         formatter: xAxisLabelFormatter,
         fontSize: mobile ? 10 : undefined,
         interval: 0
       },
-      axisLine: { lineStyle: { color: '#E0E6ED' } },
+      axisLine: { lineStyle: { color: CHART_COLORS.borderBase } },
     },
     yAxis: {
       type: 'value',
@@ -440,18 +536,22 @@ const buildTimeSlotChartOption = (dataset, mobile = false) => {
       min: 0,
       max: yAxisMax,
       axisLabel: {
-        color: '#909399',
+        color: CHART_COLORS.textSecondary,
         formatter: yAxisLabelFormatter,
         fontSize: mobile ? 10 : undefined
       },
-      splitLine: { lineStyle: { color: '#F2F3F5' } },
+      splitLine: { lineStyle: { color: CHART_COLORS.borderLighter } },
     },
     visualMap: {
       show: false,
       min: 0,
       max: Math.max(maxUtilPercent, 20),
       inRange: {
-        color: ['#dbeafe', '#60a5fa', '#1d4ed8'],
+        color: [
+          CHART_COLORS.primaryLight10,
+          CHART_COLORS.primaryLight40,
+          CHART_COLORS.primary
+        ],
       },
       seriesIndex: 0,
     },
@@ -461,7 +561,50 @@ const buildTimeSlotChartOption = (dataset, mobile = false) => {
         type: 'bar',
         barWidth: '55%',
         data: dataset.utilizationPercent,
-        itemStyle: { borderRadius: [4, 4, 0, 0] },
+        itemStyle: { 
+          color: barGradient,
+          borderRadius: [4, 4, 0, 0] 
+        },
+        markPoint: {
+          data: [
+            {
+              type: 'max',
+              name: '峰值',
+              itemStyle: {
+                color: CHART_COLORS.primary,
+                borderColor: CHART_COLORS.bgPrimary,
+                borderWidth: 1.5,
+                shadowBlur: 3,
+                shadowColor: CHART_COLORS.shadowColor,
+              },
+              label: {
+                show: false,
+              },
+              symbol: 'pin',
+              symbolSize: mobile ? 40 : 45,
+              symbolOffset: [0, -5],
+            },
+          ],
+        },
+        markLine: {
+          data: [
+            {
+              type: 'average',
+              name: '平均值',
+              lineStyle: {
+                type: 'dashed',
+                color: CHART_COLORS.textSecondary,
+                width: 2,
+              },
+              label: {
+                formatter: `平均值: ${avgUtilization.toFixed(1)}%`,
+                position: 'end',
+                color: CHART_COLORS.textSecondary,
+                fontSize: 12,
+              },
+            },
+          ],
+        },
       },
     ],
   }
@@ -507,24 +650,32 @@ const buildSummaryCards = (metrics, activeRooms) => {
         ? metrics.totalOrders.toLocaleString('zh-CN')
         : '--',
       tooltip: '统计周期内所有包厢的开台次数',
+      type: 'primary',
+      icon: Document,
     },
     {
       key: 'totalGmv',
       label: '总GMV',
       display: formatCurrencyValue(metrics.totalGmv, 0),
       tooltip: '账单合计（应收金额）总和',
+      type: 'success',
+      icon: Money,
     },
     {
       key: 'totalActual',
       label: '总实收',
       display: formatCurrencyValue(metrics.totalActual, 0),
       tooltip: '实收金额（扣除折扣与赠送后）总和',
+      type: 'success',
+      icon: Wallet,
     },
     {
       key: 'avgActual',
       label: '平均实收',
       display: formatCurrencyValue(metrics.avgActual, 2),
       tooltip: '平均每单实收 = 总实收 / 总开台数',
+      type: 'primary',
+      icon: TrendCharts,
     },
     {
       key: 'turnoverRate',
@@ -535,6 +686,8 @@ const buildSummaryCards = (metrics, activeRooms) => {
           ? `= 总开台数 (${metrics.totalOrders}) ÷ 活跃包厢数 (${activeRooms} 间)`
           : '由于未关联到包厢基础信息，无法获取活跃包厢总数，暂无法计算翻台率',
       helper: activeRooms > 0 ? `活跃包厢：${activeRooms} 间` : '缺少包厢档案数据',
+      type: 'warning',
+      icon: Refresh,
     },
     {
       key: 'avgDuration',
@@ -545,6 +698,8 @@ const buildSummaryCards = (metrics, activeRooms) => {
         metrics.avgDurationMinutes > 0
           ? `≈ ${metrics.avgDurationMinutes.toFixed(1)} 分钟/单`
           : '',
+      type: 'primary',
+      icon: Timer,
     },
   ]
 }
@@ -565,6 +720,19 @@ const transformRoomRows = (rows) =>
     // 优先使用后端返回的字段，如果没有则前端计算（兼容旧数据）
     const giftRatio = item.gift_ratio !== undefined ? toNumber(item.gift_ratio) : formatRatio(giftAmount, billTotal)
     const lowConsumeRate = item.low_consume_rate !== undefined ? toNumber(item.low_consume_rate) : formatRatio(billTotal, minConsumption)
+    
+    // 计算低消达成率颜色类型
+    let lowConsumeRateType = null
+    if (Number.isFinite(lowConsumeRate)) {
+      if (lowConsumeRate >= 0.9) {
+        lowConsumeRateType = 'success'  // ≥90%：绿色
+      } else if (lowConsumeRate >= 0.7) {
+        lowConsumeRateType = 'warning'  // 70-90%：橙色
+      } else {
+        lowConsumeRateType = 'danger'   // <70%：红色
+      }
+    }
+    
     return {
       room_name: item.dimension_label || '未知包厢',
       store_name: item.store_name || '--',
@@ -575,6 +743,7 @@ const transformRoomRows = (rows) =>
       min_consumption: minConsumption || null,
       low_consume_diff: minDiff,
       low_consume_rate: lowConsumeRate,
+      low_consume_rate_type: lowConsumeRateType,
       room_discount: toNumber(item.room_discount),
       beverage_discount: toNumber(item.beverage_discount),
       gift_amount: giftAmount,
@@ -930,128 +1099,212 @@ const {
 </script>
 
 <style lang="scss" scoped>
+@import '@/styles/variables.scss';
+@import '@/styles/mixins.scss';
+
 .room-analysis {
+  padding-top: $spacing-lg; // 添加顶部留白
+
   .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
+    gap: $spacing-md;
     flex-wrap: wrap;
   }
 
   .header-title {
-    font-weight: 600;
+    font-weight: $font-weight-semibold;
+    font-size: $font-size-lg;
+    color: $text-primary;
   }
 
   .header-right {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: $spacing-sm;
   }
 
   .filter-label {
-    font-size: 13px;
-    color: #606266;
+    font-size: $font-size-sm;
+    color: $text-regular;
     white-space: nowrap;
+    font-weight: $font-weight-normal;
   }
 
   .date-range {
-    width: 360px;
+    // 桌面端宽度：360px（设计规范）
+    width: calc($spacing-xxl * 7.5); // 48 * 7.5 = 360px
     max-width: 100%;
   }
 
   .summary-cards {
-    margin-bottom: 16px;
+    margin-bottom: $spacing-lg;
 
     :deep(.el-col) {
-      margin-bottom: 16px;
+      margin-bottom: $spacing-md;
     }
 
-    .summary-item {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 8px;
-      padding: 18px;
-      color: #fff;
-      min-height: 110px;
+    // 卡片基础样式
+    .summary-card {
+      display: flex;
+      align-items: flex-start;
+      background-color: $bg-primary;
+      border: 1px solid $border-light;
+      border-radius: $border-radius-md;
+      box-shadow: $shadow-md;
+      padding: $spacing-md;
+      min-height: calc($spacing-xxl * 2.5); // 48 * 2.5 = 120px
+      @include transition(box-shadow);
 
-      .label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 14px;
-        opacity: 0.85;
-        margin-bottom: 8px;
+      &:hover {
+        box-shadow: $shadow-hover;
       }
 
-      .label-icon {
-        font-size: 16px;
+      // 图标区域
+      &__icon {
+        @include flex-center;
+        width: $spacing-xxl; // 48px
+        height: $spacing-xxl;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      // 内容区域
+      &__content {
+        @include flex-column;
+        flex: 1;
+        margin-left: $spacing-md;
+      }
+
+      // 标签样式
+      &__label {
+        @include flex-between;
+        font-size: $font-size-base;
+        color: $text-regular;
+        margin-bottom: $spacing-sm;
+      }
+
+      // 帮助图标
+      &__help {
+        font-size: $font-size-lg;
         cursor: pointer;
+        color: $text-secondary;
+        margin-left: $spacing-xs;
       }
 
-      .value {
-        font-size: 24px;
-        font-weight: 600;
+      // 数值样式
+      &__value {
+        font-size: $font-size-xxxl;
+        font-weight: $font-weight-semibold;
+        color: $text-primary;
+        line-height: $line-height-tight;
       }
 
-      .helper-text {
-        margin-top: 6px;
-        font-size: 12px;
-        opacity: 0.85;
+      // 辅助文字样式
+      &__helper {
+        margin-top: $spacing-xs;
+        font-size: $font-size-xs;
+        color: $text-secondary;
+      }
+
+      // 语义化类型样式
+      &--primary {
+        .summary-card__icon {
+          background-color: $brand-primary-light-10;
+          color: $brand-primary;
+        }
+      }
+
+      &--success {
+        .summary-card__icon {
+          background-color: $brand-success-light-10;
+          color: $brand-success;
+        }
+      }
+
+      &--warning {
+        .summary-card__icon {
+          background-color: $brand-warning-light-10;
+          color: $brand-warning;
+        }
+      }
+
+      &--info {
+        .summary-card__icon {
+          background-color: $brand-info-light-10;
+          color: $brand-info;
+        }
+      }
+
+      // 响应式适配
+      @include respond-to-max(sm) {
+        padding: $spacing-sm;
+        min-height: 100px;
+
+        &__icon {
+          width: 40px;
+          height: 40px;
+        }
+
+        &__value {
+          font-size: $font-size-xxl;
+        }
       }
     }
   }
 
   .time-slot-container {
-    border: 1px solid #ebeef5;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 24px;
-    background: #f9fafb;
+    border: 1px solid $border-light;
+    border-radius: $border-radius-lg;
+    padding: $spacing-md;
+    margin-bottom: $spacing-xl; // 增加间距，增强区块感
+    background: $bg-secondary;
 
     .time-slot-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
+      gap: $spacing-md;
       flex-wrap: wrap;
 
       .time-slot-title {
         margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: #303133;
+        font-size: $font-size-xl;
+        font-weight: $font-weight-semibold;
+        color: $text-primary;
       }
 
       .time-slot-subtitle {
-        margin: 4px 0 0;
-        font-size: 13px;
-        color: #909399;
+        margin: $spacing-xs 0 0;
+        font-size: $font-size-sm;
+        color: $text-secondary;
       }
     }
 
     .time-slot-chart-wrapper {
       position: relative;
-      margin-top: 12px;
-      min-height: 320px;
+      margin-top: $spacing-md;
+      min-height: calc($spacing-xxl * 6.67); // 48 * 6.67 ≈ 320px
     }
 
     .chart-scroll-wrapper {
       // 移动端：支持横向滚动以显示完整的24小时数据
-      @media (max-width: 768px) {
+      @include respond-to-max(sm) {
         overflow-x: auto;
         overflow-y: hidden;
         -webkit-overflow-scrolling: touch;
         width: 100%;
         
         .time-slot-chart {
-          min-width: 800px; // 24小时需要更多空间
+          min-width: calc($spacing-xxl * 16.67); // 48 * 16.67 ≈ 800px
         }
       }
     }
 
     .time-slot-chart {
       width: 100%;
-      height: 320px;
+      height: calc($spacing-xxl * 6.67); // 48 * 6.67 ≈ 320px
     }
 
     .chart-empty {
@@ -1059,53 +1312,166 @@ const {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      color: #909399;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: calc($spacing-xxl * 6.67); // 48 * 6.67 ≈ 320px
+      width: 100%;
     }
   }
 
   .room-table {
-    margin-top: 12px;
+    margin-top: $spacing-xl; // 增加间距，增强区块感
+
+    // 表头样式
+    :deep(.el-table__header-wrapper) {
+      .el-table__header {
+        th {
+          background-color: $bg-secondary;
+          color: $text-primary;
+          font-size: $font-size-base;
+          font-weight: $font-weight-semibold;
+          height: $spacing-xxl; // 48px
+          padding: $spacing-sm $spacing-md;
+        }
+      }
+    }
+
+    // 表格主体样式
+    :deep(.el-table__body-wrapper) {
+      .el-table__body {
+        td {
+          padding: $spacing-sm $spacing-md;
+          height: $spacing-xxl; // 48px
+          border-color: $border-light;
+        }
+
+        // 斑马纹已在 Element Plus 中启用，这里可以微调颜色
+        tr.el-table__row--striped {
+          background-color: $bg-tertiary;
+        }
+      }
+    }
+
+    // 边框样式
+    :deep(.el-table) {
+      border: 1px solid $border-light;
+      border-radius: $border-radius-md;
+      overflow: hidden;
+    }
+
+    // 响应式适配
+    @include respond-to-max(sm) {
+      :deep(.el-table__header-wrapper) {
+        .el-table__header {
+          th {
+            height: calc($spacing-xxl - $spacing-xs); // 48 - 4 = 44px
+            padding: $spacing-sm $spacing-md;
+            font-size: $font-size-sm;
+          }
+        }
+      }
+
+      :deep(.el-table__body-wrapper) {
+        .el-table__body {
+          td {
+            height: calc($spacing-xxl - $spacing-xs); // 48 - 4 = 44px
+            padding: $spacing-sm $spacing-md;
+            font-size: $font-size-sm;
+          }
+        }
+      }
+    }
   }
 
+  // 百分比文字样式
   .percent-text {
     display: inline-block;
     min-width: 70px;
     text-align: right;
+
+    // 成功状态（绿色）
+    &--success {
+      color: $brand-success;
+      font-weight: $font-weight-medium;
+    }
+
+    // 警告状态（橙色）
+    &--warning {
+      color: $brand-warning;
+      font-weight: $font-weight-medium;
+    }
+
+    // 危险状态（红色）
+    &--danger {
+      color: $brand-danger;
+      font-weight: $font-weight-semibold;
+    }
+
+    // 兼容旧的警告类名
+    &.is-warning {
+      color: $brand-danger;
+      font-weight: $font-weight-semibold;
+    }
+
+    // 响应式适配
+    @include respond-to-max(sm) {
+      min-width: 50px;
+    }
   }
 
-  .percent-text.is-warning {
-    color: #f56c6c;
-    font-weight: 600;
+  // 强调数值样式
+  .table-value--emphasis {
+    font-weight: $font-weight-semibold;
+    color: $text-primary;
+  }
+
+  // 表头帮助图标样式
+  .table-header-help {
+    margin-left: $spacing-xs;
+    font-size: $font-size-sm;
+    color: $text-secondary;
+    cursor: pointer;
+    
+    &:hover {
+      color: $brand-primary;
+    }
   }
 
   .table-pagination {
     display: flex;
     justify-content: flex-end;
-    margin-top: 12px;
+    margin-top: $spacing-md;
+    padding: $spacing-sm 0;
   }
 
   .empty-hint {
     text-align: center;
-    padding: 40px 0;
-    color: #999;
+    padding: $spacing-xxl 0;
   }
 
-  @media (max-width: 768px) {
+  .empty-description {
+    color: $text-secondary;
+    margin: 0;
+    font-size: $font-size-base;
+  }
+
+  @include respond-to-max(sm) {
     .card-header {
       flex-direction: column;
       align-items: flex-start;
-      gap: 12px;
+      gap: $spacing-md;
     }
 
     .header-right {
       width: 100%;
       flex-direction: column;
       align-items: flex-start;
-      gap: 6px;
+      gap: $spacing-xs;
     }
 
     .filter-label {
-      font-size: 12px;
+      font-size: $font-size-xs;
     }
 
     .date-range {
@@ -1115,23 +1481,23 @@ const {
     // 时间范围选择器移动端优化
     :deep(.el-date-editor--daterange) {
       width: 100% !important;
-      padding: 3px 5px;
+      padding: $spacing-xs $spacing-xs; // 4px 4px，接近原值但符合8px网格
       
       .el-range-separator {
-        padding: 0 4px;
-        font-size: 12px;
+        padding: 0 $spacing-xs;
+        font-size: $font-size-xs;
         width: auto;
       }
       
       .el-range-input {
-        font-size: 12px;
+        font-size: $font-size-xs;
         width: 42%;
       }
 
       .el-range__icon,
       .el-range__close-icon {
-        font-size: 12px;
-        width: 18px;
+        font-size: $font-size-xs;
+        width: calc($spacing-sm * 2.25); // 8 * 2.25 = 18px
       }
     }
 
@@ -1145,6 +1511,15 @@ const {
 
     .table-pagination {
       justify-content: center;
+      margin-top: $spacing-md;
+    }
+
+    // 优化移动端分页组件内部样式
+    :deep(.el-pagination) {
+      .el-pagination__sizes,
+      .el-pagination__total {
+        display: none; // 移动端隐藏部分信息，节省空间
+      }
     }
   }
 }

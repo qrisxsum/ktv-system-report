@@ -1,0 +1,94 @@
+// ============================================
+// 颜色系统
+// ============================================
+
+// 品牌色
+$brand-primary: #409EFF;        // 主要指标（蓝色）
+$brand-success: #67C23A;         // 收入类指标（绿色）
+$brand-warning: #E6A23C;         // 效率类指标（橙色）
+$brand-danger: #F56C6C;          // 异常指标（红色）
+$brand-info: #909399;            // 辅助信息（灰色）
+
+// 中性色
+$text-primary: #303133;          // 主要文字
+$text-regular: #606266;          // 常规文字
+$text-secondary: #909399;        // 次要文字
+$text-placeholder: #C0C4CC;      // 占位文字
+
+// 背景色
+$bg-primary: #FFFFFF;            // 主背景（白色）
+$bg-secondary: #F5F7FA;          // 次背景（浅灰）
+$bg-tertiary: #FAFAFA;           // 第三背景（更浅灰）
+
+// 边框色
+$border-base: #DCDFE6;           // 基础边框
+$border-light: #EBEEF5;          // 浅色边框
+$border-lighter: #F2F6FC;        // 更浅边框
+
+// 透明度颜色（用于背景、阴影等）
+$brand-primary-light-10: rgba(64, 158, 255, 0.1);
+$brand-primary-light-40: rgba(64, 158, 255, 0.4);
+$brand-success-light-10: rgba(103, 194, 58, 0.1);
+$brand-warning-light-10: rgba(230, 162, 60, 0.1);
+$brand-info-light-10: rgba(144, 147, 153, 0.1);
+$shadow-color: rgba(0, 0, 0, 0.15);
+
+// ============================================
+// 间距系统（基于8px网格）
+// ============================================
+$spacing-xs: 4px;                // 极小间距
+$spacing-sm: 8px;                // 小间距
+$spacing-md: 16px;               // 中等间距
+$spacing-lg: 24px;               // 大间距
+$spacing-xl: 32px;               // 超大间距
+$spacing-xxl: 48px;              // 特大间距
+
+// ============================================
+// 字体系统
+// ============================================
+
+// 字体大小
+$font-size-xs: 12px;            // 辅助文字
+$font-size-sm: 13px;            // 次要文字
+$font-size-base: 14px;          // 正文
+$font-size-lg: 16px;            // 小标题
+$font-size-xl: 18px;            // 标题
+$font-size-xxl: 24px;           // 大标题
+$font-size-xxxl: 28px;          // 超大标题（KPI数值）
+
+// 字体权重
+$font-weight-normal: 400;
+$font-weight-medium: 500;
+$font-weight-semibold: 600;
+$font-weight-bold: 700;
+
+// 行高
+$line-height-tight: 1.4;        // 紧凑行高
+$line-height-normal: 1.5;       // 正常行高
+$line-height-relaxed: 1.6;      // 宽松行高
+
+// ============================================
+// 圆角和阴影
+// ============================================
+
+// 圆角
+$border-radius-sm: 4px;         // 小圆角
+$border-radius-md: 8px;         // 中等圆角
+$border-radius-lg: 12px;        // 大圆角
+$border-radius-xl: 16px;        // 超大圆角
+
+// 阴影
+$shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);      // 小阴影
+$shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);      // 中等阴影
+$shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);    // 大阴影
+$shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.15);  // 悬停阴影
+
+// ============================================
+// 响应式断点
+// ============================================
+$breakpoint-xs: 480px;          // 小屏手机
+$breakpoint-sm: 768px;          // 大屏手机/小平板
+$breakpoint-md: 1024px;         // 平板
+$breakpoint-lg: 1440px;         // 桌面
+$breakpoint-xl: 1920px;         // 大屏桌面
+
