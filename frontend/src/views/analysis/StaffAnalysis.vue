@@ -23,7 +23,7 @@
       </template>
 
       <!-- TOP 3 荣誉领奖台 -->
-      <div class="top-three-podium" v-if="topThree.length > 0 && !loading">
+      <div class="top-three-podium" v-show="topThree.length > 0">
         <div class="podium-item second" v-if="topThree[1]">
           <div class="rank-badge silver">🥈</div>
           <div class="avatar">{{ topThree[1].name.slice(0, 1) }}</div>
@@ -109,7 +109,7 @@
       </el-row>
       
       <div class="chart-wrapper" ref="chartWrapperRef">
-      <div class="chart-container" ref="chartRef" v-loading="loading"></div>
+      <div class="chart-container" ref="chartRef"></div>
       </div>
       
       <el-table
@@ -118,7 +118,7 @@
         stripe
         border
         style="margin-top: 20px"
-        v-loading="loading"
+        v-loading="tableLoading"
         @sort-change="handleSortChange"
       >
         <el-table-column label="排名" width="70" align="center" :fixed="isMobile ? 'left' : false">
@@ -191,14 +191,14 @@
           v-model:page-size="pagination.pageSize"
           :page-sizes="pageSizeOptions"
           :total="total"
-          :disabled="loading"
+          :disabled="tableLoading"
           :pager-count="pagerCount"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
       </div>
       
-      <div v-if="!staffData.length && !loading" class="empty-hint">
+      <div v-if="!staffData.length && !tableLoading" class="empty-hint">
         暂无数据，请先上传订台数据
       </div>
     </el-card>
@@ -214,6 +214,7 @@ import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/vie
 import { usePagination } from '@/composables/usePagination'
 
 const loading = ref(false)
+const tableLoading = ref(false) // 表格专用加载状态
 const dateRange = ref([])
 const chartRef = ref(null)
 const chartWrapperRef = ref(null)
@@ -401,7 +402,8 @@ const fetchData = async () => {
     return
   }
   
-  loading.value = true
+  // 只对表格显示加载状态，避免整个界面重新渲染
+  tableLoading.value = true
   
   try {
     const [startDate, endDate] = dateRange.value
@@ -467,7 +469,7 @@ const fetchData = async () => {
     chartRows.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    tableLoading.value = false
   }
 }
 
