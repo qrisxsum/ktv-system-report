@@ -1,0 +1,178 @@
+@import './variables.scss';
+
+// ============================================
+// 响应式断点
+// ============================================
+
+/**
+ * 响应式断点 Mixin
+ * 使用方式：@include respond-to(md) { ... }
+ * @param {String} $breakpoint - 断点名称 (xs, sm, md, lg, xl)
+ */
+@mixin respond-to($breakpoint) {
+  @if $breakpoint == xs {
+    @media (min-width: $breakpoint-xs) {
+      @content;
+    }
+  } @else if $breakpoint == sm {
+    @media (min-width: $breakpoint-sm) {
+      @content;
+    }
+  } @else if $breakpoint == md {
+    @media (min-width: $breakpoint-md) {
+      @content;
+    }
+  } @else if $breakpoint == lg {
+    @media (min-width: $breakpoint-lg) {
+      @content;
+    }
+  } @else if $breakpoint == xl {
+    @media (min-width: $breakpoint-xl) {
+      @content;
+    }
+  }
+}
+
+/**
+ * 最大宽度响应式 Mixin（用于移动端优先）
+ * 使用方式：@include respond-to-max(sm) { ... }
+ * @param {String} $breakpoint - 断点名称
+ */
+@mixin respond-to-max($breakpoint) {
+  @if $breakpoint == xs {
+    @media (max-width: $breakpoint-xs - 1px) {
+      @content;
+    }
+  } @else if $breakpoint == sm {
+    @media (max-width: $breakpoint-sm - 1px) {
+      @content;
+    }
+  } @else if $breakpoint == md {
+    @media (max-width: $breakpoint-md - 1px) {
+      @content;
+    }
+  } @else if $breakpoint == lg {
+    @media (max-width: $breakpoint-lg - 1px) {
+      @content;
+    }
+  } @else if $breakpoint == xl {
+    @media (max-width: $breakpoint-xl - 1px) {
+      @content;
+    }
+  }
+}
+
+// ============================================
+// 文字截断
+// ============================================
+
+/**
+ * 文字截断 Mixin
+ * 使用方式：@include text-ellipsis; 或 @include text-ellipsis(2);
+ * @param {Number} $lines - 行数，默认为1（单行截断）
+ */
+@mixin text-ellipsis($lines: 1) {
+  @if $lines == 1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  } @else {
+    display: -webkit-box;
+    -webkit-line-clamp: $lines;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+// ============================================
+// 卡片样式
+// ============================================
+
+/**
+ * 卡片样式 Mixin
+ * 使用方式：@include card-style($bg-primary, $border-light);
+ * @param {Color} $bg-color - 背景色，默认为 $bg-primary
+ * @param {Color} $border-color - 边框色，默认为 $border-light
+ */
+@mixin card-style($bg-color: $bg-primary, $border-color: $border-light) {
+  background-color: $bg-color;
+  border: 1px solid $border-color;
+  border-radius: $border-radius-md;
+  box-shadow: $shadow-md;
+  padding: $spacing-md;
+  transition: box-shadow 0.3s ease;
+
+  &:hover {
+    box-shadow: $shadow-hover;
+  }
+}
+
+// ============================================
+// 清除浮动
+// ============================================
+
+/**
+ * 清除浮动 Mixin
+ * 使用方式：@include clearfix;
+ */
+@mixin clearfix {
+  &::before,
+  &::after {
+    content: '';
+    display: table;
+  }
+
+  &::after {
+    clear: both;
+  }
+}
+
+// ============================================
+// Flex布局快捷方式
+// ============================================
+
+/**
+ * Flex 水平垂直居中
+ * 使用方式：@include flex-center;
+ */
+@mixin flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/**
+ * Flex 两端对齐
+ * 使用方式：@include flex-between;
+ */
+@mixin flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/**
+ * Flex 垂直布局
+ * 使用方式：@include flex-column;
+ */
+@mixin flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+// ============================================
+// 过渡动画
+// ============================================
+
+/**
+ * 过渡动画 Mixin
+ * 使用方式：@include transition; 或 @include transition(transform, 0.3s, ease-in-out);
+ * @param {String} $property - 属性名，默认为 all
+ * @param {String} $duration - 持续时间，默认为 0.3s
+ * @param {String} $easing - 缓动函数，默认为 ease
+ */
+@mixin transition($property: all, $duration: 0.3s, $easing: ease) {
+  transition: $property $duration $easing;
+}
+

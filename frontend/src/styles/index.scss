@@ -1,3 +1,7 @@
+// 引入设计系统
+@import './variables.scss';
+@import './mixins.scss';
+
 // 全局样式
 * {
   margin: 0;
@@ -25,54 +29,54 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
+  background: $text-secondary;
+  border-radius: $border-radius-sm;
   
   &:hover {
-    background: #a8a8a8;
+    background: darken($text-secondary, 10%);
   }
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: $bg-secondary;
 }
 
 // Element Plus 覆盖
 .el-card {
-  border-radius: 8px;
+  border-radius: $border-radius-md;
   border: none;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: $shadow-md;
 }
 
 // 移动端适配样式
-@media (max-width: 768px) {
+@include respond-to-max(sm) {
   // 卡片间距缩小
   .el-card {
-    margin-bottom: 12px;
+    margin-bottom: $spacing-md;
     border-radius: 6px;
   }
 
   // 表格滚动
   .el-table {
-    font-size: 12px;
+    font-size: $font-size-xs;
     
     .el-table__header th {
-      padding: 8px 0;
+      padding: $spacing-sm 0;
     }
     
     .el-table__body td {
-      padding: 8px 0;
+      padding: $spacing-sm 0;
     }
   }
 
   // 表单优化
   .el-form-item {
-    margin-bottom: 16px;
+    margin-bottom: $spacing-md;
   }
 
   // 按钮组优化
   .el-button + .el-button {
-    margin-left: 8px;
+    margin-left: $spacing-sm;
   }
 
   // 对话框全屏显示
@@ -93,22 +97,22 @@ html, body {
 }
 
 // 小屏幕优化
-@media (max-width: 480px) {
+@include respond-to-max(xs) {
   html, body {
-    font-size: 14px;
+    font-size: $font-size-base;
   }
 
   .el-card {
-    border-radius: 4px;
+    border-radius: $border-radius-sm;
   }
 
   .el-button {
-    padding: 8px 12px;
-    font-size: 13px;
+    padding: $spacing-sm 12px;
+    font-size: $font-size-sm;
   }
 
   .el-input__inner {
-    font-size: 14px;
+    font-size: $font-size-base;
   }
 }
 
