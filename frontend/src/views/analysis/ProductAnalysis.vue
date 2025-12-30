@@ -280,25 +280,17 @@ const formatAxisLabel = (value) => {
   const num = toSafeNumber(value)
   if (!Number.isFinite(num) || num === 0) return '0'
   
-  // 移动端使用更简洁的格式
-  if (isMobile.value) {
-    if (num >= 10000) {
-      const wan = num / 10000
-      // 避免显示多余的0，如 1.0万 -> 1万
-      return wan % 1 === 0 ? `${wan}万` : `${wan.toFixed(1)}万`
-    } else if (num >= 1000) {
-      const k = num / 1000
-      return k % 1 === 0 ? `${k}K` : `${k.toFixed(1)}K`
-    } else {
-      return num % 1 === 0 ? `${num}` : `${num.toFixed(1)}`
-    }
+  // 统一使用单位格式显示（移动端和桌面端）
+  if (num >= 10000) {
+    const wan = num / 10000
+    // 避免显示多余的0，如 1.0万 -> 1万
+    return wan % 1 === 0 ? `${wan}万` : `${wan.toFixed(1)}万`
+  } else if (num >= 1000) {
+    const k = num / 1000
+    return k % 1 === 0 ? `${k}K` : `${k.toFixed(1)}K`
+  } else {
+    return num % 1 === 0 ? `${num}` : `${num.toFixed(1)}`
   }
-  
-  // 桌面端使用完整格式
-  return `¥${num.toLocaleString('zh-CN', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  })}`
 }
 
 const formatDimensionLabel = (value) => {
@@ -537,7 +529,7 @@ const buildBarOption = (data, valueKey, color) => {
   // 使用足够大的右侧边距确保数字标签不被遮挡（考虑最长数字如 ¥981127.30）
   const gridConfig = isMobile.value
     ? { left: '30%', right: '30%', bottom: 10, top: 10, containLabel: true }
-    : { top: 10, bottom: 10, left: 10, right: '22%', containLabel: true }
+    : { top: 10, bottom: 10, left: 10, right: '12%', containLabel: true }
 
   const yAxisLabelConfig = isMobile.value
     ? {
@@ -691,20 +683,26 @@ const updateChart = (type, data, valueKey) => {
     return
   }
   
-  // 移动端：确保图表容器有足够宽度以显示完整标签
+  // 确保图表容器有足够宽度以显示完整标签（移动端和桌面端）
   const wrapperRefMap = {
     sales: salesChartWrapperRef,
     profit: profitChartWrapperRef,
     gift: giftChartWrapperRef
   }
   const wrapperRef = wrapperRefMap[type]
-  if (isMobile.value && wrapperRef?.value) {
+  if (wrapperRef?.value) {
     const container = chartRefMap[type]?.value
     if (container) {
-      // 计算所需的最小宽度，限制最大宽度避免滑动距离过长
-      const baseWidth = 480
-      const minWidth = Math.min(Math.max(baseWidth, window.innerWidth), window.innerWidth * 1.3)
-      container.style.minWidth = `${minWidth}px`
+      if (isMobile.value) {
+        // 移动端：计算所需的最小宽度，限制最大宽度避免滑动距离过长
+        const baseWidth = 650
+        const minWidth = Math.min(Math.max(baseWidth, window.innerWidth), window.innerWidth * 1.8)
+        container.style.minWidth = `${minWidth}px`
+      } else {
+        // 桌面端：设置最小宽度，避免窗口缩小时图表过窄
+        const minWidth = 600
+        container.style.minWidth = `${minWidth}px`
+      }
     }
   }
   
@@ -713,13 +711,19 @@ const updateChart = (type, data, valueKey) => {
     instance.setOption(option, true)
   }
   
-  // 移动端：图表更新后，将滚动位置设置为中间
-  if (isMobile.value && wrapperRef?.value) {
+  // 图表更新后，设置滚动位置
+  if (wrapperRef?.value) {
     nextTick(() => {
       const wrapper = wrapperRef.value
       if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
-        const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
-        wrapper.scrollLeft = scrollLeft
+        if (isMobile.value) {
+          // 移动端：滚动到中间
+          const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+          wrapper.scrollLeft = scrollLeft
+        } else {
+          // 桌面端：滚动到最左边
+          wrapper.scrollLeft = 0
+        }
       }
     })
   }
@@ -754,12 +758,10 @@ const handleChartResize = () => {
   Object.values(chartInstances).forEach(instance => {
     instance?.resize()
   })
-  // 移动端：窗口大小变化后重新更新图表并居中滚动
-  if (isMobile.value) {
-    nextTick(() => {
-      updateAllCharts()
-    })
-  }
+  // 窗口大小变化后重新更新图表并居中滚动（移动端和桌面端）
+  nextTick(() => {
+    updateAllCharts()
+  })
 }
 
 // 初始化日期范围（使用数据库中的最新日期）
@@ -1351,16 +1353,18 @@ onBeforeUnmount(() => {
     .chart-wrapper {
       position: relative;
       height: 300px;
-      // 移动端：支持横向滚动以显示完整的纵坐标标签
-      @media (max-width: 768px) {
-        overflow-x: auto;
-        overflow-y: hidden;
-        -webkit-overflow-scrolling: touch;
-        width: 100%;
+      // 支持横向滚动以显示完整的纵坐标标签（移动端和桌面端）
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      width: 100%;
+      
+      .chart-container {
+        // 最小宽度由 JavaScript 动态设置，这里只作为后备
+        min-width: 600px;
         
-        .chart-container {
-          // 最小宽度由 JavaScript 动态设置，这里只作为后备
-          min-width: 480px;
+        @media (max-width: 768px) {
+          min-width: 650px;
         }
       }
     }
@@ -1380,6 +1384,52 @@ onBeforeUnmount(() => {
       font-size: 14px;
       background-color: rgba(255, 255, 255, 0.85);
       border: 1px dashed #ebeef5;
+    }
+  }
+
+  // 移动端统一间距
+  @media (max-width: 768px) {
+    .ranking-row {
+      margin-top: 0;
+      margin-bottom: 20px;
+      
+      :deep(.el-row) {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+      }
+      
+      :deep(.el-col) {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        margin-bottom: 16px;
+        
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+      
+      :deep(.el-card) {
+        margin: 0;
+      }
+    }
+
+    .category-structure {
+      margin-top: 0;
+      margin-bottom: 20px;
+      
+      :deep(.el-row) {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+      }
+      
+      :deep(.el-col) {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+      }
+      
+      :deep(.el-card) {
+        margin: 0;
+      }
     }
   }
 }
