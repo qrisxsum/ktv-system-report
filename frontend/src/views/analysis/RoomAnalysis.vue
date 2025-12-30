@@ -78,7 +78,7 @@
         v-loading="loading"
         @sort-change="handleSortChange"
       >
-        <el-table-column prop="room_name" label="包厢名称" min-width="150" />
+        <el-table-column prop="room_name" label="包厢名称" min-width="150" fixed="left" />
         <el-table-column
           v-if="currentStore === 'all'"
           prop="store_name"
