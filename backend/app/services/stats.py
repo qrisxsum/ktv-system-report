@@ -228,9 +228,11 @@ class StatsService:
             actual_sum = self._safe_sum(model.actual_amount)
             orders_sum = self._safe_sum(model.booking_qty)
             sales_sum = self._safe_sum(model.sales_amount)
+            receivable_sum = self._safe_sum(model.receivable_amount)
             credit_sum = self._safe_sum(model.credit_amount)
             return [
                 ("sales_amount", sales_sum),
+                ("receivable_amount", receivable_sum),
                 ("actual", actual_sum),
                 ("performance", self._safe_sum(model.base_performance)),
                 ("gift_amount", self._safe_sum(model.gift_amount)),

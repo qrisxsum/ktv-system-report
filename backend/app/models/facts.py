@@ -28,6 +28,7 @@ class FactBooking(Base):
     # ==================== 业务数据 ====================
     booking_qty = Column(Integer, default=0, comment="订台数")
     sales_amount = Column(DECIMAL(12, 2), default=0, comment="销售金额(应收)")
+    receivable_amount = Column(DECIMAL(12, 2), default=0, comment="应收金额")
     actual_amount = Column(DECIMAL(12, 2), default=0, comment="实收金额")
     base_performance = Column(DECIMAL(12, 2), default=0, comment="基本业绩")
     service_fee = Column(DECIMAL(12, 2), default=0, comment="服务费")
