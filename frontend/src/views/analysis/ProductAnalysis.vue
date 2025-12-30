@@ -711,13 +711,19 @@ const updateChart = (type, data, valueKey) => {
     instance.setOption(option, true)
   }
   
-  // 图表更新后，将滚动位置设置为中间（移动端和桌面端）
+  // 图表更新后，设置滚动位置
   if (wrapperRef?.value) {
     nextTick(() => {
       const wrapper = wrapperRef.value
       if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
-        const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
-        wrapper.scrollLeft = scrollLeft
+        if (isMobile.value) {
+          // 移动端：滚动到中间
+          const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+          wrapper.scrollLeft = scrollLeft
+        } else {
+          // 桌面端：滚动到最左边
+          wrapper.scrollLeft = 0
+        }
       }
     })
   }
