@@ -23,6 +23,7 @@
             start-placeholder="开始日期"
             end-placeholder="结束日期"
             value-format="YYYY-MM-DD"
+            :editable="false"
             @change="handleDateRangeChange"
           />
         </div>
@@ -1575,7 +1576,7 @@ onBeforeUnmount(() => {
         }
 
         .payment-item {
-          grid-template-columns: 80px 1fr 100px;
+          grid-template-columns: 80px 1fr 110px;
           gap: 8px;
           padding: 4px 0;
 
@@ -1592,16 +1593,20 @@ onBeforeUnmount(() => {
           }
 
           .item-stats {
-            gap: 4px;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
 
             .item-amount {
               font-size: 12px;
-              min-width: 60px;
+              min-width: auto;
+              white-space: nowrap;
             }
 
             .item-ratio {
               font-size: 11px;
-              min-width: 40px;
+              min-width: auto;
+              white-space: nowrap;
             }
           }
         }
@@ -1695,7 +1700,7 @@ onBeforeUnmount(() => {
         }
 
         .payment-item {
-          grid-template-columns: 70px 1fr 85px;
+          grid-template-columns: 70px 1fr 95px;
           gap: 6px;
 
           .item-label {
@@ -1711,14 +1716,20 @@ onBeforeUnmount(() => {
           }
 
           .item-stats {
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+
             .item-amount {
               font-size: 11px;
-              min-width: 50px;
+              min-width: auto;
+              white-space: nowrap;
             }
 
             .item-ratio {
               font-size: 10px;
-              min-width: 35px;
+              min-width: auto;
+              white-space: nowrap;
             }
           }
         }

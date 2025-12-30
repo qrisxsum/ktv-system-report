@@ -130,30 +130,33 @@
         <el-card class="history-card">
           <template #header>
             <div class="card-header">
-              <span>📋 最近上传记录</span>
+              <div class="header-left">
+                <span>📋 最近上传记录</span>
+                <span class="header-tip">最多显示 10 条</span>
+              </div>
               <el-button link type="primary" @click="refreshHistory">
                 <el-icon><Refresh /></el-icon> 刷新
               </el-button>
             </div>
           </template>
           
-          <el-table :data="uploadHistory" stripe v-loading="loadingHistory">
-            <el-table-column prop="created_at" label="时间" width="150">
+          <el-table :data="uploadHistory" stripe v-loading="loadingHistory" style="width: 100%">
+            <el-table-column prop="created_at" label="时间" :width="isMobile ? 120 : 150" :min-width="isMobile ? 100 : 150">
               <template #default="{ row }">
                 {{ formatTime(row.created_at) }}
               </template>
             </el-table-column>
-            <el-table-column prop="store_name" label="门店" width="100" />
-            <el-table-column prop="table_type_name" label="类型" />
-            <el-table-column prop="row_count" label="行数" width="70" />
-            <el-table-column prop="status" label="状态" width="80">
+            <el-table-column prop="store_name" label="门店" :width="isMobile ? 80 : 100" :min-width="isMobile ? 70 : 100" />
+            <el-table-column prop="table_type_name" label="类型" :min-width="isMobile ? 80 : 100" />
+            <el-table-column prop="row_count" label="行数" :width="isMobile ? 60 : 70" :min-width="isMobile ? 50 : 70" align="right" />
+            <el-table-column prop="status" label="状态" :width="isMobile ? 70 : 80" :min-width="isMobile ? 60 : 80" align="center">
               <template #default="{ row }">
                 <el-tag :type="getStatusType(row.status)" size="small">
                   {{ getStatusText(row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="70">
+            <el-table-column label="操作" :width="isMobile ? 60 : 70" :min-width="isMobile ? 50 : 70" align="center">
               <template #default="{ row }">
                 <el-popconfirm
                   title="确定要删除这个批次吗？数据将被回滚。"
@@ -175,10 +178,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, inject, watch } from 'vue'
+import { ref, onMounted, inject, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { parseFile, confirmImport, cancelUpload } from '@/api/upload'
 import { listBatches, deleteBatch } from '@/api/batch'
+import { usePagination } from '@/composables/usePagination'
 
 // 状态
 const parseResult = ref(null)
@@ -191,6 +195,9 @@ const loadingHistory = ref(false)
 // 注入门店选择状态和事件发射器
 const currentStore = inject('currentStore', ref('all'))
 const eventEmitter = inject('eventEmitter', null)
+
+// 移动端检测
+const { isMobile } = usePagination()
 
 // 状态映射
 const STATUS_MAP = {
@@ -431,6 +438,20 @@ onMounted(() => {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+
+      .header-left {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+
+        .header-tip {
+          font-size: 12px;
+          color: #909399;
+          font-weight: normal;
+        }
+      }
     }
   }
 
@@ -495,12 +516,36 @@ onMounted(() => {
     }
 
     .history-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .card-header {
+        .header-left {
+          .header-tip {
+            font-size: 11px;
+          }
+        }
+      }
+
       :deep(.el-table) {
         font-size: 12px;
+        min-width: 100%;
 
         .el-table__header th,
         .el-table__body td {
           padding: 8px 5px;
+          white-space: nowrap;
+        }
+
+        .el-table__body-wrapper {
+          overflow-x: auto;
         }
       }
     }
@@ -544,16 +589,43 @@ onMounted(() => {
     }
 
     .history-card {
+      :deep(.el-card__header) {
+        padding: 10px 12px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 10px;
+      }
+
       .card-header {
         flex-wrap: wrap;
-        gap: 10px;
+        gap: 8px;
+
+        .header-left {
+          .header-tip {
+            font-size: 10px;
+          }
+        }
       }
 
       :deep(.el-table) {
+        font-size: 11px;
+        min-width: 100%;
+
         .el-table__header th,
         .el-table__body td {
           padding: 6px 3px;
-          font-size: 11px;
+          white-space: nowrap;
+        }
+
+        .el-tag {
+          font-size: 10px;
+          padding: 0 4px;
+        }
+
+        .el-button {
+          padding: 4px;
+          font-size: 12px;
         }
       }
     }

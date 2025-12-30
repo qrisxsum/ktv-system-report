@@ -35,6 +35,7 @@
               start-placeholder="开始日期"
               end-placeholder="结束日期"
               value-format="YYYY-MM-DD"
+              :editable="false"
               @change="handleDateChange"
             />
           </div>
@@ -532,10 +533,11 @@ const buildBarOption = (data, valueKey, color) => {
   const names = data.map(item => item.product_name || '未知商品')
   const values = data.map(item => toSafeNumber(item[valueKey]))
 
-  // 移动端配置调整
+  // 移动端配置调整 - 增加右侧边距以显示数字标签
+  // 使用足够大的右侧边距确保数字标签不被遮挡（考虑最长数字如 ¥981127.30）
   const gridConfig = isMobile.value
-    ? { left: '30%', right: '5%', bottom: 10, top: 10, containLabel: true }
-    : { top: 10, bottom: 10, left: 10, right: 20, containLabel: true }
+    ? { left: '30%', right: '30%', bottom: 10, top: 10, containLabel: true }
+    : { top: 10, bottom: 10, left: 10, right: '22%', containLabel: true }
 
   const yAxisLabelConfig = isMobile.value
     ? {
@@ -588,7 +590,16 @@ const buildBarOption = (data, valueKey, color) => {
           show: true,
           position: 'right',
           formatter: ({ value }) => formatCurrency(value),
-          fontSize: isMobile.value ? 10 : undefined
+          fontSize: isMobile.value ? 10 : 11,
+          padding: [2, 4, 2, 4],
+          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+          borderColor: 'rgba(0, 0, 0, 0.1)',
+          borderWidth: 1,
+          borderRadius: 3,
+          // 调整位置偏移，确保数字标签在图表区域内
+          offset: isMobile.value ? [3, 0] : [5, 0],
+          // 确保标签不会被裁剪
+          overflow: 'none'
         }
       }
     ]
