@@ -391,15 +391,15 @@ const GRANULARITY_OPTIONS = [
 ]
 
 const DIMENSION_COLUMN_MAP = {
-  date: { label: '日期', prop: 'dimension_value', minWidth: 140 },
-  store: { label: '门店', prop: 'dimension_value', minWidth: 160 },
-  employee: { label: '员工', prop: 'dimension_value', minWidth: 160 },
-  product: { label: '商品名称', prop: 'dimension_value', minWidth: 160 },
-  category: { label: '商品类别', prop: 'dimension_value', minWidth: 160 },
-  room: { label: '包厢', prop: 'dimension_value', minWidth: 140 },
-  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160 },
-  booker: { label: '订房人', prop: 'dimension_value', minWidth: 160 },
-  time_slot: { label: '业务时段', prop: 'dimension_value', minWidth: 140 }
+  date: { label: '日期', prop: 'dimension_value', minWidth: 140, fixed: 'left' },
+  store: { label: '门店', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  employee: { label: '员工', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  product: { label: '商品名称', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  category: { label: '商品类别', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  room: { label: '包厢', prop: 'dimension_value', minWidth: 140, fixed: 'left' },
+  room_type: { label: '包厢类型', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  booker: { label: '订房人', prop: 'dimension_value', minWidth: 160, fixed: 'left' },
+  time_slot: { label: '业务时段', prop: 'dimension_value', minWidth: 140, fixed: 'left' }
 }
 
 const COLUMN_CONFIG = {
@@ -951,7 +951,8 @@ const buildTableColumns = () => {
   const dimensionColumn = DIMENSION_COLUMN_MAP[dimensionKey] || {
     label: '当前维度',
     prop: 'dimension_value',
-    minWidth: 140
+    minWidth: 140,
+    fixed: 'left'
   }
   
   // 员工维度且全部门店时，增加"所属门店"列
