@@ -15,6 +15,7 @@
         <div class="filter-item">
           <span class="filter-label">时间范围</span>
           <el-date-picker
+            class="date-range"
             v-model="dateRange"
             type="daterange"
             unlink-panels
@@ -164,7 +165,9 @@
             </div>
           </template>
           <div class="chart-body">
-            <div ref="anomalyChartRef" class="chart-container tall"></div>
+            <div class="chart-wrapper" ref="anomalyChartWrapperRef">
+              <div ref="anomalyChartRef" class="chart-container tall"></div>
+            </div>
             <div v-if="!hasAnomalyData" class="chart-empty">
               {{ loading ? '数据加载中...' : '暂无异常损耗数据' }}
             </div>
@@ -176,12 +179,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { queryStats, getDateRange } from '@/api/stats'
 import { listStores } from '@/api/store'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
+
+// 注入全局门店选择状态
+const currentStore = inject('currentStore', ref('all'))
 
 // 移动端检测
 const isMobile = ref(false)
@@ -283,6 +289,7 @@ const summaryData = ref(null) // 新增：保存后端返回的全局汇总数�
 const loading = ref(false)
 
 const anomalyChartRef = ref(null)
+const anomalyChartWrapperRef = ref(null)
 const chartInstances = {
   anomaly: null
 }
@@ -579,7 +586,8 @@ const anomalyDataset = computed(() => {
     .map((row) => {
       let label = row.dimension_label || row.dimension_key || '未命名'
       // 当维度为员工且未选择特定门店时，在名字后面备注门店
-      if (anomalyDimension.value === 'employee' && !queryFilters.store_id) {
+      const hasStoreFilter = (currentStore.value && currentStore.value !== 'all') || queryFilters.store_id
+      if (anomalyDimension.value === 'employee' && !hasStoreFilter) {
         // 优先使用后端返回的 store_name 或通过 store_id 匹配到的名称
         const storeName = row.store_name || 
                         row.store_label || 
@@ -635,9 +643,9 @@ const buildAnomalyOption = () => {
   const giftData = anomalyDataset.value.map((item) => Number(item.gift.toFixed(2)))
   const freeData = anomalyDataset.value.map((item) => Number(item.free.toFixed(2)))
   
-  // 移动端配置调整
+  // 移动端配置调整：增加左侧边距以容纳完整的员工名+门店名标签，但不要太大
   const gridConfig = isMobile.value
-    ? { left: 10, right: 15, bottom: 30, top: 40, containLabel: true }
+    ? { left: '30%', right: '5%', bottom: 30, top: 40, containLabel: true }
     : { left: 20, right: 30, bottom: 20, top: 40, containLabel: true }
 
   const xAxisLabelConfig = isMobile.value
@@ -661,14 +669,12 @@ const buildAnomalyOption = () => {
 
   const yAxisLabelConfig = isMobile.value
     ? {
-        formatter: (value) => {
-          // 移动端截断过长的名称（考虑到增加了门店名，放宽到12个字符）
-          if (value && value.length > 12) {
-            return value.slice(0, 11) + '...'
-          }
-          return value || '未命名'
-        },
-        fontSize: 11
+        // 移动端：允许标签完整显示，不截断
+        interval: 0,
+        fontSize: 11,
+        width: 120,
+        overflow: 'none',
+        ellipsis: ''
       }
     : {
         formatter: (value) => value || '未命名'
@@ -701,13 +707,17 @@ const buildAnomalyOption = () => {
         name: '赠送金额',
         type: 'bar',
         data: giftData,
-        barMaxWidth: isMobile.value ? 20 : 26
+        barMaxWidth: isMobile.value ? 20 : 26,
+        // 移动端增加类别间距，让图表更疏松
+        barCategoryGap: isMobile.value ? '30%' : '20%'
       },
       {
         name: '免单金额',
         type: 'bar',
         data: freeData,
-        barMaxWidth: isMobile.value ? 20 : 26
+        barMaxWidth: isMobile.value ? 20 : 26,
+        // 移动端增加类别间距，让图表更疏松
+        barCategoryGap: isMobile.value ? '30%' : '20%'
       }
     ]
   }
@@ -716,22 +726,66 @@ const buildAnomalyOption = () => {
 const updateAnomalyChart = () => {
   const chart = ensureChartInstance('anomaly')
   if (!chart) return
+  
+  // 移动端：确保图表容器有足够宽度以显示完整标签，但不要过长
+  if (isMobile.value && anomalyChartRef.value) {
+    const container = anomalyChartRef.value
+    // 计算所需的最小宽度：根据标签长度动态调整，但限制最大宽度
+    // 如果显示全部门店，标签会更长，需要更多空间
+    const hasStoreFilter = (currentStore.value && currentStore.value !== 'all') || queryFilters.store_id
+    const hasStoreNames = anomalyDimension.value === 'employee' && !hasStoreFilter && 
+                          anomalyDataset.value.some(item => item.label.includes('('))
+    // 减少最小宽度，避免滑动距离过长
+    const baseWidth = hasStoreNames ? 550 : 480
+    const minWidth = Math.min(Math.max(baseWidth, window.innerWidth), window.innerWidth * 1.3)
+    container.style.minWidth = `${minWidth}px`
+  }
+  
   const option = buildAnomalyOption()
   if (!option) {
     chart.clear()
     return
   }
   chart.setOption(option, true)
+  
+  // 移动端：图表更新后，将滚动位置设置为中间
+  scrollAnomalyChartToCenter()
+}
+
+// 将异常损耗监控图表滚动到中间位置
+const scrollAnomalyChartToCenter = () => {
+  if (isMobile.value && anomalyChartWrapperRef.value) {
+    nextTick(() => {
+      const wrapper = anomalyChartWrapperRef.value
+      if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
+        const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+        wrapper.scrollLeft = scrollLeft
+      }
+    })
+  }
 }
 
 const handleResize = () => {
   checkMobile()
+  // 移动端：确保图表容器有足够宽度以显示完整标签，但不要过长
+  if (isMobile.value && anomalyChartRef.value) {
+    const container = anomalyChartRef.value
+    const hasStoreFilter = (currentStore.value && currentStore.value !== 'all') || queryFilters.store_id
+    const hasStoreNames = anomalyDimension.value === 'employee' && !hasStoreFilter && 
+                          anomalyDataset.value.some(item => item.label.includes('('))
+    // 减少最小宽度，避免滑动距离过长
+    const baseWidth = hasStoreNames ? 550 : 480
+    const minWidth = Math.min(Math.max(baseWidth, window.innerWidth), window.innerWidth * 1.3)
+    container.style.minWidth = `${minWidth}px`
+  }
   Object.values(chartInstances).forEach((instance) => {
     instance?.resize()
   })
   // 移动端尺寸变化时重新更新图表配置
   nextTick(() => {
     updateAnomalyChart()
+    // 移动端：窗口大小变化后重新居中滚动
+    scrollAnomalyChartToCenter()
   })
 }
 
@@ -764,7 +818,14 @@ const fetchFinancialStats = async () => {
     granularity: 'day',
     top_n: DEFAULT_TOP_N
   }
-  if (queryFilters.store_id) {
+  
+  // 优先使用全局门店选择，如果没有则使用页面自己的选择
+  if (currentStore.value && currentStore.value !== 'all') {
+    const parsedStoreId = parseInt(currentStore.value, 10)
+    if (Number.isFinite(parsedStoreId)) {
+      params.store_id = parsedStoreId
+    }
+  } else if (queryFilters.store_id) {
     params.store_id = queryFilters.store_id
   }
 
@@ -889,6 +950,16 @@ watch(
 )
 
 watch(
+  () => currentStore.value,
+  () => {
+    // 全局门店选择变化时，自动触发查询
+    // 查询时会优先使用全局门店选择，如果全局选择"全部"则使用页面自己的选择
+    triggerAutoQuery()
+    nextTick(() => handleResize())
+  }
+)
+
+watch(
   () => anomalyDimension.value,
   () => {
     triggerAutoQuery()
@@ -963,10 +1034,17 @@ onBeforeUnmount(() => {
     .filter-item {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
 
-      :deep(.el-date-editor--daterange) {
+      .filter-label {
+        font-size: 13px;
+        color: #606266;
+        white-space: nowrap;
+      }
+
+      .date-range {
         width: 360px;
+        max-width: 100%;
       }
 
       :deep(.el-select) {
@@ -1077,13 +1155,30 @@ onBeforeUnmount(() => {
       flex: 1;
     }
 
+    .chart-wrapper {
+      // 移动端：支持横向滚动以显示完整的纵坐标标签
+      @media (max-width: 768px) {
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        width: 100%;
+        position: relative;
+        
+        .chart-container {
+          // 最小宽度由 JavaScript 动态设置，这里只作为后备
+          min-width: 480px;
+        }
+      }
+    }
+
     .chart-container {
       width: 100%;
       min-height: 320px;
       height: 100%;
 
       &.tall {
-        min-height: 420px;
+        // 桌面端：增加高度以更好展示横向柱状图
+        min-height: 600px;
       }
     }
 
@@ -1281,6 +1376,10 @@ onBeforeUnmount(() => {
           font-size: 12px;
         }
 
+        .date-range {
+          width: 100%;
+        }
+
         :deep(.el-select),
         :deep(.el-input) {
           width: 100% !important;
@@ -1397,14 +1496,16 @@ onBeforeUnmount(() => {
       }
 
       .chart-body {
-        min-height: 280px;
+        min-height: 400px;
       }
 
-      .chart-container {
-        min-height: 280px;
+      .chart-wrapper {
+        .chart-container {
+          min-height: 400px;
 
-        &.tall {
-          min-height: 380px;
+          &.tall {
+            min-height: 500px;
+          }
         }
       }
     }
@@ -1545,14 +1646,16 @@ onBeforeUnmount(() => {
       }
 
       .chart-body {
-        min-height: 250px;
+        min-height: 350px;
       }
 
-      .chart-container {
-        min-height: 250px;
+      .chart-wrapper {
+        .chart-container {
+          min-height: 350px;
 
-        &.tall {
-          min-height: 300px;
+          &.tall {
+            min-height: 450px;
+          }
         }
       }
     }

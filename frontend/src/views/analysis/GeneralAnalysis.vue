@@ -948,11 +948,19 @@ const paginationDisabled = computed(() => !appliedParams.value || !isViewSynced.
 
 const buildTableColumns = () => {
   const dimensionKey = queryParams.dimension
-  const dimensionColumn = DIMENSION_COLUMN_MAP[dimensionKey] || {
+  const baseDimensionColumn = DIMENSION_COLUMN_MAP[dimensionKey] || {
     label: '当前维度',
     prop: 'dimension_value',
     minWidth: 140,
     fixed: 'left'
+  }
+  
+  // 创建列配置副本，避免修改原始对象
+  const dimensionColumn = { ...baseDimensionColumn }
+  
+  // 手机端且维度为商品时，固定商品名称列
+  if (isMobile.value && queryParams.dimension === 'product') {
+    dimensionColumn.fixed = 'left'
   }
   
   // 员工维度且全部门店时，增加"所属门店"列
@@ -1555,6 +1563,14 @@ watch(
     buildTableColumns()
   },
   { immediate: true }
+)
+
+watch(
+  () => isMobile.value,
+  () => {
+    // 移动端状态变化时，重新构建列配置以更新固定列设置
+    buildTableColumns()
+  }
 )
 
 watch(

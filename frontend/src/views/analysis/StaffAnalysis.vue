@@ -107,7 +107,9 @@
         </el-col>
       </el-row>
       
+      <div class="chart-wrapper" ref="chartWrapperRef">
       <div class="chart-container" ref="chartRef" v-loading="loading"></div>
+      </div>
       
       <el-table
         ref="tableRef"
@@ -118,7 +120,7 @@
         v-loading="loading"
         @sort-change="handleSortChange"
       >
-        <el-table-column label="排名" width="70" align="center">
+        <el-table-column label="排名" width="70" align="center" :fixed="isMobile ? 'left' : false">
           <template #default="{ $index }">
             <span v-if="$index === 0" class="rank-icon gold">🥇</span>
             <span v-else-if="$index === 1" class="rank-icon silver">🥈</span>
@@ -126,7 +128,7 @@
             <span v-else class="rank-number">{{ $index + 1 }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="name" label="姓名" min-width="100">
+        <el-table-column prop="name" label="姓名" min-width="100" :fixed="isMobile ? 'left' : false">
           <template #default="{ row, $index }">
             <div class="name-cell">
               <span class="staff-name">{{ row.name }}</span>
@@ -213,6 +215,7 @@ import { usePagination } from '@/composables/usePagination'
 const loading = ref(false)
 const dateRange = ref([])
 const chartRef = ref(null)
+const chartWrapperRef = ref(null)
 const tableRef = ref(null)
 let chart = null
 const dateRangeStorageKey = 'viewState:StaffAnalysis:dateRange'
@@ -470,12 +473,28 @@ const fetchData = async () => {
 const initChart = () => {
   if (chartRef.value) {
     chart = echarts.init(chartRef.value)
+    // 移动端：初始化时设置图表容器最小宽度
+    if (isMobile.value) {
+      const container = chartRef.value
+      const minWidth = Math.max(600, window.innerWidth)
+      container.style.minWidth = `${minWidth}px`
+    }
     updateChart()
   }
 }
 
 const updateChart = () => {
   if (!chart) return
+  
+  // 移动端：确保图表容器有足够宽度以显示完整标签
+  if (isMobile.value && chartRef.value) {
+    const container = chartRef.value
+    // 计算所需的最小宽度：根据标签长度动态调整
+    // 如果显示全部门店，标签会更长，需要更多空间
+    const hasStoreNames = currentStore.value === 'all' && chartStaffData.value.some(item => item.store_name)
+    const minWidth = hasStoreNames ? Math.max(700, window.innerWidth) : Math.max(600, window.innerWidth)
+    container.style.minWidth = `${minWidth}px`
+  }
   
   // 取前10名员工数据（不受分页影响）
   const isCountMetric = rankMetric.value === 'booking_count'
@@ -492,8 +511,9 @@ const updateChart = () => {
     .reverse() // 图表从下到上排列
   
   // 根据设备类型调整配置
+  // 移动端：增加左侧边距以容纳完整的员工名+门店名标签，并设置最小宽度支持横向滚动
   const gridConfig = isMobile.value 
-    ? { left: '20%', right: '5%', top: '5%', bottom: '10%' }
+    ? { left: '35%', right: '5%', top: '5%', bottom: '10%' }
     : { left: '15%', right: '15%', top: '5%', bottom: '5%' }
   
   const xAxisLabelConfig = isMobile.value
@@ -555,7 +575,11 @@ const updateChart = () => {
       data: data.map(d => d.name),
       axisLabel: {
         interval: 0,
-        fontSize: isMobile.value ? 11 : undefined
+        fontSize: isMobile.value ? 11 : undefined,
+        // 移动端：允许标签完整显示，不截断
+        width: isMobile.value ? 120 : undefined,
+        overflow: isMobile.value ? 'none' : undefined,
+        ellipsis: isMobile.value ? '' : undefined
       }
     },
     series: [{
@@ -565,17 +589,34 @@ const updateChart = () => {
         color: new echarts.graphic.LinearGradient(0, 0, 1, 0, gradientColors[metricKey] || gradientColors.actual_amount)
       },
       label: {
-        show: !isMobile.value,
+        show: true,
         position: 'right',
         formatter: (params) => {
           if (isCountMetric) {
             return params.value + '单'
           }
           return '¥' + params.value.toLocaleString()
-        }
+        },
+        fontSize: isMobile.value ? 10 : undefined
       }
     }]
   })
+  
+  // 移动端：图表更新后，将滚动位置设置为中间
+  scrollChartToCenter()
+}
+
+// 将图表滚动到中间位置
+const scrollChartToCenter = () => {
+  if (isMobile.value && chartWrapperRef.value) {
+    nextTick(() => {
+      const wrapper = chartWrapperRef.value
+      if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
+        const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+        wrapper.scrollLeft = scrollLeft
+      }
+    })
+  }
 }
 
 // 监听门店变化，重新获取数据
@@ -630,9 +671,20 @@ const handleDateChange = () => {
 
 const handleResize = () => {
   checkDevice()
+  // 移动端：确保图表容器有足够宽度以显示完整标签
+  if (isMobile.value && chartRef.value) {
+    const container = chartRef.value
+    // 计算所需的最小宽度：左侧标签区域（35%）+ 图表区域
+    // 根据实际标签长度动态调整，这里设置一个合理的最小值
+    const hasStoreNames = currentStore.value === 'all' && chartStaffData.value.some(item => item.store_name)
+    const minWidth = hasStoreNames ? Math.max(700, window.innerWidth) : Math.max(600, window.innerWidth)
+    container.style.minWidth = `${minWidth}px`
+  }
   chart?.resize()
   // 窗口大小变化时重新更新图表配置，确保移动端/桌面端配置正确
   updateChart()
+  // 移动端：窗口大小变化后重新居中滚动
+  scrollChartToCenter()
 }
 
 onMounted(async () => {
@@ -865,8 +917,25 @@ onUnmounted(() => {
     }
   }
   
+  .chart-wrapper {
+    // 移动端：支持横向滚动以显示完整的纵坐标标签
+    @media (max-width: 768px) {
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      width: 100%;
+      position: relative;
+      
+      .chart-container {
+        // 最小宽度由 JavaScript 动态设置，这里只作为后备
+        min-width: 600px;
+      }
+    }
+  }
+  
   .chart-container {
     height: 400px;
+    width: 100%;
   }
 
   // 表格增强样式
@@ -1096,8 +1165,10 @@ onUnmounted(() => {
       }
     }
 
+    .chart-wrapper {
     .chart-container {
       height: 300px;
+      }
     }
 
     :deep(.el-table) {
@@ -1261,8 +1332,10 @@ onUnmounted(() => {
       }
     }
 
+    .chart-wrapper {
     .chart-container {
       height: 250px;
+      }
     }
 
     .rank-icon {

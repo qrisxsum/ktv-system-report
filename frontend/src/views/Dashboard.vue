@@ -90,7 +90,9 @@
               <span>🏪 门店排行 TOP5</span>
             </div>
           </template>
-          <div class="chart-container" ref="storeChartRef"></div>
+          <div class="chart-scroll-wrapper">
+            <div class="chart-container" ref="storeChartRef"></div>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -104,7 +106,9 @@
               <span>👑 员工业绩 TOP5</span>
             </div>
           </template>
-          <div class="chart-container" ref="staffChartRef"></div>
+          <div class="chart-scroll-wrapper">
+            <div class="chart-container" ref="staffChartRef"></div>
+          </div>
         </el-card>
       </el-col>
       
@@ -115,7 +119,9 @@
               <span>🍺 热销商品 TOP5 {{ currentStore === 'all' || !currentStore ? '(全店聚合)' : '' }}</span>
             </div>
           </template>
-          <div class="chart-container" ref="productChartRef"></div>
+          <div class="chart-scroll-wrapper">
+            <div class="chart-container" ref="productChartRef"></div>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -521,7 +527,16 @@ const initStoreChart = (topStores) => {
   chart.setOption({
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'value' },
+    xAxis: {
+      type: 'value',
+      axisLabel: {
+        formatter: (value) => {
+          if (value >= 10000) return `${(value / 10000).toFixed(0)}万`
+          if (value >= 1000) return `${(value / 1000).toFixed(0)}K`
+          return value
+        }
+      }
+    },
     yAxis: {
       type: 'category',
       data: names
@@ -589,7 +604,16 @@ const initStaffChart = (topEmployees) => {
       axisPointer: { type: 'shadow' }
     },
     grid: { left: '3%', right: '18%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'value' },
+    xAxis: {
+      type: 'value',
+      axisLabel: {
+        formatter: (value) => {
+          if (value >= 10000) return `${(value / 10000).toFixed(0)}万`
+          if (value >= 1000) return `${(value / 1000).toFixed(0)}K`
+          return value
+        }
+      }
+    },
     yAxis: {
       type: 'category',
       data: names
@@ -653,7 +677,16 @@ const initProductChart = (topProducts) => {
   chart.setOption({
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '15%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'value' },
+    xAxis: {
+      type: 'value',
+      axisLabel: {
+        formatter: (value) => {
+          if (value >= 10000) return `${(value / 10000).toFixed(0)}万`
+          if (value >= 1000) return `${(value / 1000).toFixed(0)}K`
+          return value
+        }
+      }
+    },
     yAxis: {
       type: 'category',
       data: names
@@ -884,6 +917,30 @@ onUnmounted(() => {
         align-items: center;
       }
     }
+
+    .chart-scroll-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+
+      // 隐藏滚动条但保持可滚动
+      scrollbar-width: thin;
+      scrollbar-color: #ddd transparent;
+
+      &::-webkit-scrollbar {
+        height: 4px;
+      }
+
+      &::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      &::-webkit-scrollbar-thumb {
+        background-color: #ddd;
+        border-radius: 2px;
+      }
+    }
     
     .chart-container {
       height: 300px;
@@ -984,6 +1041,13 @@ onUnmounted(() => {
         }
       }
 
+      // 移动端横向滚动图表
+      .chart-scroll-wrapper {
+        .chart-container {
+          min-width: 400px; // 保证足够的宽度显示完整标签
+        }
+      }
+
       .chart-container {
         height: 250px;
       }
@@ -1047,6 +1111,13 @@ onUnmounted(() => {
 
       .card-header {
         font-size: 13px;
+      }
+
+      // 更小屏幕保持滚动能力
+      .chart-scroll-wrapper {
+        .chart-container {
+          min-width: 360px;
+        }
       }
 
       .chart-container {

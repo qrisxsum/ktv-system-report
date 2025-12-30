@@ -25,6 +25,7 @@
               inactive-text="全部商品"
               @change="handleExceptionToggle"
             />
+            <span class="filter-label">时间范围</span>
             <el-date-picker
               class="date-range"
               v-model="dateRange"
@@ -50,7 +51,7 @@
               <template #header>
                 <span class="chart-title">🔥 爆款榜 (销售额 Top 10)</span>
               </template>
-              <div class="chart-wrapper">
+              <div class="chart-wrapper" ref="salesChartWrapperRef">
                 <div ref="salesChartRef" class="chart-container"></div>
                 <div
                   v-if="!topSalesData.length"
@@ -66,7 +67,7 @@
               <template #header>
                 <span class="chart-title">💰 盈利榜 (毛利额 Top 10)</span>
               </template>
-              <div class="chart-wrapper">
+              <div class="chart-wrapper" ref="profitChartWrapperRef">
                 <div ref="profitChartRef" class="chart-container"></div>
                 <div
                   v-if="!topProfitData.length"
@@ -82,7 +83,7 @@
               <template #header>
                 <span class="chart-title">⚠️ 损耗榜 (赠送金额 Top 10)</span>
               </template>
-              <div class="chart-wrapper">
+              <div class="chart-wrapper" ref="giftChartWrapperRef">
                 <div ref="giftChartRef" class="chart-container"></div>
                 <div
                   v-if="!topGiftData.length"
@@ -203,6 +204,12 @@ import { ElMessage } from 'element-plus'
 import { readSessionJSON, writeSessionJSON, isValidDateRange } from '@/utils/viewState'
 import { usePagination } from '@/composables/usePagination'
 
+// 移动端检测
+const isMobile = ref(false)
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+}
+
 const loading = ref(false)
 const dateRange = ref([])
 const showExceptionOnly = ref(false)
@@ -267,9 +274,26 @@ const formatPercent = (value) => {
   return `${(toSafeNumber(value) * 100).toFixed(2)}%`
 }
 
+// 优化横坐标显示格式：数字+单位，避免多余的"0"
 const formatAxisLabel = (value) => {
   const num = toSafeNumber(value)
-  if (!Number.isFinite(num)) return '¥0'
+  if (!Number.isFinite(num) || num === 0) return '0'
+  
+  // 移动端使用更简洁的格式
+  if (isMobile.value) {
+    if (num >= 10000) {
+      const wan = num / 10000
+      // 避免显示多余的0，如 1.0万 -> 1万
+      return wan % 1 === 0 ? `${wan}万` : `${wan.toFixed(1)}万`
+    } else if (num >= 1000) {
+      const k = num / 1000
+      return k % 1 === 0 ? `${k}K` : `${k.toFixed(1)}K`
+    } else {
+      return num % 1 === 0 ? `${num}` : `${num.toFixed(1)}`
+    }
+  }
+  
+  // 桌面端使用完整格式
   return `¥${num.toLocaleString('zh-CN', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
@@ -473,8 +497,11 @@ const categoryChartData = computed(() => {
 })
 
 const salesChartRef = ref(null)
+const salesChartWrapperRef = ref(null)
 const profitChartRef = ref(null)
+const profitChartWrapperRef = ref(null)
 const giftChartRef = ref(null)
+const giftChartWrapperRef = ref(null)
 const categoryChartRef = ref(null)
 
 const chartInstances = reactive({
@@ -505,6 +532,23 @@ const buildBarOption = (data, valueKey, color) => {
   const names = data.map(item => item.product_name || '未知商品')
   const values = data.map(item => toSafeNumber(item[valueKey]))
 
+  // 移动端配置调整
+  const gridConfig = isMobile.value
+    ? { left: '30%', right: '5%', bottom: 10, top: 10, containLabel: true }
+    : { top: 10, bottom: 10, left: 10, right: 20, containLabel: true }
+
+  const yAxisLabelConfig = isMobile.value
+    ? {
+        interval: 0,
+        fontSize: 11,
+        width: 100,
+        overflow: 'none',
+        ellipsis: ''
+      }
+    : {
+        formatter: formatDimensionLabel
+      }
+
   return {
     tooltip: {
       trigger: 'axis',
@@ -515,17 +559,12 @@ const buildBarOption = (data, valueKey, color) => {
         return `${first.name}<br/>${first.marker}${formatCurrency(first.value)}`
       }
     },
-    grid: {
-      top: 10,
-      bottom: 10,
-      left: 10,
-      right: 20,
-      containLabel: true
-    },
+    grid: gridConfig,
     xAxis: {
       type: 'value',
       axisLabel: {
-        formatter: formatAxisLabel
+        formatter: formatAxisLabel,
+        fontSize: isMobile.value ? 10 : undefined
       },
       splitLine: {
         lineStyle: { type: 'dashed' }
@@ -534,22 +573,22 @@ const buildBarOption = (data, valueKey, color) => {
     yAxis: {
       type: 'category',
       data: names,
-      axisLabel: {
-        formatter: formatDimensionLabel
-      }
+      axisLabel: yAxisLabelConfig
     },
     series: [
       {
         type: 'bar',
         data: values,
-        barMaxWidth: 20,
+        barMaxWidth: isMobile.value ? 20 : 20,
+        barCategoryGap: isMobile.value ? '30%' : '20%',
         itemStyle: {
           color
         },
         label: {
           show: true,
           position: 'right',
-          formatter: ({ value }) => formatCurrency(value)
+          formatter: ({ value }) => formatCurrency(value),
+          fontSize: isMobile.value ? 10 : undefined
         }
       }
     ]
@@ -640,9 +679,38 @@ const updateChart = (type, data, valueKey) => {
     instance.clear()
     return
   }
+  
+  // 移动端：确保图表容器有足够宽度以显示完整标签
+  const wrapperRefMap = {
+    sales: salesChartWrapperRef,
+    profit: profitChartWrapperRef,
+    gift: giftChartWrapperRef
+  }
+  const wrapperRef = wrapperRefMap[type]
+  if (isMobile.value && wrapperRef?.value) {
+    const container = chartRefMap[type]?.value
+    if (container) {
+      // 计算所需的最小宽度，限制最大宽度避免滑动距离过长
+      const baseWidth = 480
+      const minWidth = Math.min(Math.max(baseWidth, window.innerWidth), window.innerWidth * 1.3)
+      container.style.minWidth = `${minWidth}px`
+    }
+  }
+  
   const option = buildBarOption(data, valueKey, chartColorMap[type])
   if (option) {
     instance.setOption(option, true)
+  }
+  
+  // 移动端：图表更新后，将滚动位置设置为中间
+  if (isMobile.value && wrapperRef?.value) {
+    nextTick(() => {
+      const wrapper = wrapperRef.value
+      if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
+        const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+        wrapper.scrollLeft = scrollLeft
+      }
+    })
   }
 }
 
@@ -671,9 +739,16 @@ const updateAllCharts = () => {
 }
 
 const handleChartResize = () => {
+  checkMobile()
   Object.values(chartInstances).forEach(instance => {
     instance?.resize()
   })
+  // 移动端：窗口大小变化后重新更新图表并居中滚动
+  if (isMobile.value) {
+    nextTick(() => {
+      updateAllCharts()
+    })
+  }
 }
 
 // 初始化日期范围（使用数据库中的最新日期）
@@ -956,6 +1031,7 @@ const getRowClass = ({ row }) => {
 }
 
 onMounted(async () => {
+  checkMobile()
   const saved = readSessionJSON(dateRangeStorageKey, null)
   if (isValidDateRange(saved)) {
     dateRange.value = saved
@@ -1264,6 +1340,18 @@ onBeforeUnmount(() => {
     .chart-wrapper {
       position: relative;
       height: 300px;
+      // 移动端：支持横向滚动以显示完整的纵坐标标签
+      @media (max-width: 768px) {
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        width: 100%;
+        
+        .chart-container {
+          // 最小宽度由 JavaScript 动态设置，这里只作为后备
+          min-width: 480px;
+        }
+      }
     }
 
     .chart-container {

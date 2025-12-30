@@ -120,34 +120,84 @@
       v-model="detailVisible"
       title="批次详情"
       width="600px"
+      :fullscreen="isMobile"
       destroy-on-close
+      class="batch-detail-dialog"
     >
-      <el-descriptions :column="2" border v-if="currentBatch">
-        <el-descriptions-item label="批次ID">{{ currentBatch.id }}</el-descriptions-item>
-        <el-descriptions-item label="批次编号">{{ currentBatch.batch_no }}</el-descriptions-item>
-        <el-descriptions-item label="文件名" :span="2">{{ currentBatch.file_name }}</el-descriptions-item>
-        <el-descriptions-item label="门店">{{ currentBatch.store_name }}</el-descriptions-item>
-        <el-descriptions-item label="表类型">
-          <el-tag :type="getTableTypeTag(currentBatch.table_type)" size="small">
-            {{ currentBatch.table_type_name || getTableTypeName(currentBatch.table_type) }}
-          </el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="数据行数">{{ currentBatch.row_count }} 行</el-descriptions-item>
-        <el-descriptions-item label="状态">
-          <el-tag :type="getStatusType(currentBatch.status)">
-            {{ getStatusText(currentBatch.status) }}
-          </el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="上传时间" :span="2">
-          {{ formatTime(currentBatch.created_at) }}
-        </el-descriptions-item>
-        <el-descriptions-item label="销售总额" v-if="currentBatch.sales_total">
-          ¥{{ currentBatch.sales_total?.toLocaleString() }}
-        </el-descriptions-item>
-        <el-descriptions-item label="实收总额" v-if="currentBatch.actual_total">
-          ¥{{ currentBatch.actual_total?.toLocaleString() }}
-        </el-descriptions-item>
-      </el-descriptions>
+      <div class="batch-detail-content" v-if="currentBatch">
+        <!-- 头部信息卡片 -->
+        <div class="detail-header">
+          <div class="header-main">
+            <div class="batch-id">#{{ currentBatch.id }}</div>
+            <el-tag :type="getStatusType(currentBatch.status)" size="large" effect="dark">
+              {{ getStatusText(currentBatch.status) }}
+            </el-tag>
+          </div>
+          <div class="batch-no-text">{{ currentBatch.batch_no }}</div>
+        </div>
+
+        <!-- 文件信息 -->
+        <div class="detail-section">
+          <div class="section-title">
+            <el-icon><Document /></el-icon>
+            <span>文件信息</span>
+          </div>
+          <div class="section-content">
+            <div class="info-row">
+              <span class="info-label">文件名</span>
+              <span class="info-value file-name">{{ currentBatch.file_name }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">表类型</span>
+              <span class="info-value">
+                <el-tag :type="getTableTypeTag(currentBatch.table_type)" size="small">
+                  {{ currentBatch.table_type_name || getTableTypeName(currentBatch.table_type) }}
+                </el-tag>
+              </span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">数据行数</span>
+              <span class="info-value highlight">{{ currentBatch.row_count }} 行</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 门店信息 -->
+        <div class="detail-section">
+          <div class="section-title">
+            <el-icon><Shop /></el-icon>
+            <span>门店信息</span>
+          </div>
+          <div class="section-content">
+            <div class="info-row">
+              <span class="info-label">所属门店</span>
+              <span class="info-value">{{ currentBatch.store_name }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">上传时间</span>
+              <span class="info-value">{{ formatTime(currentBatch.created_at) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 金额信息（如果有） -->
+        <div class="detail-section" v-if="currentBatch.sales_total || currentBatch.actual_total">
+          <div class="section-title">
+            <el-icon><Money /></el-icon>
+            <span>金额统计</span>
+          </div>
+          <div class="section-content money-grid">
+            <div class="money-card" v-if="currentBatch.sales_total">
+              <span class="money-label">销售总额</span>
+              <span class="money-value">¥{{ currentBatch.sales_total?.toLocaleString() }}</span>
+            </div>
+            <div class="money-card" v-if="currentBatch.actual_total">
+              <span class="money-label">实收总额</span>
+              <span class="money-value actual">¥{{ currentBatch.actual_total?.toLocaleString() }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
       
       <!-- 错误日志 -->
       <div v-if="currentBatch?.error_log" class="error-log">
@@ -158,22 +208,24 @@
       </div>
       
       <template #footer>
-        <el-button @click="detailVisible = false">关闭</el-button>
-        <el-popconfirm
-          title="确定要删除这个批次吗？"
-          @confirm="handleDelete(currentBatch); detailVisible = false"
-        >
-          <template #reference>
-            <el-button type="danger">删除此批次</el-button>
-          </template>
-        </el-popconfirm>
+        <div class="dialog-footer">
+          <el-button @click="detailVisible = false">关闭</el-button>
+          <el-popconfirm
+            title="确定要删除这个批次吗？"
+            @confirm="handleDelete(currentBatch); detailVisible = false"
+          >
+            <template #reference>
+              <el-button type="danger">删除此批次</el-button>
+            </template>
+          </el-popconfirm>
+        </div>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, inject, watch, computed } from 'vue'
+import { ref, reactive, onMounted, inject, watch, computed, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listBatches, getBatchDetail, deleteBatch } from '@/api/batch'
 import { listStores } from '@/api/store'
@@ -186,6 +238,24 @@ const total = ref(0)
 const stores = ref([])
 const detailVisible = ref(false)
 const currentBatch = ref(null)
+
+// 移动端检测
+const windowWidth = ref(window.innerWidth)
+const isMobile = computed(() => windowWidth.value <= 768)
+
+const handleResize = () => {
+  windowWidth.value = window.innerWidth
+}
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize)
+  loadStores()
+  loadBatches()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+})
 
 // 注入门店选择状态
 const currentStore = inject('currentStore', ref('all'))
@@ -329,13 +399,6 @@ const formatTime = (time) => {
     return time
   }
 }
-
-// 初始化
-onMounted(() => {
-  loadStores()
-  // 手动触发一次数据加载
-  loadBatches()
-})
 </script>
 
 <style lang="scss" scoped>
@@ -379,6 +442,145 @@ onMounted(() => {
     }
   }
 
+  // 批次详情样式
+  .batch-detail-content {
+    // 头部信息
+    .detail-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      color: #fff;
+
+      .header-main {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+
+        .batch-id {
+          font-size: 24px;
+          font-weight: 700;
+        }
+      }
+
+      .batch-no-text {
+        font-size: 12px;
+        opacity: 0.85;
+        font-family: monospace;
+        word-break: break-all;
+      }
+    }
+
+    // 信息区块
+    .detail-section {
+      background: #fff;
+      border-radius: 10px;
+      border: 1px solid #ebeef5;
+      margin-bottom: 12px;
+      overflow: hidden;
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 16px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #ebeef5;
+        font-weight: 600;
+        font-size: 14px;
+        color: #303133;
+
+        .el-icon {
+          color: #409eff;
+          font-size: 16px;
+        }
+      }
+
+      .section-content {
+        padding: 4px 0;
+
+        .info-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          padding: 12px 16px;
+          border-bottom: 1px solid #f0f0f0;
+
+          &:last-child {
+            border-bottom: none;
+          }
+
+          .info-label {
+            color: #909399;
+            font-size: 13px;
+            flex-shrink: 0;
+            min-width: 70px;
+          }
+
+          .info-value {
+            color: #303133;
+            font-size: 14px;
+            text-align: right;
+            word-break: break-word;
+            flex: 1;
+            margin-left: 12px;
+
+            &.file-name {
+              font-size: 13px;
+              line-height: 1.5;
+            }
+
+            &.highlight {
+              color: #409eff;
+              font-weight: 500;
+            }
+          }
+        }
+
+        // 金额卡片样式
+        &.money-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          padding: 12px 16px;
+
+          .money-card {
+            background: linear-gradient(135deg, #fff8e6 0%, #fff4d6 100%);
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+            border: 1px solid #ffeeba;
+
+            .money-label {
+              display: block;
+              font-size: 12px;
+              color: #909399;
+              margin-bottom: 6px;
+            }
+
+            .money-value {
+              display: block;
+              font-size: 18px;
+              font-weight: 700;
+              color: #e6a23c;
+
+              &.actual {
+                color: #67c23a;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  .dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
   // 移动端优化
   @media (max-width: 768px) {
     .filter-card {
@@ -390,7 +592,7 @@ onMounted(() => {
       :deep(.el-form) {
         display: flex;
         flex-wrap: wrap;
-        gap: 14px;
+        gap: 12px;
         
         .el-form-item {
           display: flex;
@@ -407,7 +609,7 @@ onMounted(() => {
           // 表类型和状态各占一半
           &:nth-child(2),
           &:nth-child(3) {
-            width: calc(50% - 7px);
+            width: calc(50% - 6px);
           }
 
           // 按钮组占满一行
@@ -436,7 +638,7 @@ onMounted(() => {
           // 按钮组横向排列
           &:last-child .el-form-item__content {
             display: flex;
-            gap: 8px;
+            gap: 12px;
             
             .el-button {
               flex: 1;
@@ -542,19 +744,80 @@ onMounted(() => {
       }
 
       .el-dialog__body {
-        padding: 15px;
+        padding: 12px;
+        background: #f5f7fa;
+      }
 
-        .el-descriptions {
-          font-size: 13px;
+      .el-dialog__footer {
+        padding: 12px 15px;
+      }
+    }
 
-          .el-descriptions__label {
-            font-size: 13px;
-          }
+    // 移动端详情内容优化
+    .batch-detail-content {
+      .detail-header {
+        padding: 16px;
+        margin-bottom: 12px;
 
-          .el-descriptions__content {
-            font-size: 13px;
+        .header-main {
+          .batch-id {
+            font-size: 20px;
           }
         }
+
+        .batch-no-text {
+          font-size: 11px;
+        }
+      }
+
+      .detail-section {
+        margin-bottom: 10px;
+
+        .section-title {
+          padding: 10px 14px;
+          font-size: 13px;
+        }
+
+        .section-content {
+          .info-row {
+            padding: 10px 14px;
+
+            .info-label {
+              font-size: 12px;
+            }
+
+            .info-value {
+              font-size: 13px;
+            }
+          }
+
+          &.money-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding: 10px 14px;
+
+            .money-card {
+              padding: 12px 10px;
+
+              .money-label {
+                font-size: 11px;
+              }
+
+              .money-value {
+                font-size: 16px;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    .dialog-footer {
+      justify-content: center;
+      
+      .el-button {
+        flex: 1;
+        max-width: 150px;
       }
     }
   }

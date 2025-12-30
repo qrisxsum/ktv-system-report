@@ -15,6 +15,7 @@
         <div class="filter-item">
           <span class="filter-label">时间范围</span>
           <el-date-picker
+            class="date-range"
             v-model="dateRange"
             type="daterange"
             unlink-panels
@@ -33,11 +34,6 @@
             <el-radio-button value="store">按门店</el-radio-button>
           </el-radio-group>
         </div>
-
-        <el-button type="primary" @click="fetchData" :loading="loading">
-          <el-icon><Search /></el-icon>
-          查询
-        </el-button>
       </div>
     </el-card>
 
@@ -106,7 +102,9 @@
           <span class="chart-title">📈 {{ queryFilters.dimension === 'date' ? '充值趋势' : '门店充值对比' }}</span>
         </div>
       </template>
-      <div class="chart-container" ref="trendChartRef" v-loading="loading"></div>
+      <div class="chart-wrapper" ref="trendChartWrapperRef">
+        <div class="chart-container" ref="trendChartRef" v-loading="loading"></div>
+      </div>
     </el-card>
 
     <!-- 数据表格 -->
@@ -128,38 +126,39 @@
         <el-table-column
           :prop="queryFilters.dimension === 'date' ? 'dimension_key' : 'dimension_label'"
           :label="queryFilters.dimension === 'date' ? '日期' : '门店'"
-          width="150"
-          fixed="left"
+          :width="isMobile ? 100 : 150"
+          :fixed="isMobile ? 'left' : false"
           :sortable="queryFilters.dimension === 'date' ? 'custom' : false"
+          show-overflow-tooltip
         />
-        <el-table-column prop="recharge_real_income" label="充值实收" align="right" sortable="custom">
+        <el-table-column prop="recharge_real_income" label="充值实收" align="right" sortable="custom" :min-width="isMobile ? 100 : 110">
           <template #default="{ row }">
             <span class="amount positive">¥{{ formatNumber(row.recharge_real_income) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="recharge_count" label="充值笔数" align="right" sortable="custom" width="100" />
-        <el-table-column prop="room_amount_principal" label="房费本金" align="right" sortable="custom">
+        <el-table-column prop="recharge_count" label="充值笔数" align="right" sortable="custom" :width="isMobile ? 80 : 100" />
+        <el-table-column prop="room_amount_principal" label="房费本金" align="right" sortable="custom" :min-width="isMobile ? 100 : 110">
           <template #default="{ row }">
             ¥{{ formatNumber(row.room_amount_principal) }}
           </template>
         </el-table-column>
-        <el-table-column prop="drink_amount_principal" label="酒水本金" align="right" sortable="custom">
+        <el-table-column prop="drink_amount_principal" label="酒水本金" align="right" sortable="custom" :min-width="isMobile ? 100 : 110">
           <template #default="{ row }">
             ¥{{ formatNumber(row.drink_amount_principal) }}
           </template>
         </el-table-column>
-        <el-table-column prop="room_amount_gift" label="房费赠送" align="right" sortable="custom">
+        <el-table-column prop="room_amount_gift" label="房费赠送" align="right" sortable="custom" :min-width="isMobile ? 100 : 110">
           <template #default="{ row }">
             <span class="amount gift">¥{{ formatNumber(row.room_amount_gift) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="drink_amount_gift" label="酒水赠送" align="right" sortable="custom">
+        <el-table-column prop="drink_amount_gift" label="酒水赠送" align="right" sortable="custom" :min-width="isMobile ? 100 : 110">
           <template #default="{ row }">
             <span class="amount gift">¥{{ formatNumber(row.drink_amount_gift) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="points_delta" label="积分变动" align="right" sortable="custom" width="100" />
-        <el-table-column prop="growth_delta" label="成长值" align="right" sortable="custom" width="100" />
+        <el-table-column prop="points_delta" label="积分变动" align="right" sortable="custom" :width="isMobile ? 80 : 100" />
+        <el-table-column prop="growth_delta" label="成长值" align="right" sortable="custom" :width="isMobile ? 80 : 100" />
       </el-table>
 
       <div class="table-pagination">
@@ -182,7 +181,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, inject, nextTick } from 'vue'
-import { Search, CreditCard, Wallet, Present, Star } from '@element-plus/icons-vue'
+import { CreditCard, Wallet, Present, Star } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { queryStats, getDateRange } from '@/api/stats'
 import { ElMessage } from 'element-plus'
@@ -192,6 +191,7 @@ import { usePagination } from '@/composables/usePagination'
 const loading = ref(false)
 const dateRange = ref([])
 const trendChartRef = ref(null)
+const trendChartWrapperRef = ref(null)
 const tableRef = ref(null)
 let trendChart = null
 const dateRangeStorageKey = 'viewState:MemberAnalysis:dateRange'
@@ -375,9 +375,9 @@ const updateChart = () => {
         bottom: 0
       },
       grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '15%',
+        left: isMobile.value ? '10%' : '3%',
+        right: isMobile.value ? '5%' : '4%',
+        bottom: isMobile.value ? '20%' : '15%',
         top: '10%',
         containLabel: true
       },
@@ -386,18 +386,27 @@ const updateChart = () => {
         data: dates,
         axisLabel: {
           rotate: isMobile.value ? 45 : 0,
-          fontSize: isMobile.value ? 10 : 12
+          fontSize: isMobile.value ? 10 : 12,
+          // 移动端显示所有标签，桌面端根据数据量自动调整间隔避免重叠
+          interval: isMobile.value ? 0 : 'auto'
         }
       },
       yAxis: {
         type: 'value',
         axisLabel: {
           formatter: (value) => {
+            // 优化显示格式：数字+单位，避免多余的"0"
             if (value >= 10000) {
-              return (value / 10000).toFixed(0) + '万'
+              const wan = value / 10000
+              return wan % 1 === 0 ? `${wan}万` : `${wan.toFixed(1)}万`
+            } else if (value >= 1000) {
+              const k = value / 1000
+              return k % 1 === 0 ? `${k}K` : `${k.toFixed(1)}K`
+            } else {
+              return value % 1 === 0 ? `${value}` : `${value.toFixed(1)}`
             }
-            return value
-          }
+          },
+          fontSize: isMobile.value ? 10 : undefined
         }
       },
       series: [
@@ -453,9 +462,9 @@ const updateChart = () => {
         bottom: 0
       },
       grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '15%',
+        left: isMobile.value ? '25%' : '3%',
+        right: isMobile.value ? '5%' : '4%',
+        bottom: isMobile.value ? '20%' : '15%',
         top: '10%',
         containLabel: true
       },
@@ -463,9 +472,12 @@ const updateChart = () => {
         type: 'category',
         data: stores,
         axisLabel: {
-          rotate: 30,
+          rotate: isMobile.value ? 45 : 30,
           fontSize: isMobile.value ? 10 : 12,
-          interval: 0
+          interval: 0,
+          width: isMobile.value ? 80 : undefined,
+          overflow: isMobile.value ? 'none' : undefined,
+          ellipsis: isMobile.value ? '' : undefined
         }
       },
       yAxis: {
@@ -484,7 +496,8 @@ const updateChart = () => {
           name: '充值实收',
           type: 'bar',
           data: rechargeData,
-          barMaxWidth: 50,
+          barMaxWidth: isMobile.value ? 30 : 50,
+          barCategoryGap: isMobile.value ? '30%' : '20%',
           itemStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
               { offset: 0, color: '#36d399' },
@@ -495,6 +508,17 @@ const updateChart = () => {
         }
       ]
     }, true)
+  }
+  
+  // 移动端：图表更新后，将滚动位置设置为中间
+  if (isMobile.value && trendChartWrapperRef.value) {
+    nextTick(() => {
+      const wrapper = trendChartWrapperRef.value
+      if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
+        const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+        wrapper.scrollLeft = scrollLeft
+      }
+    })
   }
 }
 
@@ -546,10 +570,25 @@ const handleSortChange = async ({ prop, order }) => {
   // 注意：排序时不需要滚动表格，保持用户当前查看位置
 }
 
+// 将图表滚动到中间位置
+const scrollTrendChartToCenter = () => {
+  if (isMobile.value && trendChartWrapperRef.value) {
+    nextTick(() => {
+      const wrapper = trendChartWrapperRef.value
+      if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
+        const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+        wrapper.scrollLeft = scrollLeft
+      }
+    })
+  }
+}
+
 const handleResize = () => {
   checkDevice()
   trendChart?.resize()
   updateChart()
+  // 移动端：窗口大小变化后重新居中滚动
+  scrollTrendChartToCenter()
 }
 
 // 监听门店变化
@@ -615,12 +654,18 @@ onUnmounted(() => {
 
     .filter-item {
       display: flex;
-      flex-direction: column;
-      gap: 4px;
+      align-items: center;
+      gap: 8px;
 
       .filter-label {
         font-size: 13px;
         color: #606266;
+        white-space: nowrap;
+      }
+
+      .date-range {
+        width: 360px;
+        max-width: 100%;
       }
     }
 
@@ -739,8 +784,23 @@ onUnmounted(() => {
       font-weight: 600;
     }
 
+    .chart-wrapper {
+      // 移动端：支持横向滚动以显示完整的横坐标标签
+      @media (max-width: 768px) {
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        width: 100%;
+        
+        .chart-container {
+          min-width: 600px; // 确保图表有足够宽度显示完整标签
+        }
+      }
+    }
+
     .chart-container {
       height: 350px;
+      width: 100%;
     }
   }
 
@@ -793,26 +853,60 @@ onUnmounted(() => {
 
       .filter-item {
         width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
+        .filter-label {
+          font-size: 12px;
+        }
+
+        .date-range {
+          width: 100%;
+        }
+
+        // 时间范围选择器移动端优化
+        :deep(.el-date-editor--daterange) {
+          width: 100% !important;
+          padding: 3px 5px;
+          
+          .el-range-separator {
+            padding: 0 4px;
+            font-size: 12px;
+            width: auto;
+          }
+          
+          .el-range-input {
+            font-size: 12px;
+            width: 42%;
+          }
+
+          .el-range__icon,
+          .el-range__close-icon {
+            font-size: 12px;
+            width: 18px;
+          }
+        }
       }
 
       .dimension-switch {
+        width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+
         :deep(.el-radio-group) {
           width: 100%;
-          display: flex;
-        }
 
-        :deep(.el-radio-button) {
-          flex: 1;
-        }
+          .el-radio-button {
+            flex: 1;
 
-        :deep(.el-radio-button__inner) {
-          width: 100%;
-          padding: 10px 8px;
+            .el-radio-button__inner {
+              width: 100%;
+              padding: 8px 12px;
+            }
+          }
         }
-      }
-
-      > .el-button {
-        width: 100%;
       }
     }
 
@@ -842,12 +936,34 @@ onUnmounted(() => {
       }
     }
 
-    .chart-container {
-      height: 280px !important;
-    }
+      .chart-wrapper {
+        .chart-container {
+          height: 280px !important;
+        }
+      }
 
     :deep(.el-table) {
       font-size: 12px;
+
+      // 防止数字换行
+      .el-table__header th,
+      .el-table__body td {
+        white-space: nowrap;
+        padding: 8px 4px;
+      }
+
+      // 金额列确保不换行
+      .amount {
+        white-space: nowrap;
+        display: inline-block;
+      }
+
+      // 右对齐列的内容不换行
+      .el-table__cell {
+        &[style*="text-align: right"] {
+          white-space: nowrap;
+        }
+      }
     }
 
     .table-pagination {
@@ -866,9 +982,11 @@ onUnmounted(() => {
       }
     }
 
-    .chart-container {
-      height: 220px !important;
-    }
+      .chart-wrapper {
+        .chart-container {
+          height: 220px !important;
+        }
+      }
   }
 }
 </style>
