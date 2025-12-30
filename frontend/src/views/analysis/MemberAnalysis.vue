@@ -30,7 +30,11 @@
 
         <div class="filter-item dimension-switch">
           <span class="filter-label">分析维度</span>
-          <el-radio-group v-model="queryFilters.dimension" @change="handleDimensionChange">
+          <el-radio-group
+            v-model="queryFilters.dimension"
+            @change="handleDimensionChange"
+            size="small"
+          >
             <el-radio-button value="date">按日期</el-radio-button>
             <el-radio-button value="store">按门店</el-radio-button>
           </el-radio-group>
@@ -650,8 +654,8 @@ onUnmounted(() => {
   .filters {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px;
-    align-items: flex-end;
+    gap: 24px;
+    align-items: center;
 
     .filter-item {
       display: flex;
@@ -671,9 +675,9 @@ onUnmounted(() => {
     }
 
     .dimension-switch {
-      :deep(.el-radio-button__inner) {
-        padding: 8px 16px;
-      }
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
   }
 

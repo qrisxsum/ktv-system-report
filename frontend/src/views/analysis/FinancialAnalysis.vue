@@ -653,23 +653,32 @@ const buildAnomalyOption = () => {
     ? { left: '30%', right: '5%', bottom: 30, top: 40, containLabel: true }
     : { left: 20, right: 30, bottom: 20, top: 40, containLabel: true }
 
+  // 横坐标格式化：数字加单位显示（不显示"元"）
+  const formatXAxisValue = (value) => {
+    const num = Number(value)
+    if (!Number.isFinite(num) || num === 0) {
+      return '0'
+    }
+    if (num >= 10000) {
+      const wan = num / 10000
+      // 如果是整数，不显示小数
+      return wan % 1 === 0 ? `${wan.toFixed(0)}万` : `${wan.toFixed(1)}万`
+    } else if (num >= 1000) {
+      const qian = num / 1000
+      return qian % 1 === 0 ? `${qian.toFixed(0)}千` : `${qian.toFixed(1)}千`
+    } else {
+      return `${num.toFixed(0)}`
+    }
+  }
+
   const xAxisLabelConfig = isMobile.value
     ? {
-        formatter: (value) => {
-          // 移动端使用更简洁的格式
-          if (value >= 10000) {
-            return '¥' + (value / 10000).toFixed(1) + '万'
-          } else if (value >= 1000) {
-            return '¥' + (value / 1000).toFixed(0) + 'K'
-          } else {
-            return '¥' + value.toFixed(0)
-          }
-        },
+        formatter: formatXAxisValue,
         fontSize: 10,
         rotate: 0
       }
     : {
-        formatter: (value) => `¥${formatCurrency(value)}`
+        formatter: formatXAxisValue
       }
 
   const yAxisLabelConfig = isMobile.value
