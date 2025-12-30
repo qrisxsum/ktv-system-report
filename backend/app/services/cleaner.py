@@ -50,6 +50,7 @@ BOOKING_MAPPING: Dict[str, str] = {
     "订台数": "booking_qty",
     # 金额字段
     "销售金额": "sales_amount",
+    "应收金额": "receivable_amount",
     "服务费": "service_fee",
     "自动扣减": "auto_deduction",
     "基本业绩": "base_performance",
