@@ -579,7 +579,7 @@ const anomalyDataset = computed(() => {
     .map((row) => {
       let label = row.dimension_label || row.dimension_key || '未命名'
       // 当维度为员工且未选择特定门店时，在名字后面备注门店
-      if (anomalyDimension.value === 'employee' && (!currentStore.value || currentStore.value === 'all')) {
+      if (anomalyDimension.value === 'employee' && !queryFilters.store_id) {
         // 优先使用后端返回的 store_name 或通过 store_id 匹配到的名称
         const storeName = row.store_name || 
                         row.store_label || 

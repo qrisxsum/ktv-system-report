@@ -73,7 +73,9 @@ class StatsService:
             else_="凌晨场",
         )
 
-    def _get_dimension_expr(self, model, dimension: str, granularity: str):
+    def _get_dimension_expr(
+        self, model, dimension: str, granularity: str, store_id: Optional[int] = None
+    ):
         """根据维度和粒度返回分组表达式和标签"""
         if dimension == "date":
             col = model.biz_date
@@ -91,6 +93,10 @@ class StatsService:
                 return model.employee_id.label("dimension_key")
         elif dimension == "product":
             if hasattr(model, "product_id"):
+                # 全部门店视角：按商品名称聚合，避免同名商品重复
+                if store_id is None and model is FactSales:
+                    return DimProduct.name.label("dimension_key")
+                # 单门店视角：按商品ID分组
                 return model.product_id.label("dimension_key")
         elif dimension == "category":
             if model is FactSales:
@@ -167,7 +173,7 @@ class StatsService:
         if not hasattr(model, "extra_payments"):
             return {}
 
-        dim_expr = self._get_dimension_expr(model, dimension, granularity)
+        dim_expr = self._get_dimension_expr(model, dimension, granularity, store_id)
         # 关键修复：
         # dim_expr 可能来自维表字段（如 room_type => DimRoom.room_type、category => DimProduct.category）。
         # 如果不 join 维表，SQLAlchemy 往往会生成无条件的 FROM (model, dim_table) 笛卡尔积，
@@ -285,15 +291,18 @@ class StatsService:
                 ("beverage_discount", self._safe_sum(model.beverage_discount)),
                 ("duration", self._safe_sum(model.duration_min)),
                 ("orders", func.count(model.id)),
-                # 派生字段：低消达成率 = 账单合计 / 最低消费
+                # 派生字段：低消达成率 = 平均(单次账单合计 / 单次最低消费)
+                # 先计算每次开台的达成率，再取平均值，确保在最低消费标准不一致时也能准确反映达成情况
                 (
                     "low_consume_rate",
-                    case(
-                        (
-                            min_consumption_sum > 0,
-                            bill_total_sum * 1.0 / min_consumption_sum,
-                        ),
-                        else_=0,
+                    func.avg(
+                        case(
+                            (
+                                model.min_consumption > 0,
+                                model.bill_total * 1.0 / model.min_consumption,
+                            ),
+                            else_=None,
+                        )
                     ),
                 ),
                 # 派生字段：赠送比例 = 赠送金额 / 账单合计
@@ -593,7 +602,7 @@ class StatsService:
         end_date: date,
         store_id: Optional[int],
     ):
-        dim_expr = self._get_dimension_expr(model, dimension, granularity)
+        dim_expr = self._get_dimension_expr(model, dimension, granularity, store_id)
         metric_columns: Dict[str, Any] = {}
         select_columns = [dim_expr]
         # 保存原始聚合表达式，用于窗口函数
@@ -610,7 +619,13 @@ class StatsService:
             dim_label_expr,
             extra_columns,
         ) = self._get_dimension_join_config(model, dimension)
+        # 当按商品名称分组时（全部门店），dim_expr 已经是 DimProduct.name
+        # 此时 dim_label_expr 也是 DimProduct.name，使用 dim_expr 作为 label 即可
         if dim_label_expr is not None:
+            # 如果 dim_expr 已经是商品名称（全部门店按名称分组），则使用 dim_expr 作为 label
+            if dimension == "product" and store_id is None and model is FactSales:
+                # dim_expr 已经是 DimProduct.name，直接使用它作为 label
+                dim_label_expr = dim_expr.label("dimension_label")
             select_columns.append(dim_label_expr)
         extra_column_names: List[str] = []
         for extra_col in extra_columns:
@@ -643,8 +658,15 @@ class StatsService:
         if store_id is not None:
             stmt = stmt.where(model.store_id == store_id)
         stmt = stmt.group_by(dim_expr)
+        # 如果 dim_label_expr 和 dim_expr 引用同一个字段，不需要重复分组
         if dim_label_expr is not None:
-            stmt = stmt.group_by(dim_label_expr)
+            # 检查 dim_expr 和 dim_label_expr 是否引用同一个字段
+            # 当按商品名称分组时（全部门店），它们引用同一个字段 DimProduct.name
+            if dimension == "product" and store_id is None and model is FactSales:
+                # 已经按 dim_expr 分组，dim_label_expr 是同一个字段，不需要重复分组
+                pass
+            else:
+                stmt = stmt.group_by(dim_label_expr)
         for extra_col in extra_columns:
             stmt = stmt.group_by(extra_col)
         stmt = stmt.order_by(dim_expr)

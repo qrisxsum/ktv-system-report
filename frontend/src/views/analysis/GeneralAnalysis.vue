@@ -521,7 +521,14 @@ const BOOKING_COLUMN_GROUPS = Object.freeze([
 
 const tableOptions = TABLE_OPTIONS
 
-const dimensionOptions = computed(() => DIMENSION_OPTIONS_MAP[queryParams.table] || [])
+const dimensionOptions = computed(() => {
+  const options = DIMENSION_OPTIONS_MAP[queryParams.table] || []
+  // 当数据源为包厢时，暂时隐藏包厢维度选项
+  if (queryParams.table === 'room') {
+    return options.filter(option => option.value !== 'room')
+  }
+  return options
+})
 
 const showGranularity = computed(() => queryParams.dimension === 'date')
 
@@ -699,6 +706,34 @@ const formatDimensionLabel = (value) => {
   if (typeof label !== 'string') {
     return String(label)
   }
+  
+  // 如果是带门店名的员工标签格式：员工名(门店名)
+  const storeNameMatch = label.match(/^(.+?)\((.+?)\)$/)
+  if (storeNameMatch) {
+    const employeeName = storeNameMatch[1]
+    const storeName = storeNameMatch[2]
+    
+    // 如果总长度超过限制，优先保留员工名，门店名可适当截断
+    const maxLength = 20
+    if (label.length > maxLength) {
+      // 计算员工名长度 + 括号 + 门店名可用空间
+      const availableStoreNameLength = maxLength - employeeName.length - 3 // 3 = "()" + "…"
+      if (availableStoreNameLength > 0) {
+        const truncatedStoreName = storeName.length > availableStoreNameLength
+          ? `${storeName.slice(0, availableStoreNameLength)}…`
+          : storeName
+        return `${employeeName}(${truncatedStoreName})`
+      } else {
+        // 如果员工名本身就很长，只显示员工名
+        return employeeName.length > maxLength 
+          ? `${employeeName.slice(0, maxLength - 1)}…`
+          : employeeName
+      }
+    }
+    return label
+  }
+  
+  // 普通标签处理
   return label.length > 20 ? `${label.slice(0, 18)}…` : label
 }
 
@@ -780,15 +815,20 @@ const withRoomDerivedMetrics = (row) => {
       ? toFiniteNumber(row.credit_amount)
       : 0
 
+  // 低消达成率：优先使用后端计算好的值（后端已按正确逻辑计算平均值）
+  // 如果后端未返回，则使用聚合值计算（作为兜底，但这种情况应该很少见）
+  const lowConsumeRate = row.low_consume_rate !== null && row.low_consume_rate !== undefined
+    ? Number(Number(row.low_consume_rate).toFixed(4))
+    : (minConsumption !== null && minConsumption > 0
+        ? Number((billTotal / minConsumption).toFixed(4))
+        : null)
+
   return {
     ...row,
     bill_total: billTotal,
     min_consumption: minConsumption,
     min_consumption_diff: minConsumptionDiff,
-    low_consume_rate:
-      minConsumption !== null && minConsumption > 0
-        ? Number((billTotal / minConsumption).toFixed(4))
-        : null,
+    low_consume_rate: lowConsumeRate,
     gift_amount: giftAmount,
     gift_ratio:
       billTotal > 0 && Number.isFinite(giftAmount)
@@ -913,6 +953,13 @@ const buildTableColumns = () => {
     prop: 'dimension_value',
     minWidth: 140
   }
+  
+  // 员工维度且全部门店时，增加"所属门店"列
+  const shouldShowStoreColumn = 
+    queryParams.dimension === 'employee' && 
+    queryParams.store_id === null &&
+    queryParams.table === 'booking'
+  
   if (queryParams.table === 'booking') {
     const metricMap = new Map(
       (COLUMN_CONFIG.booking || []).map((item) => [item.prop, item])
@@ -926,11 +973,35 @@ const buildTableColumns = () => {
         children
       }
     }).filter((group) => group.children.length)
-    tableColumns.value = [dimensionColumn, ...groupedColumns]
+    
+    // 如果显示全部门店，在员工列后插入门店列
+    if (shouldShowStoreColumn) {
+      const storeColumn = {
+        prop: 'store_name',
+        label: '所属门店',
+        align: 'left',
+        minWidth: 140
+      }
+      tableColumns.value = [dimensionColumn, storeColumn, ...groupedColumns]
+    } else {
+      tableColumns.value = [dimensionColumn, ...groupedColumns]
+    }
     return
   }
   const metrics = COLUMN_CONFIG[queryParams.table] || []
-  tableColumns.value = [dimensionColumn, ...metrics]
+  
+  // 如果显示全部门店，在员工列后插入门店列
+  if (shouldShowStoreColumn) {
+    const storeColumn = {
+      prop: 'store_name',
+      label: '所属门店',
+      align: 'left',
+      minWidth: 140
+    }
+    tableColumns.value = [dimensionColumn, storeColumn, ...metrics]
+  } else {
+    tableColumns.value = [dimensionColumn, ...metrics]
+  }
 }
 
 const resetResultState = () => {
@@ -1138,7 +1209,18 @@ const buildChartOption = (isFullscreen = false) => {
     sourceData = sourceData.slice(0, MOBILE_CHART_LIMIT)
   }
 
-  const xData = sourceData.map((item) => item.dimension_value ?? '--')
+  // 员工维度且全部门店时，在员工名字后括号备注门店
+  const shouldAppendStoreName = 
+    queryParams.dimension === 'employee' && 
+    queryParams.store_id === null
+
+  const xData = sourceData.map((item) => {
+    let label = item.dimension_value ?? '--'
+    if (shouldAppendStoreName && item.store_name) {
+      label = `${label}(${item.store_name})`
+    }
+    return label
+  })
   const yData = sourceData.map((item) => Number(item[metric.prop]) || 0)
   const mode = chartMode.value
   const isLine = chartType.value === 'line'
@@ -1246,16 +1328,44 @@ const buildChartOption = (isFullscreen = false) => {
     return Math.ceil(count / 40)
   })()
 
+  // 全屏模式下的标签格式化函数
+  const fullscreenLabelFormatter = (value) => {
+    if (typeof value !== 'string') return String(value ?? '--')
+    
+    // 如果是带门店名的员工标签格式：员工名(门店名)
+    const storeNameMatch = value.match(/^(.+?)\((.+?)\)$/)
+    if (storeNameMatch) {
+      const employeeName = storeNameMatch[1]
+      const storeName = storeNameMatch[2]
+      
+      // 全屏模式下允许显示更多字符（25个字符）
+      const maxLength = 25
+      if (value.length > maxLength) {
+        const availableStoreNameLength = maxLength - employeeName.length - 3 // 3 = "()" + "…"
+        if (availableStoreNameLength > 0) {
+          const truncatedStoreName = storeName.length > availableStoreNameLength
+            ? `${storeName.slice(0, availableStoreNameLength)}…`
+            : storeName
+          return `${employeeName}(${truncatedStoreName})`
+        } else {
+          return employeeName.length > maxLength 
+            ? `${employeeName.slice(0, maxLength - 1)}…`
+            : employeeName
+        }
+      }
+      return value
+    }
+    
+    // 普通标签处理，全屏模式显示更多字符
+    return value.length > 25 ? `${value.slice(0, 23)}…` : value
+  }
+
   const xAxisLabelConfig = isFullscreen
     ? {
         rotate: 45,
         interval: fullscreenLabelInterval,
         fontSize: 11,
-        formatter: (value) => {
-          // 全屏模式下显示更多字符
-          if (typeof value !== 'string') return String(value ?? '--')
-          return value.length > 12 ? `${value.slice(0, 10)}…` : value
-        }
+        formatter: fullscreenLabelFormatter
       }
     : {
         rotate: 45,
@@ -1395,54 +1505,8 @@ const handleOrientationChange = () => {
 
 
 const chartNotices = computed(() => {
-  const notices = []
-  const meta = chartMeta.value || {}
-
-  if (meta.auto_adjusted) {
-    const granularityText =
-      GRANULARITY_LABEL_MAP[meta.series_granularity] ||
-      meta.series_granularity ||
-      ''
-    notices.push({
-      type: 'info',
-      message: granularityText
-        ? `已自动调整时间粒度为 ${granularityText} 展示`
-        : '已自动调整时间粒度以保障可读性'
-    })
-  }
-
-  if (meta.is_truncated) {
-    notices.push({
-      type: 'warning',
-      message: '结果已按 Top-N 截断，图表仅展示受控范围内的数据。'
-    })
-  }
-
-  const suggestions = Array.isArray(meta.suggestions)
-    ? meta.suggestions
-    : meta.suggestions
-      ? [meta.suggestions]
-      : []
-  suggestions.slice(0, 3).forEach((tip) => {
-    notices.push({
-      type: 'warning',
-      message: tip
-    })
-  })
-
-  if (chartMode.value === 'heavy') {
-    notices.push({
-      type: 'warning',
-      message: '数据点超过 1200 个，已开启降级渲染与默认缩放，建议缩小时间范围或提升粒度。'
-    })
-  } else if (chartMode.value === 'overload') {
-    notices.push({
-      type: 'error',
-      message: '数据点超过 3000 个，当前仅展示最新窗口。请缩小查询范围或提升粒度以查看完整趋势。'
-    })
-  }
-
-  return notices
+  // 已取消所有警告信息显示
+  return []
 })
 
 watch(
@@ -1459,9 +1523,11 @@ watch(
     sortState.order = null
     cancelActiveQuery()
     const defaultDimension = DEFAULT_DIMENSION_MAP[nextTable] || 'date'
-    const dimensionCandidates = DIMENSION_OPTIONS_MAP[nextTable] || []
+    // 使用过滤后的维度选项（已排除包厢维度）
+    const dimensionCandidates = dimensionOptions.value
     const dimensionValid = dimensionCandidates.some((item) => item.value === queryParams.dimension)
-    if (!dimensionValid) {
+    // 如果当前维度无效，或者数据源为包厢且当前维度为包厢，则切换到默认维度
+    if (!dimensionValid || (nextTable === 'room' && queryParams.dimension === 'room')) {
       queryParams.dimension = defaultDimension
     }
   },
@@ -1591,7 +1657,7 @@ const handleProductDailyPreset = ({ triggerQuery = true, source = 'preset:produc
 const handleRoomDailyPreset = ({ triggerQuery = true, source = 'preset:room' } = {}) => {
   suppressAutoQuery.value = true
   queryParams.table = 'room'
-  queryParams.dimension = 'room'
+  queryParams.dimension = 'date'
   queryParams.granularity = 'day'
   queryParams.dateRange = getYesterdayDateRange()
   nextTick(() => {
