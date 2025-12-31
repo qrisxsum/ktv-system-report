@@ -16,15 +16,12 @@
             placeholder="选择月份"
             format="YYYY-MM"
             value-format="YYYY-MM"
-            style="width: 150px"
+            :editable="false"
             @change="loadData"
           />
         </el-form-item>
 
         <el-form-item>
-          <el-button type="primary" @click="loadData">
-            <el-icon><Search /></el-icon> 查询
-          </el-button>
           <el-button @click="resetFilters">
             <el-icon><Refresh /></el-icon> 重置
           </el-button>
@@ -94,13 +91,20 @@
         style="width: 100%"
         :default-sort="{ prop: 'store_name', order: 'ascending' }"
       >
-        <el-table-column prop="store_name" label="门店" width="150" fixed="left" />
+        <el-table-column 
+          prop="store_name" 
+          label="门店" 
+          :width="isMobile ? 100 : 150" 
+          :min-width="isMobile ? 80 : 150"
+          :fixed="isMobile ? false : 'left'" 
+        />
         <el-table-column 
           v-for="reportType in reportTypes" 
           :key="reportType.value"
           :label="reportType.label"
           :prop="reportType.value"
-          width="180"
+          :width="isMobile ? undefined : 180"
+          :min-width="isMobile ? 100 : 180"
           align="center"
         >
           <template #default="{ row }">
@@ -205,9 +209,10 @@
 <script setup>
 import { ref, onMounted, computed, inject, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh } from '@element-plus/icons-vue'
+import { Refresh } from '@element-plus/icons-vue'
 import { getDataCoverage } from '@/api/health'
 import { listStores } from '@/api/store'
+import { usePagination } from '@/composables/usePagination'
 
 // 状态
 const loading = ref(false)
@@ -226,6 +231,9 @@ const filters = ref({
 // 注入门店选择状态和事件发射器
 const currentStore = inject('currentStore', ref('all'))
 const eventEmitter = inject('eventEmitter', null)
+
+// 移动端检测
+const { isMobile } = usePagination()
 
 // 报表类型定义
 const reportTypes = [
@@ -508,11 +516,14 @@ onMounted(() => {
 
       .status-label {
         white-space: nowrap;
+        flex-shrink: 0;
       }
 
       .status-percent {
         font-size: 12px;
         opacity: 0.9;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
     }
   }
@@ -527,7 +538,8 @@ onMounted(() => {
       :deep(.el-form) {
         display: flex;
         flex-wrap: wrap;
-        gap: 14px;
+        gap: 12px;
+        align-items: flex-end; // 底部对齐
 
         .el-form-item {
           display: flex;
@@ -541,14 +553,10 @@ onMounted(() => {
             width: 100%;
           }
 
-          // 月份选择和按钮组在同一行，各占一半
-          &:nth-child(2) {
-            width: calc(40% - 7px);
-          }
-
-          // 按钮组
+          // 月份选择和重置按钮各占一半
+          &:nth-child(2),
           &:last-child {
-            width: calc(60% - 7px);
+            width: calc(50% - 6px);
           }
 
           .el-form-item__label {
@@ -564,8 +572,8 @@ onMounted(() => {
             margin-left: 0 !important;
 
             .el-select,
-            .el-tag {
-              width: 100%;
+            .el-button {
+              width: 100% !important;
             }
 
             :deep(.el-date-editor) {
@@ -573,23 +581,15 @@ onMounted(() => {
             }
           }
 
-          // 按钮组横向排列
+          // 重置按钮样式 - 隐藏标签
           &:last-child {
             .el-form-item__label {
-              visibility: hidden;
-              height: 0;
-              padding: 0;
-              margin: 0;
+              display: none;
             }
 
             .el-form-item__content {
-              display: flex;
-              gap: 8px;
-              height: 100%;
-              align-items: flex-end;
-
               .el-button {
-                flex: 1;
+                width: 100%;
                 margin-left: 0;
               }
             }
@@ -599,9 +599,26 @@ onMounted(() => {
     }
 
     .summary-card {
+      :deep(.el-card__header) {
+        padding: 12px 15px;
+      }
+
+      :deep(.el-card__body) {
+        padding: 12px;
+      }
+
+      .card-header {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
       :deep(.el-row) {
+        margin: 0 -8px;
+
         .el-col {
+          padding: 0 8px;
           margin-bottom: 12px;
+          text-align: center;
 
           &:last-child {
             margin-bottom: 0;
@@ -610,15 +627,39 @@ onMounted(() => {
       }
 
       :deep(.el-statistic) {
+        text-align: center;
+
         .el-statistic__head {
-          font-size: 13px;
+          font-size: 12px;
+          margin-bottom: 6px;
+          color: #606266;
+          text-align: center;
         }
 
         .el-statistic__content {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 4px;
+
           .el-statistic__number {
-            font-size: 20px;
+            font-size: 22px;
+            font-weight: 600;
+            color: #303133;
           }
         }
+      }
+
+      // 日期范围显示优化
+      > div:last-child {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #ebeef5;
+        font-size: 12px;
+        color: #909399;
+        line-height: 1.6;
+        text-align: center;
       }
     }
 
@@ -640,20 +681,51 @@ onMounted(() => {
           padding: 8px 5px;
         }
 
-        // 固定列阴影
+        // 固定列阴影（仅在桌面端显示）
         .el-table__fixed-left {
           box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+        }
+
+        // 移动端表格自适应
+        .el-table__body-wrapper {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        // 移动端列宽优化
+        .el-table__header th,
+        .el-table__body td {
+          white-space: nowrap;
+          overflow: visible;
+          text-overflow: clip;
+        }
+
+        // 确保状态徽章单元格不截断
+        .el-table__body td {
+          .cell {
+            overflow: visible;
+            white-space: nowrap;
+          }
         }
       }
 
       .status-badge {
-        min-width: 70px;
-        padding: 3px 8px;
+        min-width: 85px;
+        width: auto;
+        padding: 3px 10px;
         font-size: 11px;
         gap: 4px;
+        white-space: nowrap;
+
+        .status-label {
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
 
         .status-percent {
           font-size: 10px;
+          white-space: nowrap;
+          flex-shrink: 0;
         }
       }
     }
@@ -701,43 +773,108 @@ onMounted(() => {
 
     .summary-card {
       :deep(.el-card__header) {
-        padding: 12px 15px;
+        padding: 10px 12px;
       }
 
       :deep(.el-card__body) {
-        padding: 12px;
+        padding: 10px;
+      }
+
+      .card-header {
+        font-size: 13px;
+      }
+
+      :deep(.el-row) {
+        margin: 0 -6px;
+
+        .el-col {
+          padding: 0 6px;
+          margin-bottom: 10px;
+          text-align: center;
+        }
       }
 
       :deep(.el-statistic) {
+        text-align: center;
+
         .el-statistic__head {
-          font-size: 12px;
+          font-size: 11px;
+          margin-bottom: 4px;
+          text-align: center;
         }
 
         .el-statistic__content {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 4px;
+
           .el-statistic__number {
-            font-size: 18px;
+            font-size: 20px;
           }
         }
+      }
+
+      // 日期范围显示优化
+      > div:last-child {
+        margin-top: 10px;
+        padding-top: 10px;
+        font-size: 11px;
+        text-align: center;
       }
     }
 
     .matrix-card {
+      :deep(.el-card__body) {
+        padding: 12px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
       :deep(.el-table) {
         font-size: 11px;
+        min-width: 100%;
 
         .el-table__header th,
         .el-table__body td {
           padding: 6px 3px;
         }
+
+        // 确保表格可以横向滚动
+        .el-table__body-wrapper {
+          overflow-x: auto;
+        }
+
+        // 确保状态徽章单元格不截断
+        .el-table__header th,
+        .el-table__body td {
+          overflow: visible;
+          text-overflow: clip;
+
+          .cell {
+            overflow: visible;
+            white-space: nowrap;
+          }
+        }
       }
 
       .status-badge {
-        min-width: 60px;
-        padding: 2px 6px;
+        min-width: 75px;
+        width: auto;
+        padding: 2px 8px;
         font-size: 10px;
+        white-space: nowrap;
+
+        .status-label {
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
 
         .status-percent {
           font-size: 9px;
+          white-space: nowrap;
+          flex-shrink: 0;
         }
       }
     }

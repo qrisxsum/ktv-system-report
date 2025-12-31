@@ -15,6 +15,7 @@
               start-placeholder="开始日期"
               end-placeholder="结束日期"
               value-format="YYYY-MM-DD"
+              :editable="false"
               @change="handleDateChange"
             />
           </div>
@@ -31,28 +32,30 @@
           :lg="6"
           :xl="4"
         >
-          <div class="summary-card" :class="`summary-card--${card.type}`">
-            <div class="summary-card__icon">
-              <el-icon :size="24">
-                <component :is="card.icon" />
-              </el-icon>
-            </div>
-            <div class="summary-card__content">
-              <div class="summary-card__label">
-                <span>{{ card.label }}</span>
-                <el-tooltip
-                  v-if="card.tooltip"
-                  :content="card.tooltip"
-                  placement="top"
-                  effect="dark"
-                >
-                  <el-icon class="summary-card__help">
-                    <QuestionFilled />
-                  </el-icon>
-                </el-tooltip>
+          <div class="summary-card-wrapper">
+            <div class="summary-card" :class="`summary-card--${card.type}`">
+              <div class="summary-card__icon">
+                <el-icon :size="24">
+                  <component :is="card.icon" />
+                </el-icon>
               </div>
-              <div class="summary-card__value">{{ card.display }}</div>
-              <div v-if="card.helper" class="summary-card__helper">{{ card.helper }}</div>
+              <div class="summary-card__content">
+                <div class="summary-card__label">
+                  <span>{{ card.label }}</span>
+                  <el-tooltip
+                    v-if="card.tooltip"
+                    :content="card.tooltip"
+                    placement="top"
+                    effect="dark"
+                  >
+                    <el-icon class="summary-card__help">
+                      <QuestionFilled />
+                    </el-icon>
+                  </el-tooltip>
+                </div>
+                <div class="summary-card__value">{{ card.display }}</div>
+                <div v-if="card.helper" class="summary-card__helper">{{ card.helper }}</div>
+              </div>
             </div>
           </div>
         </el-col>
@@ -460,10 +463,11 @@ const buildTimeSlotChartOption = (dataset, mobile = false) => {
     { offset: 1, color: CHART_COLORS.primaryLight }
   ])
   
-  // 移动端配置调整（增加顶部空间以显示峰值标注）
+  // 移动端配置调整（增加顶部空间以显示峰值标注，增加右侧空间以显示平均值标签）
+  // 桌面端也需要足够的右侧空间显示"平均值"标签
   const gridConfig = mobile
-    ? { top: 50, left: 40, right: 10, bottom: 60, containLabel: true }
-    : { top: 50, left: 50, right: 30, bottom: 50, containLabel: true }
+    ? { top: 50, left: 40, right: 100, bottom: 60, containLabel: true }
+    : { top: 50, left: 50, right: 100, bottom: 50, containLabel: true }
   
   // 优化横坐标显示格式：移动端简化显示
   const xAxisLabelFormatter = mobile
@@ -797,14 +801,22 @@ function useRoomAnalysis(storeRef) {
     timeSlotChartRef,
     () => buildTimeSlotChartOption(timeSlotChartData.value, isMobile.value)
   )
-  // 将图表滚动到中间位置
+  // 将图表滚动到合适位置
+  // 移动端：滚动到中间位置
+  // 桌面端：滚动到右侧，确保能看到"平均值"标签
   const scrollTimeSlotChartToCenter = () => {
-    if (isMobile.value && timeSlotChartWrapperRef.value) {
+    if (timeSlotChartWrapperRef.value) {
       nextTick(() => {
         const wrapper = timeSlotChartWrapperRef.value
         if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
-          const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
-          wrapper.scrollLeft = scrollLeft
+          if (isMobile.value) {
+            // 移动端：滚动到中间
+            const scrollLeft = (wrapper.scrollWidth - wrapper.clientWidth) / 2
+            wrapper.scrollLeft = scrollLeft
+          } else {
+            // 桌面端：滚动到右侧，确保能看到"平均值"标签
+            wrapper.scrollLeft = wrapper.scrollWidth - wrapper.clientWidth
+          }
         }
       })
     }
@@ -1029,7 +1041,7 @@ function useRoomAnalysis(storeRef) {
 
   const handleResize = () => {
     checkMobile()
-    // 移动端：窗口大小变化后重新居中滚动
+    // 窗口大小变化后重新调整滚动位置
     scrollTimeSlotChartToCenter()
   }
   
@@ -1141,8 +1153,18 @@ const {
   .summary-cards {
     margin-bottom: $spacing-lg;
 
+    // 确保 el-col 使用 flex 布局，使卡片高度一致
     :deep(.el-col) {
       margin-bottom: $spacing-md;
+      display: flex;
+    }
+
+    // 卡片包装器，确保高度一致
+    .summary-card-wrapper {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      min-height: calc($spacing-xxl * 2.5); // 48 * 2.5 = 120px
     }
 
     // 卡片基础样式
@@ -1154,7 +1176,8 @@ const {
       border-radius: $border-radius-md;
       box-shadow: $shadow-md;
       padding: $spacing-md;
-      min-height: calc($spacing-xxl * 2.5); // 48 * 2.5 = 120px
+      width: 100%;
+      height: 100%;
       @include transition(box-shadow);
 
       &:hover {
@@ -1240,7 +1263,6 @@ const {
       // 响应式适配
       @include respond-to-max(sm) {
         padding: $spacing-sm;
-        min-height: 100px;
 
         &__icon {
           width: 40px;
@@ -1250,6 +1272,13 @@ const {
         &__value {
           font-size: $font-size-xxl;
         }
+      }
+    }
+
+    // 移动端：调整最小高度
+    @include respond-to-max(sm) {
+      .summary-card-wrapper {
+        min-height: 100px;
       }
     }
   }
@@ -1289,16 +1318,15 @@ const {
     }
 
     .chart-scroll-wrapper {
-      // 移动端：支持横向滚动以显示完整的24小时数据
-      @include respond-to-max(sm) {
-        overflow-x: auto;
-        overflow-y: hidden;
-        -webkit-overflow-scrolling: touch;
-        width: 100%;
-        
-        .time-slot-chart {
-          min-width: calc($spacing-xxl * 16.67); // 48 * 16.67 ≈ 800px
-        }
+      // 支持横向滚动以显示完整的24小时数据和"平均值"标签
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      width: 100%;
+      
+      .time-slot-chart {
+        // 增加最小宽度，确保右侧有足够空间显示"平均值"标签
+        min-width: calc($spacing-xxl * 20.83); // 48 * 20.83 ≈ 1000px
       }
     }
 

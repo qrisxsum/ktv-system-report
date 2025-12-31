@@ -30,6 +30,7 @@
             start-placeholder="开始日期"
             end-placeholder="结束日期"
             value-format="YYYY-MM-DD"
+            :editable="false"
           />
         </div>
 

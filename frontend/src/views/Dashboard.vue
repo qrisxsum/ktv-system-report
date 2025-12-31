@@ -10,6 +10,7 @@
         value-format="YYYY-MM-DD"
         clearable
         :disabled="loading"
+        :editable="false"
       />
     </div>
 

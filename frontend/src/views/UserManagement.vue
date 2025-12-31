@@ -84,7 +84,7 @@
             {{ formatTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="280" :fixed="isMobile ? false : 'right'">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="showEditDialog(row)">
               <el-icon><Edit /></el-icon> 编辑
@@ -412,7 +412,7 @@ const pagination = reactive({
 })
 
 // 使用分页优化 Composable
-const { pageSizeOptions, paginationLayout, pagerCount } = usePagination({
+const { isMobile, pageSizeOptions, paginationLayout, pagerCount } = usePagination({
   desktopPageSizes: [10, 20, 50, 100],
   mobilePageSizes: [10, 20, 50]
 })
