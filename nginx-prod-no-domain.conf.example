@@ -1,0 +1,80 @@
+# ========================================
+# KTV 报表系统 - Nginx 生产环境配置示例（无域名版本）
+# ========================================
+# 适用于：仅使用 IP 地址访问，无域名的情况
+# 
+# ⚠️ 重要提示：
+#   - 此配置仅使用 HTTP，无 HTTPS（因为没有域名无法使用 Let's Encrypt）
+#   - 仅适用于测试/内网环境，生产环境强烈建议使用域名和 HTTPS
+# 
+# 使用方法：
+#   1. 复制此文件到 Nginx 配置目录：
+#      sudo cp nginx-prod-no-domain.conf.example /etc/nginx/sites-available/ktv-report
+#   2. 启用配置：
+#      sudo ln -s /etc/nginx/sites-available/ktv-report /etc/nginx/sites-enabled/
+#      sudo nginx -t
+#      sudo systemctl reload nginx
+#   3. 访问系统：http://YOUR_SERVER_IP（将 YOUR_SERVER_IP 替换为您的服务器 IP）
+# ========================================
+
+# HTTP 服务器（仅 IP 访问，无 HTTPS）
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;  # 接受所有域名和 IP 访问
+
+    # 日志
+    access_log /var/log/nginx/ktv-report-access.log;
+    error_log /var/log/nginx/ktv-report-error.log;
+
+    # 文件上传大小限制
+    client_max_body_size 100M;
+    client_body_buffer_size 128k;
+
+    # 前端静态文件（通过 Docker 容器）
+    location / {
+        proxy_pass http://127.0.0.1:8080;  # 前端容器映射的端口
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket 支持（如果需要）
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # 超时设置
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # 后端 API（通过 Docker 容器）
+    location /api {
+        proxy_pass http://127.0.0.1:8000;  # 后端容器映射的端口
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 超时设置（文件上传可能需要更长时间）
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;  # 文件上传可能需要较长时间
+        proxy_read_timeout 300s;
+        
+        # 缓冲设置
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+
+    # 静态资源缓存（由前端 Nginx 处理，这里可省略）
+    # 如果需要在这里处理，可以添加：
+    # location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+    #     proxy_pass http://127.0.0.1:8080;
+    #     proxy_set_header Host $host;
+    #     expires 1y;
+    #     add_header Cache-Control "public, immutable";
+    # }
+}
+
