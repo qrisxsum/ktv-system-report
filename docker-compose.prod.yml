@@ -1,0 +1,94 @@
+# ========================================
+# KTV 报表系统 - 生产环境 Docker Compose 配置
+# ========================================
+# 此配置适用于有域名和无域名两种部署方式
+# 
+# 端口映射说明：
+#   - backend: 127.0.0.1:8000 -> 仅本地访问，通过 Nginx 反向代理
+#   - frontend: 127.0.0.1:8080 -> 仅本地访问，通过 Nginx 反向代理
+#   - mysql: 不暴露端口，仅内部网络访问
+#
+# Nginx 配置：
+#   - 有域名：使用 scripts/nginx-prod.conf.example
+#   - 无域名：使用 nginx-prod-no-domain.conf.example（根目录）
+#
+# 详细部署步骤请参考：docs/公网部署指南.md
+# ========================================
+
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: ktv-mysql-prod
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/conf.d:/etc/mysql/conf.d:ro
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ktv-network
+    # 不暴露端口到宿主机，仅内部网络访问（更安全）
+
+  # FastAPI 后端（生产模式）
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production  # 使用生产环境构建
+    container_name: ktv-backend-prod
+    restart: unless-stopped
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${MYSQL_USER}
+      - DB_PASSWORD=${MYSQL_PASSWORD}
+      - DB_NAME=${MYSQL_DATABASE}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data:/app/data  # 仅挂载数据目录，不挂载代码目录（生产环境代码在镜像内）
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - ktv-network
+    ports:
+      - "127.0.0.1:8000:8000"  # 仅绑定到本地，通过 Nginx 反向代理访问
+    # 不直接暴露到公网，提高安全性
+
+  # Vue 前端（生产模式 - Nginx）
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production  # 使用生产环境构建
+    container_name: ktv-frontend-prod
+    restart: unless-stopped
+    networks:
+      - ktv-network
+    ports:
+      - "127.0.0.1:8080:80"  # 仅绑定到本地，通过 Nginx 反向代理访问
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+    name: ktv-mysql-data-prod
+
+networks:
+  ktv-network:
+    name: ktv-network-prod
+    driver: bridge
+
